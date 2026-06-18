@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Synapse - Secure Authentication</title>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Google Fonts: Inter -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "primary-container": "#2563eb",
+                    "on-primary-container": "#eeefff",
+                    "background": "#f8f9ff",
+                    "on-secondary": "#ffffff",
+                    "inverse-primary": "#b4c5ff",
+                    "secondary-container": "#dae2fd",
+                    "tertiary-fixed-dim": "#ffb596",
+                    "tertiary": "#943700",
+                    "outline-variant": "#c3c6d7",
+                    "surface-container-highest": "#d3e4fe",
+                    "surface-container-high": "#dce9ff",
+                    "surface-container-low": "#eff4ff",
+                    "primary": "#004ac6",
+                    "tertiary-container": "#bc4800",
+                    "on-surface": "#0b1c30",
+                    "on-error": "#ffffff",
+                    "on-secondary-container": "#5c647a",
+                    "error-container": "#ffdad6",
+                    "surface": "#f8f9ff",
+                    "surface-dim": "#cbdbf5",
+                    "on-background": "#0b1c30",
+                    "primary-fixed": "#dbe1ff",
+                    "surface-variant": "#d3e4fe",
+                    "on-tertiary-container": "#ffede6",
+                    "inverse-surface": "#213145",
+                    "primary-fixed-dim": "#b4c5ff",
+                    "surface-container-lowest": "#ffffff",
+                    "secondary": "#565e74",
+                    "surface-container": "#e5eeff",
+                    "on-primary-fixed-variant": "#003ea8",
+                    "secondary-fixed-dim": "#bec6e0",
+                    "on-tertiary-fixed": "#360f00",
+                    "tertiary-fixed": "#ffdbcd",
+                    "surface-bright": "#f8f9ff",
+                    "on-tertiary-fixed-variant": "#7d2d00",
+                    "secondary-fixed": "#dae2fd",
+                    "on-error-container": "#93000a",
+                    "on-secondary-fixed-variant": "#3f465c",
+                    "on-primary-fixed": "#00174b",
+                    "surface-tint": "#0053db",
+                    "error": "#ba1a1a",
+                    "on-secondary-fixed": "#131b2e",
+                    "on-surface-variant": "#434655",
+                    "outline": "#737686",
+                    "on-tertiary": "#ffffff",
+                    "on-primary": "#ffffff",
+                    "inverse-on-surface": "#eaf1ff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "stack-gap": "1rem",
+                    "input-height": "3rem",
+                    "container-padding": "1.5rem",
+                    "gutter": "1rem",
+                    "section-gap": "2rem"
+            },
+            "fontFamily": {
+                    "button-text": ["Inter"],
+                    "headline-xl": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "label-caps": ["Inter"],
+                    "body-md": ["Inter"],
+                    "body-sm": ["Inter"]
+            },
+            "fontSize": {
+                    "button-text": ["16px", {"lineHeight": "24px", "fontWeight": "600"}],
+                    "headline-xl": ["36px", {"lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "headline-lg": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "headline-lg-mobile": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        .transition-all-custom { transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+        .hidden-state { display: none !important; opacity: 0; transform: translateY(10px); }
+        .visible-state { display: block !important; opacity: 1; transform: translateY(0); }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen selection:bg-primary-container selection:text-white">
+<div class="bg-slate-100 min-h-screen py-10 px-4 flex items-center justify-center">
+<!-- App Container -->
+<div class="w-full max-w-[480px] bg-white min-h-[850px] relative shadow-2xl mx-auto overflow-hidden rounded-3xl flex flex-col">
+<!-- Top App Bar (Shared Component Logic) -->
+<header class="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-container-padding h-16 bg-surface dark:bg-surface-dim">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary dark:text-primary-fixed" data-icon="account_balance">account_balance</span>
+<span class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-primary dark:text-primary-fixed">Synapse</span>
+</div>
+</header>
+<!-- Spacer for fixed header -->
+<div class="h-16"></div>
+<!-- Hero/Illustration Area -->
+<div class="relative w-full h-48 overflow-hidden bg-surface-container-low">
+<div class="absolute inset-0 flex items-center justify-center">
+<div class="bg-white/80 backdrop-blur-md p-4 rounded-full shadow-sm">
+<span class="material-symbols-outlined text-4xl text-primary" data-icon="security" style="font-variation-settings: 'FILL' 1;">security</span>
+</div>
+</div>
+</div>
+<!-- Toggle Switch -->
+<div class="px-6 mt-8">
+<div class="bg-surface-container-high rounded-full p-1.5 flex relative">
+<div class="absolute top-1.5 left-1.5 bottom-1.5 w-[calc(50%-6px)] bg-white rounded-full shadow-md transition-all-custom" id="toggle-bg"></div>
+<button class="flex-1 py-3 text-sm font-semibold z-10 text-primary transition-colors duration-300" id="btn-signin" onclick="toggleState('signin')">Sign In</button>
+<button class="flex-1 py-3 text-sm font-semibold z-10 text-on-surface-variant transition-colors duration-300" id="btn-register" onclick="toggleState('register')">Register</button>
+</div>
+</div>
+<!-- Content Canvas -->
+<main class="flex-1 p-6 flex flex-col">
+<!-- Sign In Section -->
+<div class="visible-state transition-all-custom space-y-6" id="section-signin">
+<div class="space-y-1">
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">Welcome back</h1>
+<p class="font-body-sm text-body-sm text-secondary">Log in to manage your finances.</p>
+</div>
+<form class="space-y-4" onsubmit="event.preventDefault();">
+<div class="space-y-1.5">
+<label class="font-label-caps text-label-caps text-secondary px-1">Phone Number</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline text-xl" data-icon="smartphone">smartphone</span>
+<input class="w-full h-12 pl-12 pr-4 rounded-xl border-slate-200 bg-slate-50 focus:ring-primary-container focus:border-primary-container font-body-md text-body-md transition-all" placeholder="+1 (555) 000-0000" type="tel"/>
+</div>
+</div>
+<div class="space-y-1.5">
+<label class="font-label-caps text-label-caps text-secondary px-1">Password</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline text-xl" data-icon="lock">lock</span>
+<input class="w-full h-12 pl-12 pr-12 rounded-xl border-slate-200 bg-slate-50 focus:ring-primary-container focus:border-primary-container font-body-md text-body-md transition-all" placeholder="••••••••" type="password"/>
+<button class="absolute right-4 top-1/2 -translate-y-1/2 text-outline hover:text-primary transition-colors" type="button">
+<span class="material-symbols-outlined text-xl" data-icon="visibility">visibility</span>
+</button>
+</div>
+<div class="flex justify-end">
+<a class="font-label-caps text-label-caps text-primary-container hover:underline mt-1" href="#">Forgot Password?</a>
+</div>
+</div>
+<div class="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border border-slate-200 mt-4">
+<div class="flex items-center gap-3">
+<input class="w-6 h-6 rounded border-slate-300 text-primary focus:ring-primary" id="captcha-signin" type="checkbox"/>
+<label class="font-body-sm text-on-surface" for="captcha-signin">I'm not a robot</label>
+</div>
+<div class="ml-auto flex flex-col items-center opacity-60">
+<span class="material-symbols-outlined text-2xl" data-icon="security">security</span>
+<span class="text-[8px] font-bold uppercase tracking-tighter">reCAPTCHA</span>
+</div>
+</div><button class="w-full h-12 bg-primary-container text-white rounded-xl font-button-text text-button-text hover:bg-primary transition-all active:scale-95 duration-100 mt-4 shadow-lg shadow-primary-container/20">
+                            Sign In
+                        </button>
+</form>
+</div>
+<!-- Register Section -->
+<div class="hidden-state transition-all-custom space-y-6" id="section-register">
+<div class="space-y-1">
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">Join Synapse</h1>
+<p class="font-body-sm text-body-sm text-secondary">Start your journey to financial freedom.</p>
+</div>
+<form class="space-y-4" onsubmit="event.preventDefault();">
+<div class="space-y-1.5">
+<label class="font-label-caps text-label-caps text-secondary px-1">Phone Number</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline text-xl" data-icon="smartphone">smartphone</span>
+<input class="w-full h-12 pl-12 pr-4 rounded-xl border-slate-200 bg-slate-50 focus:ring-primary-container focus:border-primary-container font-body-md text-body-md transition-all" placeholder="+1 (555) 000-0000" type="tel"/>
+</div>
+</div>
+<div class="space-y-1.5">
+<label class="font-label-caps text-label-caps text-secondary px-1">Create Password</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline text-xl" data-icon="lock_open">lock_open</span>
+<input class="w-full h-12 pl-12 pr-4 rounded-xl border-slate-200 bg-slate-50 focus:ring-primary-container focus:border-primary-container font-body-md text-body-md transition-all" placeholder="Min. 8 characters" type="password"/>
+</div>
+</div>
+<div class="space-y-1.5">
+<label class="font-label-caps text-label-caps text-secondary px-1">Invite Code (Optional)</label>
+<div class="relative group">
+<div class="absolute inset-y-0 left-0 w-1 bg-primary-container rounded-l-xl"></div>
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-primary-container text-xl" data-icon="card_giftcard">card_giftcard</span>
+<input class="w-full h-12 pl-12 pr-4 rounded-xl border-primary-container/20 bg-primary-container/5 focus:ring-primary-container focus:border-primary-container font-body-md text-body-md transition-all uppercase tracking-widest placeholder:lowercase placeholder:tracking-normal" placeholder="SYNAPSE-2024" type="text"/>
+<div class="absolute right-3 top-1/2 -translate-y-1/2">
+<span class="material-symbols-outlined text-green-500 text-xl" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border border-slate-200 mt-4">
+<div class="flex items-center gap-3">
+<input class="w-6 h-6 rounded border-slate-300 text-primary focus:ring-primary" id="captcha-register" type="checkbox"/>
+<label class="font-body-sm text-on-surface" for="captcha-register">I'm not a robot</label>
+</div>
+<div class="ml-auto flex flex-col items-center opacity-60">
+<span class="material-symbols-outlined text-2xl" data-icon="security">security</span>
+<span class="text-[8px] font-bold uppercase tracking-tighter">reCAPTCHA</span>
+</div>
+</div><button class="w-full h-12 bg-primary-container text-white rounded-xl font-button-text text-button-text hover:bg-primary transition-all active:scale-95 duration-100 mt-4 shadow-lg shadow-primary-container/20">
+                            Create Account
+                        </button>
+</form>
+</div>
+<!-- Footer Trust Elements -->
+<div class="mt-auto py-8 text-center">
+<p class="font-label-caps text-label-caps text-outline mb-4">SECURED BY BANK-GRADE ENCRYPTION</p>
+<div class="flex justify-center gap-6 opacity-40">
+<span class="material-symbols-outlined text-2xl" data-icon="verified_user">verified_user</span>
+<span class="material-symbols-outlined text-2xl" data-icon="shield">shield</span>
+<span class="material-symbols-outlined text-2xl" data-icon="fingerprint">fingerprint</span>
+</div>
+</div>
+</main>
+<!-- Bottom Nav Bar (Shared Component Strategy - mapped to auth actions) -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center h-20 px-4 pb-4 bg-surface dark:bg-surface-dim shadow-sm rounded-t-xl">
+<button class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-xl px-6 py-1 active:opacity-80 transition-opacity" id="nav-signin" onclick="toggleState('signin')">
+<span class="material-symbols-outlined" data-icon="login">login</span>
+<span class="font-label-caps text-label-caps">Sign In</span>
+</button>
+<button class="flex flex-col items-center justify-center text-secondary px-6 py-1 active:opacity-80 transition-opacity" id="nav-register" onclick="toggleState('register')">
+<span class="material-symbols-outlined" data-icon="person_add">person_add</span>
+<span class="font-label-caps text-label-caps">Register</span>
+</button>
+</nav>
+<!-- Nav Spacer -->
+<div class="h-20"></div>
+</div>
+</div>
+<script>
+        function toggleState(target) {
+            const signinSec = document.getElementById('section-signin');
+            const registerSec = document.getElementById('section-register');
+            const toggleBg = document.getElementById('toggle-bg');
+            const btnSignin = document.getElementById('btn-signin');
+            const btnRegister = document.getElementById('btn-register');
+            const navSignin = document.getElementById('nav-signin');
+            const navRegister = document.getElementById('nav-register');
+
+            if (target === 'signin') {
+                // Form Visibility
+                signinSec.classList.add('visible-state');
+                signinSec.classList.remove('hidden-state');
+                registerSec.classList.add('hidden-state');
+                registerSec.classList.remove('visible-state');
+
+                // Toggle Bar
+                toggleBg.style.left = '6px';
+                btnSignin.classList.add('text-primary');
+                btnSignin.classList.remove('text-on-surface-variant');
+                btnRegister.classList.remove('text-primary');
+                btnRegister.classList.add('text-on-surface-variant');
+
+                // Bottom Nav (Active Mapping)
+                navSignin.className = "flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-xl px-6 py-1 active:opacity-80 transition-opacity";
+                navRegister.className = "flex flex-col items-center justify-center text-secondary px-6 py-1 active:opacity-80 transition-opacity";
+            } else {
+                // Form Visibility
+                signinSec.classList.remove('visible-state');
+                signinSec.classList.add('hidden-state');
+                registerSec.classList.remove('hidden-state');
+                registerSec.classList.add('visible-state');
+
+                // Toggle Bar
+                toggleBg.style.left = 'calc(50%)';
+                btnRegister.classList.add('text-primary');
+                btnRegister.classList.remove('text-on-surface-variant');
+                btnSignin.classList.remove('text-primary');
+                btnSignin.classList.add('text-on-surface-variant');
+
+                // Bottom Nav (Active Mapping)
+                navRegister.className = "flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-xl px-6 py-1 active:opacity-80 transition-opacity";
+                navSignin.className = "flex flex-col items-center justify-center text-secondary px-6 py-1 active:opacity-80 transition-opacity";
+            }
+        }
+    </script>
+</body></html>
