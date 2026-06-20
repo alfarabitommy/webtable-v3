@@ -1,0 +1,9 @@
+# CodeIgniter 3 - Nginx Clean URL Rewrite
+# Insert this block inside your Nginx virtual host configuration
+# if you want to remove "index.php" from URLs.
+#
+# Example: http://webtable.test/login (instead of http://webtable.test/index.php/login)
+
+location / {
+    try_files $uri $uri/ /index.php?$query_string;
+}

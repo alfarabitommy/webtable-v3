@@ -1,14 +1,16 @@
-# Entity Relationship Diagram (ERD) & Database Schema v2.0
+# Entity Relationship Diagram (ERD) & Database Schema v3.0
 **Project Name:** Synapse
 **Database Engine:** MySQL 8.4 (InnoDB)
 **Character Set / Collation:** utf8mb4 / utf8mb4_unicode_ci
+
+---
 
 ## 1. Important Rules for AI Agent (Hermes)
 * **Storage Engine:** Semua tabel WAJIB menggunakan `InnoDB` untuk memastikan dukungan terhadap *ACID compliance* dan *Foreign Key constraints*.
 * **Timestamps:** Setiap tabel wajib memiliki kolom `created_at` dan `updated_at` (Tipe: `TIMESTAMP`, Default: `CURRENT_TIMESTAMP` / `CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`).
 * **Soft Deletes:** Jangan gunakan penghapusan fisik pada data finansial dan riwayat sewa. Gunakan status (misal: `is_active = 0`) atau buat kolom `deleted_at`.
-* **Foreign Key Constraints:** * Data krusial seperti transaksi dan penarikan WAJIB menggunakan `ON DELETE RESTRICT` terhadap tabel `users` agar data tidak hilang jika user dihapus.
-* **Database Transactions:** Semua mutasi (Insert ke `transactions`, Update ke `users.balance`, Insert ke `rentals`) WAJIB dibungkus dalam blok `DB->trans_begin()`, `DB->trans_commit()`, dan `DB->trans_rollback()`.
+* **Foreign Key Constraints:** Data krusial seperti transaksi dan penarikan WAJIB menggunakan `ON DELETE RESTRICT` terhadap tabel `users` agar data tidak hilang jika user dihapus.
+* **Database Transactions (ACID Compliance):** Semua mutasi finansial — termasuk tetapi tidak terbatas pada Insert ke `transactions`, Insert ke `wallet_ledger`, Update ke `users.balance`, Insert ke `rentals`, Update ke `deposits.status` — WAJIB dibungkus dalam blok `$this->db->trans_start()` dan `$this->db->trans_complete()` (atau `trans_begin()` / `trans_commit()` / `trans_rollback()`). Kegagalan pada salah satu langkah dalam transaksi HARUS memicu rollback penuh untuk menjaga integritas data.
 
 ---
 
@@ -33,8 +35,8 @@ Katalog paket GPUaaS (Marketplace). Data ini bersifat master dan tidak sering be
 * `id` (INT, Primary Key, Auto Increment, Unsigned)
 * `name` (VARCHAR 100, NOT NULL) - Contoh: "GPUaaS 1".
 * `type` (ENUM('short_term', 'long_term'), NOT NULL)
-* `price` (DECIMAL 15,2, NOT NULL) - Harga untuk mulai menyewa.
-* `daily_rate` (DECIMAL 15,2, NOT NULL) - Fix ROI (pendapatan harian).
+* `price` (DECIMAL 15,2, NOT NULL) - Harga untuk mulai menyewa (IDR).
+* `daily_rate` (DECIMAL 15,2, NOT NULL) - Fix ROI (pendapatan harian) (IDR).
 * `duration_days` (INT, NOT NULL, Unsigned) - Lama kontrak (misal: 4, 365).
 * `is_refundable` (TINYINT 1, NOT NULL, DEFAULT 0) - 1 Jika harga `price` dikembalikan di akhir periode, 0 jika tidak.
 * `is_active` (TINYINT 1, NOT NULL, DEFAULT 1) - 1 Jika produk masih dijual di marketplace.
@@ -59,6 +61,38 @@ Menyimpan riwayat pengguna yang telah menyewa produk (Sewa Saya/Situs Saya).
 ---
 
 ## 3. Financial & Ledger Tables
+
+### Tabel: `deposits`
+Tabel staging untuk deposit yang diajukan oleh user. Record bersifat temporary — status berubah dari `pending` ke `success`/`failed` setelah proses approval.
+
+* `id` (BIGINT, Primary Key, Auto Increment, Unsigned)
+* `user_id` (BIGINT, Unsigned, NOT NULL) - **[Foreign Key -> users.id, ON DELETE RESTRICT]**
+* `invoice_number` (VARCHAR 50, UNIQUE, NOT NULL) - Nomor invoice unik berformat `INV-{YmdHis}-{user_id}`.
+* `amount` (DECIMAL 15,2, NOT NULL) - Nominal deposit dalam IDR.
+* `status` (ENUM('pending', 'success', 'failed'), NOT NULL, DEFAULT 'pending') - Status pemrosesan deposit.
+* `created_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP)
+* `updated_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)
+
+**Index Optimization:** `INDEX (user_id, status)` untuk query pending deposits per user.
+
+> **Lifecycle:** User creates a deposit → status `pending` → displayed in "Menunggu Pembayaran" section → approved (simulator or gateway) → status `success` → credit entry minted into `wallet_ledger`.
+
+### Tabel: `wallet_ledger`
+Immutable, append-only ledger yang mencatat setiap pergerakan dana masuk (credit) dan keluar (debit). Saldo user dihitung secara dinamis dari tabel ini.
+
+* `id` (BIGINT, Primary Key, Auto Increment, Unsigned)
+* `user_id` (BIGINT, Unsigned, NOT NULL) - **[Foreign Key -> users.id, ON DELETE RESTRICT]**
+* `transaction_id` (VARCHAR 50, NOT NULL) - Referensi ke sumber transaksi (contoh: invoice number deposit, atau rental ID).
+* `type` (ENUM('credit', 'debit'), NOT NULL) - `credit` = dana masuk, `debit` = dana keluar.
+* `amount` (DECIMAL 15,2, NOT NULL) - Selalu positif. Arah ditentukan oleh kolom `type`.
+* `description` (VARCHAR 255, NOT NULL) - Keterangan transaksi (contoh: "Top Up via INV-20260620123456-1").
+* `created_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP)
+
+**Index Optimization:** `INDEX (user_id)`, `INDEX (type)`, `INDEX (created_at)`.
+
+> **Balance Calculation:** `SELECT SUM(CASE WHEN type = 'credit' THEN amount ELSE 0 END) - SUM(CASE WHEN type = 'debit' THEN amount ELSE 0 END) AS balance FROM wallet_ledger WHERE user_id = ?`
+
+> **ACID Rule:** Every write to `wallet_ledger` MUST be wrapped in `$this->db->trans_start()` / `$this->db->trans_complete()`. A failed ledger insert MUST rollback all preceding operations in the same transaction (deposit status update, user balance adjustment, etc.).
 
 ### Tabel: `transactions`
 Double-Entry Ledger (Buku Besar). Tabel *append-only* (hanya boleh di-insert).
