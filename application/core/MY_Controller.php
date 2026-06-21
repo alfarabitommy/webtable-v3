@@ -11,5 +11,14 @@ class MY_Controller extends CI_Controller {
         if ($controller !== 'auth' && empty($this->session->userdata('user_id'))) {
             redirect('login');
         }
+
+        // Inject global balance for header
+        if ($this->session->userdata('user_id')) {
+            $this->load->model('Wallet_model');
+            $balance = $this->Wallet_model->get_balance($this->session->userdata('user_id'));
+            $this->load->vars(['global_balance' => $balance]);
+        } else {
+            $this->load->vars(['global_balance' => 0]);
+        }
     }
 }

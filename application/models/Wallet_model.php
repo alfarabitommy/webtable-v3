@@ -65,4 +65,65 @@ class Wallet_model extends CI_Model {
         $this->db->trans_complete();
         return $this->db->trans_status();
     }
+
+    // ===== WITHDRAWAL =====
+
+    public function create_withdrawal($user_id, $amount, $bank, $acc_num, $acc_name) {
+        $wd_number = 'WD-' . date('YmdHis') . '-' . $user_id;
+
+        $this->db->trans_start();
+
+        // 1. Insert withdrawal record
+        $this->db->insert('withdrawals', [
+            'user_id'        => $user_id,
+            'wd_number'      => $wd_number,
+            'amount'         => $amount,
+            'bank_name'      => $bank,
+            'account_number' => $acc_num,
+            'account_name'   => $acc_name,
+            'status'         => 'pending',
+        ]);
+
+        // 2. Insert debit into wallet_ledger (lock funds immediately)
+        $this->db->insert('wallet_ledger', [
+            'user_id'        => $user_id,
+            'transaction_id' => $wd_number,
+            'amount'         => $amount,
+            'type'           => 'debit',
+            'description'    => 'Penarikan Dana via ' . $wd_number,
+        ]);
+
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status()) {
+            return $wd_number;
+        }
+        return false;
+    }
+
+    public function get_pending_withdrawals($user_id) {
+        $this->db->where('user_id', $user_id);
+        $this->db->where('status', 'pending');
+        $this->db->order_by('created_at', 'DESC');
+        return $this->db->get('withdrawals')->result();
+    }
+
+    public function has_pending_withdrawal($user_id) {
+        $this->db->where('user_id', $user_id);
+        $this->db->where('status', 'pending');
+        $this->db->limit(1);
+        return $this->db->get('withdrawals')->num_rows() > 0;
+    }
+
+    public function approve_withdrawal_simulator($wd_number) {
+        $this->db->trans_start();
+
+        $this->db->where('wd_number', $wd_number);
+        $this->db->update('withdrawals', [
+            'status' => 'success',
+        ]);
+
+        $this->db->trans_complete();
+        return $this->db->trans_status();
+    }
 }

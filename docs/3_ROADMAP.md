@@ -1,4 +1,4 @@
-# Roadmap & Technical To-Do List v3.0 (Micro-Execution)
+# Roadmap & Technical To-Do List v4.0 (Micro-Execution)
 **Project Name:** Synapse
 **Framework:** CodeIgniter 3 (MVC Architecture)
 **Target:** AI Agent (Hermes)
@@ -104,63 +104,193 @@
 
 ---
 
-## Phase 6: Rentals & Asset Execution — 🔄 [IN PROGRESS]
+## Phase 6: Rentals & Asset Execution — ✅ [COMPLETED]
 **Tujuan:** Memproses logika sewa aktual, memotong saldo dari `wallet_ledger`, dan menampilkan node aktif di halaman "Sewa Saya".
 
-- [ ] Buat `application/controllers/Rentals.php`.
+- [x] Buat `application/controllers/Rentals.php`.
     - Method `create($product_id)`:
         1. Validasi user session dan product existence.
         2. Hitung balance dari `wallet_ledger` (bukan `users.balance`).
         3. Validasi saldo >= harga produk.
         4. Dalam satu DB transaction (`trans_start` / `trans_complete`):
             a. Insert `debit` record ke `wallet_ledger` (description: "Rental: {product_name}").
-            b. Insert record ke `rentals` (status: `active`, `started_at`, `ends_at`).
+            b. Insert record ke `user_rentals` (status: `active`, `started_at`, `expired_at`).
         5. Redirect ke "Sewa Saya" dengan flash success message.
     - Method `index()` (Sewa Saya page):
-        1. Fetch all `rentals` WHERE `user_id` dan `status IN ('active', 'completed')`.
+        1. Fetch all `user_rentals` WHERE `user_id` dan `status = 'active'`.
         2. Join dengan `gpu_products` untuk nama dan detail.
-        3. Render progress bar: `days_processed` / `total_days`.
+        3. Render progress bar berdasarkan `expired_at`.
         4. Hitung total pendapatan kumulatif per rental.
-- [ ] Buat `application/views/rentals/my_sites.php`.
+- [x] Buat `application/views/rentals/index.php`.
     - Card per rental: product name, status badge, progress bar, start/end dates, cumulative earnings.
     - Empty state: illustration + "Mulai Sewa Sekarang" CTA ke Marketplace.
-- [ ] Buat model `Rental_model.php` — update method `get_user_rentals()`:
+- [x] Buat model `Rental_model.php` — methods `get_active_rentals()`, `claim_roi()`, `get_rental()`.
     - Join dengan `gpu_products` untuk detail produk.
-    - Order by `status` (active first) then `created_at` DESC.
-- [ ] Implementasi daily ROI cron job (opsional — bisa deferred ke Phase 8):
-    - Controller `application/controllers/cli/Automations.php` → method `daily_roi()`.
-    - Loop semua `rentals` aktif → increment `days_processed` → insert `credit` ke `wallet_ledger`.
-    - Jika `days_processed == total_days` → ubah status ke `completed`.
+    - Order by `created_at` DESC.
+- [x] Implementasi Daily ROI Claim — Manual claim via `POST /rentals/claim/{id}`.
+    - Validasi: cek `last_claimed_at` — jika sudah hari ini, tolak.
+    - ACID transaction: update `last_claimed_at` + insert `credit` ke `wallet_ledger`.
+    - User bisa klaim sekali per hari per rental.
 
 ---
 
-## Phase 7: Production Payment Gateway — 📋 [PLANNED]
-**Tujuan:** Menggantikan Development Simulator (deposit approval manual) dengan integrasi payment gateway production-grade.
+## Phase 7: Admin Command Center & Fintech Guardrails — ✅ [COMPLETED]
+**Tujuan:** Membangun panel admin terpisah (Bloomberg Terminal aesthetic), privilege separation, guardrails finansial, dan global layout architecture.
 
-- [ ] Evaluasi provider: **Midtrans** vs **Xendit** (keputusan berdasarkan fee structure, settlement speed, dan API maturity).
-- [ ] Buat `application/models/PaymentGateway_model.php`.
-    - Method `create_charge($invoice_number, $amount)` → generate Snap URL / invoice link.
-    - Method `handle_callback($payload)` → verifikasi signature, update `deposits.status`, mint `wallet_ledger` credit.
-- [ ] Implementasi webhook/callback endpoint:
-    - `application/controllers/Payment_callback.php` — handles POST from gateway.
-    - Verifikasi signature HMAC untuk mencegah spoofing.
-    - Idempotency check: skip jika `deposits.status` sudah `success`.
-- [ ] Ganti "Simulasi Bayar" button di Wallet page dengan redirect ke payment gateway Snap/Invoice page.
-- [ ] Implementasi payment status polling (fallback untuk webhook failure).
-- [ ] Buat admin panel section untuk manual approval (opsional, untuk edge cases).
+### 7A: Dual Authentication & Privilege Separation
+- [x] Buat `application/controllers/Admin_auth.php` — Admin login handler.
+    - Validasi `username` + `password_verify()` terhadap tabel `admins`.
+    - Set session `admin_id` + `admin_username`.
+    - Redirect ke `/admin` jika sukses, flash error jika gagal.
+- [x] Buat route cloaked `$route['control-panel'] = 'Admin_auth/login'`.
+    - URL `/control-panel` tidak dilink dari UI mana pun — hanya diketahui admin.
+- [x] Buat `application/controllers/Admin.php` — Admin dashboard + queue operations.
+    - Constructor: cek `admin_id` di session → redirect ke `/control-panel` jika absent.
+    - Method `index()`: Ambil pending deposits + pending withdrawals, render ke `admin/dashboard`.
+    - Method `approve_deposit($id)`: ACID transaction (update status + insert credit ke `wallet_ledger`).
+    - Method `approve_withdrawal($id)`: ACID transaction (flip status ke `success`).
+    - Method `decline_withdrawal($id)`: ACID transaction (flip status ke `failed` + auto-refund credit ke `wallet_ledger`).
+
+### 7B: Command Center UI (Bloomberg Terminal Aesthetic)
+- [x] Buat `application/views/admin/login.php` — Dark admin login form.
+- [x] Buat `application/views/admin/dashboard.php` — Command Center dashboard.
+    - Theme: `bg-slate-950`, `text-slate-300`, `font-mono text-sm`.
+    - Header: `"SYNAPSE COMMAND CENTER // ROOT ACCESS"` — green terminal text (`text-green-400`).
+    - Two-column grid: Pending Deposits (left) + Pending Withdrawals (right).
+    - Each queue card: header with count badge, list items with amount (font-mono), phone, timestamp.
+    - Actions: APPROVE (green) / DECLINE (slate) buttons with confirm dialogs.
+    - Empty state: ∅ entity symbol + "No pending" message.
+    - Footer: `"SYNAPSE ADMIN v1.0 — ROOT ACCESS"` + live timestamp.
+
+### 7C: Advanced Fintech Guardrails
+- [x] **Two-Tero Minimum Withdrawal Limit (Rp 100.000):** `Wallet::withdraw()` — reject `$amount < 100000` dengan flash message "Minimal penarikan adalah Rp 100.000".
+- [x] **Single Pending Withdrawal Limit (Anti-Spam & Race-Condition Prevention):** `Wallet::withdraw()` — cek `$this->Wallet_model->has_pending_withdrawal($user_id)` sebelum proses. Jika ada pending WD, tolak. `Wallet_model::has_pending_withdrawal()` query `withdrawals` WHERE `status = 'pending'` LIMIT 1.
+- [x] **Backend Auto-Rollback (Refund) for Declined Withdrawals:** `Admin::decline_withdrawal($wd_id)` — dalam satu `trans_start`/`trans_complete`:
+    1. Update `withdrawals.status` → `failed`.
+    2. Insert `credit` record ke `wallet_ledger` (amount: `$wd->amount`, description: "Pengembalian Dana: Penarikan Ditolak ({wd_number})").
+    → Dana dikembalikan secara atomic tanpa double-spend.
+
+### 7D: Global Layout Architecture (Balance Capsule)
+- [x] Buat `application/core/MY_Controller.php` — Base controller untuk semua user-facing controllers.
+    - Constructor: skip auth check untuk controller `auth`. Setelah auth ok, load `Wallet_model` dan inject `$global_balance` ke semua view via `$this->load->vars()`.
+- [x] Update `application/views/templates/header.php` — Tambahkan Balance Capsule di Top Navbar.
+    - `<a href="/wallet">` dengan ikon `fa-wallet` (text-indigo-500) + `Rp {global_balance}` (font-mono font-bold).
+    - Sticky header `z-40`, capsule berada di sisi kanan.
+- [x] Semua user-facing controller extends `MY_Controller` → otomatis mendapat balance injection.
 
 ---
 
-## Phase 8: Affiliate System & Background Automation — 📋 [PLANNED]
-**Tujuan:** Membangun *logic* multi-level dan otomatisasi pembagian komisi/gaji.
+## Phase 8: Payment Gateway Integration (JayaPay) — 📋 [PLANNED]
+**Tujuan:** Menggantikan Development Simulator ("Simulasi Bayar") dengan integrasi payment gateway JayaPay yang sesungguhnya — auto-crediting deposits via webhook callback tanpa intervensi admin manual.
 
+### 8A: Database & Config Setup
+- [ ] Tambah kolom `payment_method` (VARCHAR 50, NULLABLE) di tabel `deposits` untuk mencatat metode pembayaran (contoh: `jaya_pay`, `manual`).
+- [ ] Tambah kolom `gateway_response` (JSON/TEXT, NULLABLE) di tabel `deposits` untuk menyimpan raw callback payload (audit trail).
+- [ ] Buat file `application/config/jayapay.php`:
+    - `$config['jayapay_merchant_id']` — Merchant ID dari JayaPay dashboard.
+    - `$config['jayapay_api_key']` — API Key untuk server-side requests.
+    - `$config['jayapay_callback_secret']` — Secret key untuk verifikasi HMAC signature callback.
+    - `$config['jayapay_sandbox']` — Boolean toggle sandbox vs production.
+    - `$config['jayapay_api_base']` — Base URL API endpoint.
+
+### 8B: JayaPay API Integration
+- [ ] Buat `application/libraries/Jayapay.php` — Library wrapper untuk JayaPay REST API:
+    - Method `create_invoice($invoice_number, $amount, $customer_phone)`:
+        - POST ke JayaPay `/api/v1/invoice/create` dengan parameter: `merchant_id`, `invoice`, `amount` (IDR integer), `customer_phone`, `callback_url` (endpoint webhook), `expiry` (default 24 jam).
+        - Return: `invoice_url` (redirect user) + `invoice_id` (JayaPay reference).
+    - Method `verify_callback($payload, $signature)`:
+        - Generate HMAC-SHA256 dari JSON payload menggunakan `jayapay_callback_secret`.
+        - Compare dengan signature dari header callback.
+    - Method `check_status($invoice_id)`:
+        - GET ke JayaPay `/api/v1/invoice/{invoice_id}/status`.
+        - Return: `paid`, `expired`, `failed`.
+
+### 8C: Deposit Flow — Production
+- [ ] Update `Wallet::topup()` — setelah insert ke `deposits` table, panggil `$this->jayapay->create_invoice()`:
+    1. Insert deposit record (`status = 'pending'`, `payment_method = 'jaya_pay'`).
+    2. Call JayaPay API → dapat `invoice_url`.
+    3. Redirect user ke `invoice_url` (alihkan ke JayaPay payment page).
+    4. Jika API call gagal, fallback: simpan deposit dengan `status = 'failed'`, tampilkan error.
+- [ ] Update `application/views/wallet/index.php` — Ganti tombol "Simulasi Bayar" dengan:
+    - Redirect ke JayaPay payment page (buka di tab baru atau inline iframe).
+    - Tampilkan status "Menunggu Pembayaran" dengan timer expiry.
+    - Polling status opsional (via JS `setInterval` ke endpoint status).
+
+### 8D: Webhook/Callback Listener
+- [ ] Buat `application/controllers/Payment_callback.php` — menerima POST dari JayaPay:
+    - Method `jaya_pay()`:
+        1. Baca raw request body (`$this->input->raw_input_stream`).
+        2. Verifikasi HMAC signature dari header `X-Callback-Signature`.
+        3. Jika signature invalid → HTTP 401, log warning.
+        4. Cari deposit via `invoice_number` di tabel `deposits`.
+        5. **Idempotency guard:** Jika `deposits.status` sudah `success`, return HTTP 200 OK (skip — mencegah double-credit).
+        6. ACID transaction:
+            a. Update `deposits.status` → `success`.
+            b. Insert `credit` ke `wallet_ledger` (description: "Top Up via JayaPay ({invoice_number})").
+            c. Simpan raw callback payload ke `deposits.gateway_response`.
+        7. Return HTTP 200 OK ke JayaPay.
+    - Method not allowed: reject GET request ke endpoint ini (HTTP 405).
+
+### 8E: Admin Override
+- [ ] Retain manual approve/decline buttons di Command Center untuk edge cases (callback miss, dispute).
+- [ ] Admin dashboard tetap menampilkan pending deposits dari metode `manual` saja (jika JayaPay sudah auto-process).
+
+---
+
+## Phase 9: ROI Engine & Asset Automation — 📋 [PLANNED]
+**Tujuan:** Menghilangkan manual claimROI dan menggantinya dengan otomatisasi latar belakang via Cron Job (server-side).
+
+### 9A: Background Worker Setup
+- [ ] Buat `application/controllers/cli/Automations.php` — CLI controller untuk tugas terjadwal.
+    - Method `daily_roi()`:
+        1. Query `user_rentals` WHERE `status = 'active'`.
+        2. Untuk setiap rental:
+            a. Check if `last_processed_at` < current_date.
+            b. ACID Transaction:
+                i. Insert `credit` ke `wallet_ledger` (amount: `daily_roi`, description: "Daily ROI Auto-Credit: {product_name}").
+                ii. Increment `days_processed` counter.
+                iii. Update `last_processed_at` → current_timestamp.
+            c. Check if `days_processed == total_days`:
+                i. Update status → `completed`.
+                ii. Insert `credit` record (amount: `purchase_price` if `is_refundable` = 1, description: "Refund Asset Investment").
+- [ ] Setup Server Cron Job (Linux `crontab`):
+    - `0 0 * * * php /var/www/html/index.php automations daily_roi` (Run every midnight).
+- [ ] Implement Error Handling & Logging:
+    - Log setiap eksekusi ke `application/logs/roi_automation.log` (User ID, Rental ID, Amount, Status).
+
+### 9B: ROI Dashboard Update
+- [ ] Update `application/views/rentals/index.php`:
+    - Ganti tombol "Klaim ROI" (Manual) menjadi status "Auto-Processed" indicator.
+    - Tampilkan "Next Credit: Tomorrow 00:00".
+    - Render "Total Earnings to Date" secara real-time dari `wallet_ledger`.
+- [ ] Tambah "ROI History" tab: list harian kapan ROI masuk ke wallet.
+
+### 9C: Affiliate System & Weekly Wage Automation
 - [ ] Buat `application/controllers/Team.php`.
     - Method `index()`: Hitung total agen Level 1 (B) dan Level 2 (C). Render ke view `application/views/team/index.php` yang berisi QR Code dan URL *Referral*.
-- [ ] **CRON JOB 1: Pendapatan Harian (Daily Revenue).**
-    - Buat `application/controllers/cli/Automations.php` → Method `daily_roi()`.
-    - Cari semua `rentals` status 'active'.
-    - Loop: Insert `credit` ke `wallet_ledger` (daily_rate). Increment `days_processed`. Jika `days_processed == total_days`, ubah status ke 'completed'.
 - [ ] **CRON JOB 2: Gaji Mingguan (Weekly Wage).**
     - Di controller `Automations.php` → Method `weekly_wage()`.
     - Loop semua user, hitung jumlah downline aktif B+C.
     - Cek kondisi Level 1-6. Jika memenuhi syarat, distribusikan komisi ke `wallet_ledger` (type: `credit`, description: "Weekly Wage Level N").
+
+---
+
+## Phase 10: Enterprise Auditing & Security — 📋 [PLANNED]
+**Tujuan:** Menambahkan layer audit trail dan keamanan tingkat tinggi untuk mencegah manipulasi data finansial.
+
+### 10A: System Audit Trail
+- [ ] Buat tabel `system_audit_logs`:
+    - `id` (BIGINT, PK, Auto Increment), `admin_id` (BIGINT, NULLABLE), `user_id` (BIGINT, NULLABLE), `action` (VARCHAR 100), `details` (TEXT), `ip_address` (VARCHAR 45), `created_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP).
+    - Foreign Key: `admin_id` → `admins.id` (ON DELETE SET NULL), `user_id` → `users.id` (ON DELETE SET NULL).
+- [ ] Implement Audit Logging di Admin Controller:
+    - Setiap `approve_deposit()`: log "Approved deposit {invoice_number}".
+    - Setiap `approve_withdrawal()`: log "Approved withdrawal {wd_number}".
+    - Setiap `decline_withdrawal()`: log "Declined withdrawal {wd_number} — refund issued".
+- [ ] Buat Admin Audit View: `application/views/admin/audit.php` — tabel logs yang dapat difilter berdasarkan action/user/date range.
+- [ ] Buat route `$route['admin/audit'] = 'admin/audit'` dan method `Admin::audit()`.
+
+### 10B: Security Hardening
+- [ ] Implement Rate Limiting pada endpoint sensitif (`/login`, `/register`, `/wallet/withdraw`) menggunakan CI3 hook atau middleware + DB-based counter.
+- [ ] Session Hijacking Protection: simpan `user_agent` + `ip_address` di session userdata; invalidate session jika user_agent berubah secara signifikan.
+- [ ] SQL Injection Guard: audit semua model untuk memastikan 100% penggunaan query-binding (CI3 Active Record) — zero raw string interpolation di WHERE clauses.
+- [ ] CSRF Token Refresh: pastikan setiap form POST menggunakan token baru setelah successful submission.

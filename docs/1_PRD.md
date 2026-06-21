@@ -1,4 +1,4 @@
-# Product Requirements Document (PRD) v3.0
+# Product Requirements Document (PRD) v4.0
 **Project Name:** Synapse (AI GPU Rental)
 **Platform:** Web Application (100% Mobile-First / SPA-like Experience)
 **Core Tech Stack:** CodeIgniter 3 (CI3), PHP 8.1, MySQL 8.4, Vanilla JavaScript, Tailwind CSS
@@ -28,6 +28,7 @@ No foreign currencies (USD, USDT, BTC, etc.) are supported at any layer.
 
 * **Guest (Unauthenticated):** Hanya dapat melihat halaman Login, Register, Lupa Sandi, dan Halaman Download/Landing Page.
 * **User (Authenticated):** Memiliki dompet (*wallet*), dapat menyewa GPU, menarik dana, dan memiliki *referral link* untuk membangun tim/agensi.
+* **Admin (System Operator):** Akses penuh ke **Command Center** (`/control-panel`) — gateway rahasia terpisah dari user flow. Memiliki hak approve/decline deposit & withdrawal, monitoring real-time queue, dan audit trail. Autentikasi terpisah menggunakan tabel `admins` (bukan `users`), session `admin_id`, dan middleware `Admin_auth` controller.
 * **System/Cron:** Menjalankan tugas otomatis di latar belakang (pembagian hasil harian, perhitungan gaji mingguan agen).
 
 ---
@@ -35,6 +36,11 @@ No foreign currencies (USD, USDT, BTC, etc.) are supported at any layer.
 ## 4. Core Modules & Exact Business Logic
 
 ### A. Authentication & Onboarding
+* **Dual Authentication Architecture (Hard Separation):**
+    * Users authenticate via `users` table → session key `user_id` → managed by `Auth` controller → redirects to user-facing pages.
+    * Admins authenticate via `admins` table → session key `admin_id` → managed by `Admin_auth` controller → redirects to Command Center (`/admin`).
+    * **No cross-session sharing.** A user session cannot access admin routes and vice versa. The `Admin` controller constructor checks `admin_id` in session — absent users are redirected to `/control-panel` login.
+    * **Cloaked Gateway:** The admin login URL is `/control-panel` (not `/admin/login`). The route is defined as `$route['control-panel'] = 'Admin_auth/login'`. No UI links point to this URL — it is known only to administrators.
 * **Pendaftaran (Register):**
     * Kolom: Kode Undangan (Referral), Nomor Telepon (Unique, Numeric, Min: 9, Max: 15), Kata Sandi (Min: 8 karakter kombinasi huruf & angka).
     * **Constraint:** *Kode Undangan bersifat WAJIB*. Setiap user baru harus menjadi *downline* dari user lain.
@@ -103,8 +109,9 @@ The modal overlay (`bg-black/60 backdrop-blur-sm`) closes on tap. The sheet anim
 * **Penarikan Dana (Withdrawal):**
     * **Pengikatan Bank:** User wajib menambahkan Kartu Bank (Nama Bank, Nomor Rekening, Nama Pemegang) sebelum bisa melakukan penarikan.
     * **Jam Operasional:** Penarikan hanya dapat diajukan pada hari Senin - Sabtu pukul 07:00 - 19:00 WIB. Permintaan pada hari Minggu/di luar jam ditolak/ditunda.
-    * **Batas Minimum & Maksimum:** Minimum Rp 30.000, Maksimum Rp 50.000.000 per penarikan.
+    * **Batas Minimum & Maksimum:** Minimum Rp 100.000, Maksimum Rp 50.000.000 per penarikan.
     * **Limit Frekuensi:** Hanya diperbolehkan 1 kali penarikan per hari per user.
+    * **Anti-Spam & Race-Condition Prevention (Single Pending WD Limit):** User TIDAK dapat mengajukan penarikan baru jika masih memiliki penarikan dengan status `pending`. Sistem mengecek `has_pending_withdrawal()` sebelum memproses — jika ada, permintaan ditolak dengan flash message. Ini mencegah spam dan race condition pengajuan ganda.
     * **Struktur Biaya Penarikan (Fee Calculation Rule):**
         * Rp 20.000 ~ Rp 500.000: Biaya 10% + Rp 6.500
         * Rp 500.000 ~ Rp 1.000.000: Biaya 7.5% + Rp 6.500
@@ -113,6 +120,11 @@ The modal overlay (`bg-black/60 backdrop-blur-sm`) closes on tap. The sheet anim
         * Rp 5.000.000 ~ Rp 10.000.000: Biaya 4% + Rp 6.500
         * Rp 10.000.000 ~ Rp 50.000.000: Biaya 3% + Rp 6.500
     * Dana yang dikurangi dari saldo user adalah `gross_amount` (Penarikan Kotor).
+    * **Auto-Rollback on Decline:** Jika admin menolak penarikan (`decline_withdrawal`), sistem secara otomatis mengembalikan dana ke wallet user dengan insert `credit` record ke `wallet_ledger` (description: "Pengembalian Dana: Penarikan Ditolak ({wd_number})"). Proses refund dibungkus dalam satu DB transaction (`trans_start` / `trans_complete`) bersama status update ke `failed` — menjamin atomicity.
+* **Balance Capsule (Global Header):**
+    * Saldo user ditampilkan secara persisten di Top Navbar setiap halaman.
+    * Powered by `MY_Controller.php` — constructor meng-inject `$global_balance` ke semua view via `$this->load->vars()`.
+    * Komponen `header.php` merender balance capsule: tombol ke `/wallet` dengan ikon dompet, font monospace `Rp {balance}`.
 
 ### F. System Automation (Cron Jobs)
 * **Distribusi Pendapatan Harian (Daily Revenue):**
@@ -151,3 +163,38 @@ The modal overlay (`bg-black/60 backdrop-blur-sm`) closes on tap. The sheet anim
 * **Rate Limiting / Mutex Lock:** Halaman eksekusi finansial (Tombol Beli Sewa, Tombol Tarik Dana) wajib memiliki *lock* atau *disable state* pada JavaScript dan divalidasi di PHP agar tidak terjadi *Double Spending* jika *user* melakukan klik dua kali dengan cepat.
 * **Data Masking:** Rekening bank yang tampil di antarmuka harus disensor sebagian (misal: 1234*****789).
 * **Infrastruktur:** Aplikasi akan di-deploy di balik proxy (seperti Cloudflare). Konfigurasi CI3 harus menangkap `HTTP_X_FORWARDED_FOR` untuk mencatat log IP asli user, bukan IP dari proxy.
+
+---
+
+## 7. Admin Command Center (Phase 7)
+
+### A. Dual Authentication & Privilege Separation
+| Layer | User Auth | Admin Auth |
+|-------|-----------|------------|
+| **Table** | `users` | `admins` |
+| **Session Key** | `user_id` | `admin_id` |
+| **Controller** | `Auth` | `Admin_auth` |
+| **Login URL** | `/login` | `/control-panel` (cloaked) |
+| **Middleware** | `MY_Controller` session check | `Admin` constructor session check |
+| **Dashboard** | `/home` | `/admin` |
+
+Routes are hard-separated. No user controller can serve admin views. The `/control-panel` URL is not linked from any UI — known only to operators.
+
+### B. Command Center Dashboard (Bloomberg Terminal Aesthetic)
+- Dark theme: `bg-slate-950`, `text-slate-300`, `font-mono text-sm`
+- Header: `"SYNAPSE COMMAND CENTER // ROOT ACCESS"` in green terminal text
+- Two-column grid layout:
+  - **Left:** Pending Deposits queue — display invoice number, phone, amount (IDR), timestamp, APPROVE button
+  - **Right:** Pending Withdrawals queue — display WD number, phone, bank details, amount (IDR), timestamp, APPROVE/DECLINE buttons
+- Empty state: ∅ icon + "No pending deposits/withdrawals"
+- System info footer: version + timestamp
+
+### C. Queue Operations (ACID-Compliant)
+- **Deposit Approval:** Transaction wraps deposit status update + `wallet_ledger` credit insert
+- **Withdrawal Approval:** Transaction updates withdrawal status to `success` (funds already debited at request time)
+- **Withdrawal Decline (Auto-Rollback):** Transaction updates status to `failed` + inserts `credit` refund record to `wallet_ledger` — funds restored atomically
+
+### D. Global Layout Architecture
+- `MY_Controller.php` extends `CI_Controller` and injects `$global_balance` into every view via `$this->load->vars()`
+- Header (`templates/header.php`) renders persistent Balance Capsule: `<a href="/wallet">` with wallet icon + `Rp {balance}` in monospace
+- Balance calculated on every page load from `wallet_ledger` (SUM credit - SUM debit) — always real-time

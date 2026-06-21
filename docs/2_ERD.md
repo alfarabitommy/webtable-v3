@@ -1,4 +1,4 @@
-# Entity Relationship Diagram (ERD) & Database Schema v3.0
+# Entity Relationship Diagram (ERD) & Database Schema v4.0
 **Project Name:** Synapse
 **Database Engine:** MySQL 8.4 (InnoDB)
 **Character Set / Collation:** utf8mb4 / utf8mb4_unicode_ci
@@ -144,3 +144,47 @@ Menyimpan riwayat kode OTP untuk validasi pendaftaran dan keamanan.
 * `expires_at` (TIMESTAMP, NOT NULL) - Biasanya +5 menit dari waktu dibuat.
 * `is_used` (TINYINT 1, NOT NULL, DEFAULT 0)
 * `created_at` (TIMESTAMP)
+
+---
+
+## 5. Admin & Operational Tables (Phase 7)
+
+### Tabel: `admins`
+Tabel terpisah untuk autentikasi admin/operator. Hard-separated dari `users` — tidak ada foreign key ke `users.id`.
+* `id` (INT, Primary Key, Auto Increment, Unsigned)
+* `username` (VARCHAR 50, UNIQUE, NOT NULL) - Username login admin.
+* `password` (VARCHAR 255, NOT NULL) - Hashed Bcrypt/Argon2id.
+* `created_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP)
+* `updated_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)
+
+> **Security Note:** Tabel ini sepenuhnya terpisah dari `users`. Session admin menggunakan `admin_id` (bukan `user_id`). Tidak ada foreign key relasi ke tabel user.
+
+### Tabel: `system_audit_logs` (Phase 10 — Planned)
+Trail audit untuk setiap aksi admin terhadap data finansial.
+* `id` (BIGINT, Primary Key, Auto Increment, Unsigned)
+* `admin_id` (INT, NULLABLE) - **[Foreign Key → admins.id, ON DELETE SET NULL]**
+* `user_id` (BIGINT, NULLABLE) - **[Foreign Key → users.id, ON DELETE SET NULL]**
+* `action` (VARCHAR 100, NOT NULL) - Contoh: "approved_deposit", "declined_withdrawal"
+* `details` (TEXT, NULLABLE) - JSON atau human-readable deskripsi.
+* `ip_address` (VARCHAR 45, NOT NULL) - IPv4/IPv6 alamat pelaku aksi.
+* `created_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP)
+
+---
+
+## 6. Schema Divergence Notes
+
+### `user_rentals` vs `rentals` (Original ERD)
+Tabel `rentals` dalam ERD v3.0 tidak digunakan dalam implementasi aktual. Sebagai gantinya, menggunakan **`user_rentals`** dengan kolom yang disederhanakan:
+
+| Kolom ERD (`rentals`) | Kolom Aktual (`user_rentals`) |
+|------------------------|-------------------------------|
+| `gpu_product_id` | `product_id` |
+| `total_days` | *(dihitung dari `expired_at`)* |
+| `days_processed` | `days_processed` |
+| `daily_rate_snapshot` | `daily_roi` |
+| `started_at` | *(DEFAULT CURRENT_TIMESTAMP)* |
+| `ends_at` | `expired_at` |
+| *(baru)* | `last_claimed_at` (untuk manual ROI claim) |
+| *(baru)* | `purchase_price` |
+
+Tabel `user_rentals` juga berfungsi sebagai tabel `rentals` di dalam kode (`application/models/Rental_model.php`). Nama asli dari database.sql yang digunakan adalah `user_rentals`.

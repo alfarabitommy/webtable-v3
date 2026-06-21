@@ -47,9 +47,9 @@
 
             <div>
                 <label for="phone" class="text-xs font-semibold text-slate-700 mb-1.5 block">Nomor Telepon</label>
-                <input type="text" id="phone" name="phone" value="<?= set_value('phone', $values['phone'] ?? '') ?>"
+                <input type="tel" id="phone" name="phone" value="<?= set_value('phone', $values['phone'] ?? '') ?>"
                        class="h-14 px-5 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all w-full"
-                       placeholder="081234567890">
+                       placeholder="081234567890" inputmode="numeric" pattern="[0-9]*">
                 <?= form_error('phone', '<p class="text-xs text-rose-500 mt-1.5">', '</p>') ?>
             </div>
 

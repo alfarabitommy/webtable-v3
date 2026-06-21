@@ -1,4 +1,4 @@
-# UI/UX & Component Guidelines v3.0 (Strict AI Specification)
+# UI/UX & Component Guidelines v4.0 (Strict AI Specification)
 **Project Name:** Synapse
 **CSS Framework:** Tailwind CSS (Strictly Utility Classes)
 **Design Philosophy:** Minimalist, High-Density Data Presentation, Bloomberg Terminal Aesthetic, Mobile-First.
@@ -202,3 +202,75 @@ Secondary input forms (Top-Up amount selection, custom amount input) MUST be hid
 * **Button tactile feedback:** `active:scale-[0.98]` on product "Sewa Sekarang" buttons.
 * **Modal backdrop:** `transition-opacity` for fade in/out.
 * **Form toggle:** `origin-top` transform origin for natural expand feel.
+
+---
+
+## 7. Admin Command Center Components (Phase 7)
+
+The Admin Command Center operates on a **completely separate dark theme** — distinct from the user-facing light UI. It uses a Bloomberg Terminal / hacking console aesthetic.
+
+### A. Admin Login Container
+```html
+<div class="min-h-screen bg-slate-950 flex items-center justify-center px-4">
+  <div class="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-xl p-8">
+    <h2 class="text-green-400 text-sm font-bold tracking-widest uppercase mb-6">SYSTEM ACCESS // AUTHORIZED PERSONNEL ONLY</h2>
+    <!-- form fields: bg-slate-800, border-slate-700, text-slate-200, focus:ring-green-500/30 -->
+  </div>
+</div>
+```
+
+### B. Command Center Dashboard
+**Wrapper:** `<div class="bg-slate-950 text-slate-300 font-mono text-sm min-h-screen">`
+
+**Header:**
+```html
+<h1 class="text-green-400 text-lg font-bold tracking-widest uppercase">SYNAPSE COMMAND CENTER // ROOT ACCESS</h1>
+<p class="text-slate-500 text-xs mt-1">System Administration Panel — Real-time Approval Queue</p>
+```
+
+**Queue Card (Deposit/Withdrawal):**
+```html
+<div class="border border-slate-800 rounded-lg overflow-hidden">
+  <!-- Card header -->
+  <div class="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+    <h2 class="text-green-400 text-xs font-bold tracking-wider uppercase"><i class="fas fa-arrow-down mr-1"></i> Pending Deposits</h2>
+    <span class="text-[10px] font-bold text-slate-500 bg-slate-800 px-2 py-0.5 rounded">3 QUEUE</span>
+  </div>
+  <!-- Items -->
+  <div class="divide-y divide-slate-800/50">
+    <!-- Each item -->
+    <div class="px-4 py-3 hover:bg-slate-900/50 transition">
+      <div class="flex items-start justify-between mb-2">
+        <div>
+          <div class="text-green-500 text-xs font-bold">INV-20260621...</div>
+          <div class="text-slate-400 text-[10px] mt-0.5">0812***999</div>
+        </div>
+        <div class="text-right">
+          <div class="text-white text-sm font-bold font-mono">Rp 1.500.000</div>
+          <div class="text-slate-500 text-[10px]">21 Jun 2026 14:30</div>
+        </div>
+      </div>
+      <button class="w-full bg-green-700 hover:bg-green-600 text-white text-xs font-bold px-3 py-1.5 rounded transition">
+        <i class="fas fa-check mr-1"></i> APPROVE
+      </button>
+    </div>
+  </div>
+</div>
+```
+
+**Empty State:** `text-slate-600 text-xs text-center py-8` + `&#8709;` entity symbol.
+
+**Footer:**
+```html
+<div class="mt-8 pt-4 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-600">
+  <span>SYNAPSE ADMIN v1.0 — ROOT ACCESS</span>
+  <span class="font-mono">2026-06-21 14:30:00</span>
+</div>
+```
+
+### C. Balance Capsule (Global User Header)
+**Container:** `<a href="/wallet" class="group flex items-center bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-full transition-all duration-200 active:scale-95 border border-slate-200 shadow-sm hover:shadow">`
+* **Icon:** `<i class="fas fa-wallet text-indigo-500 mr-2 text-xs">`
+* **Balance:** `<span class="text-xs font-mono font-bold tracking-tighter">Rp {global_balance}</span>`
+* **Position:** Right side of sticky header (`z-40`), between logo and notification bell.
+* **Data Source:** `$global_balance` — injected by `MY_Controller.php` via `$this->load->vars()` on every request. Always calculated from `wallet_ledger` SUM at page load time.

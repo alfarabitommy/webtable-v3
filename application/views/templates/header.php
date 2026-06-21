@@ -20,8 +20,17 @@
             <img src="https://placehold.co/100x100/0f172a/ffffff?text=S" class="h-7 w-7 rounded-lg shadow-sm mr-3" alt="Logo">
             <h1 class="text-lg font-extrabold text-slate-900 tracking-tight">Synapse</h1>
         </div>
-        <button class="text-slate-500 relative" title="Notifikasi">
-            <i class="fas fa-bell text-lg"></i>
-            <span class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white"></span>
-        </button>
+        <div class="flex items-center gap-3">
+            <a href="<?= base_url('wallet'); ?>"
+               class="group flex items-center bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-full transition-all duration-200 active:scale-95 border border-slate-200 shadow-sm hover:shadow">
+                <i class="fas fa-wallet text-indigo-500 mr-2 text-xs group-hover:scale-110 transition-transform"></i>
+                <span class="text-xs font-mono font-bold tracking-tighter">
+                    Rp <?= isset($global_balance) ? number_format($global_balance, 0, ',', '.') : '0' ?>
+                </span>
+            </a>
+            <button class="text-slate-500 relative" title="Notifikasi">
+                <i class="fas fa-bell text-lg"></i>
+                <span class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white"></span>
+            </button>
+        </div>
     </header>

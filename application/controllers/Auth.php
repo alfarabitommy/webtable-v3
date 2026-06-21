@@ -115,7 +115,11 @@ class Auth extends CI_Controller {
                 $phone    = $this->input->post('phone', TRUE);
                 $password = $this->input->post('password', TRUE);
 
-                $user = $this->User_model->get_user_by_phone($phone);
+                // Strictly enforce 'user' role on user portal
+                $user = $this->db->get_where('users', [
+                    'phone' => $phone,
+                    'role'  => 'user',
+                ])->row();
 
                 if ($user && password_verify($password, $user->password)) {
                     $this->session->set_userdata([
@@ -123,8 +127,9 @@ class Auth extends CI_Controller {
                         'phone'       => $user->phone,
                         'level_id'    => $user->level_id,
                         'invite_code' => $user->invite_code,
+                        'role'        => $user->role,
                     ]);
-                    redirect('/');
+                    redirect('wallet');
                 } else {
                     $data['errors'][] = 'Nomor telepon atau kata sandi salah.';
                 }
@@ -139,5 +144,28 @@ class Auth extends CI_Controller {
     public function logout() {
         $this->session->sess_destroy();
         redirect('login');
+    }
+
+    // ─── ADMIN SEEDER (temporary) ─────────────────────
+    public function seeder_admin() {
+        $phone = '081234567890';
+        $exists = $this->db->get_where('users', ['phone' => $phone])->row();
+
+        if (!$exists) {
+            $data = [
+                'phone'       => $phone,
+                'password'    => password_hash('admin123', PASSWORD_BCRYPT),
+                'role'        => 'admin',
+                'invite_code' => 'ADMIN0',
+                'created_at'  => date('Y-m-d H:i:s'),
+            ];
+            $this->db->insert('users', $data);
+            echo "<h3>Akun Admin berhasil dibuat!</h3>
+                  <p>Phone: {$phone}<br>Password: admin123</p>
+                  <a href='" . base_url('login') . "'>Kembali ke Login</a>";
+        } else {
+            echo "<h3>Akun Admin sudah ada! (Phone: {$phone})</h3>
+                  <a href='" . base_url('login') . "'>Kembali ke Login</a>";
+        }
     }
 }

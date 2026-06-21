@@ -32,9 +32,15 @@
                 <button type="button" id="btn-toggle-topup" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold py-2.5 rounded-xl transition">
                     <i class="fas fa-plus mr-1"></i> Top Up
                 </button>
-                <button class="flex-1 bg-slate-700 text-slate-300 text-sm font-bold py-2.5 rounded-xl cursor-not-allowed opacity-60">
+                <?php if (!empty($has_pending_wd)): ?>
+                <button disabled class="flex-1 bg-slate-600 text-slate-300 text-sm font-bold py-2.5 rounded-xl cursor-not-allowed opacity-60">
+                    <i class="fas fa-hourglass-half mr-1"></i> Menunggu Persetujuan
+                </button>
+                <?php else: ?>
+                <button type="button" id="btn-open-wd" class="flex-1 bg-orange-500 hover:bg-orange-400 text-white text-sm font-bold py-2.5 rounded-xl transition">
                     <i class="fas fa-arrow-down mr-1"></i> Tarik Dana
                 </button>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -84,18 +90,39 @@
         </h3>
         <div class="space-y-2">
             <?php foreach ($pending as $row): ?>
-            <div class="bg-amber-50 border border-amber-100 rounded-xl p-3 flex items-center justify-between">
-                <div class="flex-1 min-w-0">
-                    <div class="text-xs font-mono text-slate-500 truncate"><?= $row->invoice_number ?></div>
-                    <div class="text-sm font-bold text-slate-900">Rp <?= number_format($row->amount, 0, ',', '.') ?></div>
-                </div>
-                <a href="<?= site_url('wallet/simulate_payment/' . $row->invoice_number) ?>" onclick="return confirm('Simulasi pembayaran untuk <?= $row->invoice_number ?>?')" class="ml-3 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold px-3 py-2 rounded-lg shadow transition whitespace-nowrap">
-                    <i class="fas fa-bolt mr-1"></i> Simulasi Bayar
-                </a>
+            <div class="bg-amber-50 border border-amber-100 rounded-xl p-3">
+                <div class="text-xs font-mono text-slate-500 truncate"><?= $row->invoice_number ?></div>
+                <div class="text-sm font-bold text-slate-900">Rp <?= number_format($row->amount, 0, ',', '.') ?></div>
+                <span class="inline-block mt-1 text-[10px] font-bold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full uppercase">Menunggu Pembayaran</span>
             </div>
             <?php endforeach; ?>
         </div>
     </div>
+    <?php endif; ?>
+
+    <!-- ===== PENDING WITHDRAWALS ===== -->
+    <?php if (!empty($pending_withdrawals)): ?>
+        <div class="mb-6">
+            <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3">Penarikan Tertunda (Pending)</h3>
+            <div class="space-y-3">
+                <?php foreach ($pending_withdrawals as $wd): ?>
+                    <div class="bg-orange-50 border border-orange-200 rounded-2xl p-4 flex flex-col gap-3 shadow-sm">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="text-xs font-bold text-orange-600 mb-1"><?= $wd->wd_number ?></p>
+                                <p class="text-sm font-bold text-slate-800"><?= $wd->bank_name ?> - <?= $wd->account_number ?></p>
+                                <p class="text-xs text-slate-500 uppercase"><?= $wd->account_name ?></p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-sm font-bold text-slate-800">Rp <?= number_format($wd->amount, 0, ',', '.') ?></p>
+                                <p class="text-xs font-semibold text-orange-500">Pending</p>
+                            </div>
+                        </div>
+                        <span class="inline-block text-[10px] font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full uppercase">Menunggu Persetujuan</span>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
     <?php endif; ?>
 
     <!-- ===== LEDGER HISTORY ===== -->
@@ -138,8 +165,87 @@
 
 </div>
 
+<!-- ===== WITHDRAWAL BOTTOM SHEET MODAL ===== -->
+<div id="withdrawalModal" class="fixed inset-0 z-[60] hidden">
+    <!-- Backdrop -->
+    <div id="wd-backdrop" class="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"></div>
+
+    <!-- Sheet -->
+    <div id="wd-sheet" class="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl transform translate-y-full transition-transform duration-300 ease-out max-h-[85vh] overflow-y-auto">
+
+        <!-- Handle -->
+        <div class="flex justify-center pt-3 pb-1">
+            <div class="w-10 h-1 bg-slate-300 rounded-full"></div>
+        </div>
+
+        <!-- Header -->
+        <div class="px-5 pb-4 flex items-center justify-between border-b border-slate-100">
+            <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                <i class="fas fa-arrow-down text-orange-500"></i> Tarik Dana
+            </h3>
+            <button type="button" id="btn-close-wd" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition">
+                <i class="fas fa-times text-slate-500 text-xs"></i>
+            </button>
+        </div>
+
+        <!-- Balance indicator -->
+        <div class="px-5 pt-4 pb-2">
+            <div class="bg-slate-50 rounded-xl p-3 flex items-center justify-between">
+                <span class="text-xs text-slate-500">Saldo Tersedia</span>
+                <span class="text-sm font-bold font-mono text-slate-900">Rp <?= number_format($balance, 0, ',', '.') ?></span>
+            </div>
+        </div>
+
+        <!-- Form -->
+        <?= form_open('wallet/withdraw', 'id="withdrawalForm"'); ?>
+        <div class="px-5 pt-4 pb-6 space-y-4">
+
+            <!-- Nominal Penarikan -->
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nominal Penarikan</label>
+                <div class="relative">
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">Rp</span>
+                    <input type="number" name="amount" required min="100000" placeholder="Masukkan nominal" class="w-full bg-white border border-slate-200 rounded-xl py-3 pl-10 pr-4 text-right text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent">
+                </div>
+                <p class="mt-1.5 text-xs text-slate-500">Minimal penarikan: Rp 100.000</p>
+            </div>
+
+            <!-- Nama Bank -->
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nama Bank</label>
+                <select name="bank_name" required class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent appearance-none">
+                    <option value="" disabled selected>Pilih Bank</option>
+                    <option value="BCA">BCA</option>
+                    <option value="Mandiri">Mandiri</option>
+                    <option value="BRI">BRI</option>
+                    <option value="BNI">BNI</option>
+                </select>
+            </div>
+
+            <!-- Nomor Rekening -->
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nomor Rekening</label>
+                <input type="text" name="account_number" required placeholder="Masukkan nomor rekening" class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent font-mono">
+            </div>
+
+            <!-- Nama Pemilik Rekening -->
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nama Pemilik Rekening</label>
+                <input type="text" name="account_holder" required placeholder="Sesuai buku tabungan" class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent">
+            </div>
+
+            <!-- Submit -->
+            <button type="submit" class="w-full bg-slate-950 hover:bg-slate-800 text-white text-sm font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2">
+                <i class="fas fa-paper-plane"></i> Ajukan Penarikan
+            </button>
+        </div>
+        <?= form_close(); ?>
+    </div>
+</div>
+
 <!-- ===== JAVASCRIPT ===== -->
 <script>
+/* --- Top-up Quick Amount Buttons --- */
 var BASE   = 'amt-btn text-xs font-bold py-2.5 rounded-xl transition';
 var INACTIVE = BASE + ' bg-slate-50 hover:bg-blue-50 border border-slate-200 text-slate-700';
 var ACTIVE   = BASE + ' bg-blue-600 hover:bg-blue-500 border border-blue-600 text-white shadow-md';
@@ -181,6 +287,7 @@ function setCustomAmount() {
     }
 }
 
+/* --- Top-up Toggle --- */
 var btnToggleTopup = document.getElementById('btn-toggle-topup');
 var topupFormContainer = document.getElementById('topup-form-container');
 
@@ -192,4 +299,39 @@ if(btnToggleTopup && topupFormContainer) {
         }
     });
 }
+
+/* --- Withdrawal Bottom Sheet --- */
+(function() {
+    var modal   = document.getElementById('withdrawalModal');
+    var sheet   = document.getElementById('wd-sheet');
+    var backdrop = document.getElementById('wd-backdrop');
+    var btnOpen = document.getElementById('btn-open-wd');
+    var btnClose = document.getElementById('btn-close-wd');
+
+    function openWdModal() {
+        modal.classList.remove('hidden');
+        // Force reflow then animate
+        void modal.offsetWidth;
+        backdrop.style.opacity = '0';
+        sheet.style.transform = 'translateY(100%)';
+        requestAnimationFrame(function() {
+            backdrop.style.opacity = '1';
+            sheet.style.transform = 'translateY(0)';
+        });
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeWdModal() {
+        backdrop.style.opacity = '0';
+        sheet.style.transform = 'translateY(100%)';
+        setTimeout(function() {
+            modal.classList.add('hidden');
+            document.body.style.overflow = '';
+        }, 300);
+    }
+
+    if (btnOpen)  btnOpen.addEventListener('click', openWdModal);
+    if (btnClose) btnClose.addEventListener('click', closeWdModal);
+    if (backdrop) backdrop.addEventListener('click', closeWdModal);
+})();
 </script>

@@ -6,6 +6,18 @@
         <p class="text-sm text-slate-500 mt-1">Pilih node sesuai kebutuhan Anda.</p>
     </div>
 
+    <!-- ═══ Flashdata Alerts ═══ -->
+    <?php if ($this->session->flashdata('error')): ?>
+    <div class="bg-rose-50 border border-rose-200 text-rose-600 px-4 py-3 rounded-xl mb-4 text-sm font-semibold flex items-center gap-2">
+        <i class="fas fa-exclamation-circle"></i> <?= $this->session->flashdata('error'); ?>
+    </div>
+    <?php endif; ?>
+    <?php if ($this->session->flashdata('success')): ?>
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-600 px-4 py-3 rounded-xl mb-4 text-sm font-semibold flex items-center gap-2">
+        <i class="fas fa-check-circle"></i> <?= $this->session->flashdata('success'); ?>
+    </div>
+    <?php endif; ?>
+
     <!-- ═══ Product Cards ═══ -->
     <?php foreach ($products as $product): ?>
     <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col">
@@ -21,7 +33,7 @@
             </div>
             <div class="ml-auto text-right">
                 <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">ROI Harian</span>
-                <p class="text-sm font-bold text-emerald-500">Rp <?= number_format($product['daily_roi'], 0, ',', '.') ?></p>
+                <p class="text-sm font-bold text-emerald-500">Rp <?= number_format($product['daily_rate'], 0, ',', '.') ?></p>
             </div>
         </div>
 
@@ -64,24 +76,28 @@
             </div>
         </div>
 
-        <div id="modalActionBtn"></div>
+        <?php echo form_open('rentals/checkout', ['id' => 'form-checkout', 'class' => 'w-full']); ?>
+            <input type="hidden" name="product_id" id="modal_product_id" value="">
+            <div id="modalActionBtn"></div>
+        <?php echo form_close(); ?>
     </div>
 </div>
 
 <script>
 (function() {
-    const modal          = document.getElementById('transactionModal');
-    const overlay        = document.getElementById('modalOverlay');
-    const sheet          = document.getElementById('modalSheet');
-    const productNameEl  = document.getElementById('modalProductName');
-    const productPriceEl = document.getElementById('modalProductPrice');
-    const balanceEl      = document.getElementById('modalBalance');
-    const actionBtn      = document.getElementById('modalActionBtn');
+    var modal          = document.getElementById('transactionModal');
+    var overlay        = document.getElementById('modalOverlay');
+    var sheet          = document.getElementById('modalSheet');
+    var productNameEl  = document.getElementById('modalProductName');
+    var productPriceEl = document.getElementById('modalProductPrice');
+    var balanceEl      = document.getElementById('modalBalance');
+    var actionBtn      = document.getElementById('modalActionBtn');
+    var productIdInput = document.getElementById('modal_product_id');
 
-    const userBalance = <?= (int) $user_balance ?>;
-    const baseUrl     = '<?= base_url() ?>';
+    var userBalance = <?= (int) $user_balance ?>;
+    var baseUrl     = '<?= base_url() ?>';
 
-    const IDR = new Intl.NumberFormat('id-ID', {
+    var IDR = new Intl.NumberFormat('id-ID', {
         style: 'currency',
         currency: 'IDR',
         maximumFractionDigits: 0
@@ -92,15 +108,15 @@
         productPriceEl.textContent = IDR.format(data.price);
         balanceEl.textContent      = IDR.format(userBalance);
 
+        // Set the hidden product_id value
+        productIdInput.value = data.id;
+
         if (userBalance >= data.price) {
             balanceEl.className = 'text-sm font-semibold text-emerald-600';
             actionBtn.innerHTML =
-                '<form method="POST" action="' + baseUrl + 'rentals/create" class="space-y-3">' +
-                    '<input type="hidden" name="product_id" value="' + data.id + '">' +
-                    '<button type="submit" class="w-full h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold shadow-lg transition-all flex items-center justify-center gap-2">' +
-                        '<i class="fas fa-lock"></i> Konfirmasi & Bayar' +
-                    '</button>' +
-                '</form>';
+                '<button type="submit" class="w-full h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold shadow-lg transition-all flex items-center justify-center gap-2">' +
+                    '<i class="fas fa-lock"></i> Konfirmasi & Bayar' +
+                '</button>';
         } else {
             balanceEl.className = 'text-sm font-semibold text-rose-600';
             actionBtn.innerHTML =
@@ -120,21 +136,21 @@
         setTimeout(function() {
             modal.classList.add('hidden');
             actionBtn.innerHTML = '';
+            productIdInput.value = '';
         }, 300);
     }
 
-    // Attach to all product buttons
     document.querySelectorAll('.btn-sewa').forEach(function(btn) {
-        btn.addEventListener('click', function() {
+        btn.addEventListener('click', function(e) {
+            var clickedBtn = e.currentTarget;
             openModal({
-                id:    this.dataset.id,
-                name:  this.dataset.name,
-                price: parseInt(this.dataset.price, 10)
+                id:    clickedBtn.getAttribute('data-id'),
+                name:  clickedBtn.getAttribute('data-name'),
+                price: parseFloat(clickedBtn.getAttribute('data-price'))
             });
         });
     });
 
-    // Close on overlay tap
     overlay.addEventListener('click', closeModal);
 })();
 </script>
