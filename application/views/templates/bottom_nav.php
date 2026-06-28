@@ -8,6 +8,10 @@
             <i class="fas fa-server text-lg"></i>
             <span>Sewa Saya</span>
         </a>
+        <a href="<?= site_url('team') ?>" class="flex flex-col items-center gap-1 p-2 <?= $this->uri->segment(1) === 'team' ? 'text-blue-600 font-bold' : '' ?>">
+            <i class="fas fa-users text-lg"></i>
+            <span>Tim</span>
+        </a>
         <a href="<?= site_url('help') ?>" class="flex flex-col items-center gap-1 p-2 <?= $this->uri->segment(1) === 'help' ? 'text-blue-600 font-bold' : '' ?>">
             <i class="fas fa-life-ring text-lg"></i>
             <span>Bantuan</span>

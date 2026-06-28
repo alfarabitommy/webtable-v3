@@ -1,4 +1,4 @@
-# Entity Relationship Diagram (ERD) & Database Schema v4.0
+# Entity Relationship Diagram (ERD) & Database Schema v5.0
 **Project Name:** Synapse
 **Database Engine:** MySQL 8.4 (InnoDB)
 **Character Set / Collation:** utf8mb4 / utf8mb4_unicode_ci
@@ -19,7 +19,7 @@
 ### Tabel: `users`
 Menyimpan data autentikasi, profil pengguna, saldo utama, dan struktur *Adjacency List* untuk hierarki MLM/Keagenan.
 * `id` (BIGINT, Primary Key, Auto Increment, Unsigned)
-* `phone` (VARCHAR 20, UNIQUE, NOT NULL) - Nomor telepon login.
+* `phone` (VARCHAR 20, UNIQUE, NOT NULL) - Nomor telepon login. **Normasi backend: `+62` → `0`, strip simbol (`-`, `()`, `spasi`) sebelum insert. Format final: `0XXXXXXXXXX`.**
 * `password` (VARCHAR 255, NOT NULL) - Hashed Bcrypt.
 * `invite_code` (VARCHAR 10, UNIQUE, NOT NULL) - Kode referral unik milik user ini (digenerate sistem saat register).
 * `parent_id` (BIGINT, Unsigned, NULLABLE) - ID dari user Upline. **[Foreign Key -> users.id, ON DELETE SET NULL]**
@@ -147,7 +147,30 @@ Menyimpan riwayat kode OTP untuk validasi pendaftaran dan keamanan.
 
 ---
 
-## 5. Admin & Operational Tables (Phase 7)
+## 5. Notification & Engagement Table
+
+### Tabel: `user_notifications`
+Tabel notifikasi interaktif yang m驱动 oleh AJAX polling. Menyimpan notifikasi sistem, reward, dan informasi akun.
+
+* `id` (BIGINT, Primary Key, Auto Increment, Unsigned)
+* `user_id` (BIGINT, Unsigned, NOT NULL) - **[Foreign Key -> users.id, ON DELETE CASCADE]** — Notifikasi dihapus otomatis jika user dihapus.
+* `title` (VARCHAR 100, NOT NULL) - Judul singkat notifikasi (contoh: "Bonus Level 1 Terkirim!").
+* `message` (TEXT, NOT NULL) - Isi detail notifikasi (contoh: "Selamat! Kamu telah mencapai Level 1 Agency...").
+* `type` (ENUM('info', 'warning', 'success', 'commission'), NOT NULL) - Kategori notifikasi untuk styling badge warna:
+    * `info` → slate badge
+    * `warning` → amber badge
+    * `success` → emerald badge
+    * `commission` → emerald badge dengan ikon `fa-coins`
+* `is_read` (TINYINT 1, NOT NULL, DEFAULT 0) - 0 = belum dibaca (tampil di Red Badge), 1 = sudah dibaca.
+* `created_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP)
+
+**Index Optimization:** `INDEX (user_id, is_read)` — Composite index untuk query unread count yang sangat sering: `SELECT COUNT(*) FROM user_notifications WHERE user_id = ? AND is_read = 0`.
+
+> **Lifecycle:** Backend insert notifikasi → AJAX poll dari `header.php` fetches unread count → render Red Badge → user taps bell → fetch notification list → mark `is_read = 1` per item atau bulk "Mark All Read".
+
+---
+
+## 6. Admin & Operational Tables (Phase 7)
 
 ### Tabel: `admins`
 Tabel terpisah untuk autentikasi admin/operator. Hard-separated dari `users` — tidak ada foreign key ke `users.id`.
@@ -171,7 +194,7 @@ Trail audit untuk setiap aksi admin terhadap data finansial.
 
 ---
 
-## 6. Schema Divergence Notes
+## 7. Schema Divergence Notes
 
 ### `user_rentals` vs `rentals` (Original ERD)
 Tabel `rentals` dalam ERD v3.0 tidak digunakan dalam implementasi aktual. Sebagai gantinya, menggunakan **`user_rentals`** dengan kolom yang disederhanakan:

@@ -9,10 +9,23 @@ class Admin extends CI_Controller {
         $this->load->database();
         $this->load->library('session');
         $this->load->helper('url');
+        $this->load->library('pagination');
 
         if (!$this->session->userdata('admin_id')) {
             redirect('control-panel');
         }
+    }
+
+    // ─── PHONE NORMALIZER ──────────────────────────────
+    private function _normalize_phone($raw) {
+        $digits = preg_replace('/\D/', '', trim($raw));
+        if (strpos($digits, '62') === 0 && strlen($digits) > 2) {
+            $digits = '0' . substr($digits, 2);
+        }
+        if ($digits !== '' && $digits[0] !== '0') {
+            $digits = '0' . $digits;
+        }
+        return $digits;
     }
 
     public function index() {
@@ -23,9 +36,10 @@ class Admin extends CI_Controller {
             ->order_by('d.created_at', 'ASC')
             ->get()->result();
 
-        $pending_withdrawals = $this->db->select('w.*, u.phone')
+        $pending_withdrawals = $this->db->select('w.*, u.phone, ba.bank_name, ba.account_number, ba.account_holder AS account_name')
             ->from('withdrawals w')
             ->join('users u', 'u.id = w.user_id', 'left')
+            ->join('bank_accounts ba', 'ba.id = w.bank_account_id', 'left')
             ->where('w.status', 'pending')
             ->order_by('w.created_at', 'ASC')
             ->get()->result();
@@ -36,9 +50,11 @@ class Admin extends CI_Controller {
             'pending_withdrawals'=> $pending_withdrawals,
         ];
 
-        $this->load->view('templates/header', $data);
+        $this->load->view('admin/templates/header', $data);
+        $this->load->view('admin/templates/sidebar', $data);
+        $this->load->view('admin/templates/topbar', $data);
         $this->load->view('admin/dashboard', $data);
-        $this->load->view('templates/bottom_nav');
+        $this->load->view('admin/templates/footer');
     }
 
     public function approve_deposit($deposit_id) {
@@ -130,5 +146,473 @@ class Admin extends CI_Controller {
         }
 
         redirect('admin');
+    }
+
+    public function history($type = 'deposit', $offset = 0) {
+        // Whitelist tabs
+        $type = ($type === 'withdrawal') ? 'withdrawal' : 'deposit';
+        $offset = max(0, intval($offset));
+
+        $this->load->model('Admin_model');
+        $per_page = 50;
+
+        if ($type === 'deposit') {
+            $total = $this->Admin_model->count_history_deposits();
+            $transactions = $this->Admin_model->get_history_deposits($per_page, $offset);
+        } else {
+            $total = $this->Admin_model->count_history_withdrawals();
+            $transactions = $this->Admin_model->get_history_withdrawals($per_page, $offset);
+        }
+
+        // CI3 Pagination
+        $config['base_url']      = site_url("admin/history/{$type}");
+        $config['total_rows']    = $total;
+        $config['per_page']      = $per_page;
+        $config['uri_segment']   = 4;
+
+        $config['full_tag_open']    = '<nav class="flex items-center justify-center gap-1 mt-6">';
+        $config['full_tag_close']   = '</nav>';
+        $config['num_tag_open']     = '<a href="{link}" class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">';
+        $config['num_tag_close']    = '</a>';
+        $config['cur_tag_open']     = '<span class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 text-white font-medium">';
+        $config['cur_tag_close']    = '</span>';
+        $config['next_link']        = '&raquo;';
+        $config['next_tag_open']    = '<a href="{link}" class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">';
+        $config['next_tag_close']   = '</a>';
+        $config['prev_link']        = '&laquo;';
+        $config['prev_tag_open']    = '<a href="{link}" class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">';
+        $config['prev_tag_close']   = '</a>';
+        $config['first_link']       = '&laquo;&laquo;';
+        $config['first_tag_open']   = '<a href="{link}" class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">';
+        $config['first_tag_close']  = '</a>';
+        $config['last_link']        = '&raquo;&raquo;';
+        $config['last_tag_open']    = '<a href="{link}" class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">';
+        $config['last_tag_close']   = '</a>';
+
+        $this->pagination->initialize($config);
+
+        $data = [
+            'page_title'   => 'Riwayat Transaksi',
+            'transactions' => $transactions,
+            'type'         => $type,
+            'pagination'   => $this->pagination->create_links(),
+            'total'        => $total,
+        ];
+
+        $this->load->view('admin/templates/header', $data);
+        $this->load->view('admin/templates/sidebar', $data);
+        $this->load->view('admin/templates/topbar', $data);
+        $this->load->view('admin/history', $data);
+        $this->load->view('admin/templates/footer');
+    }
+
+    public function settings() {
+        $this->load->model('Admin_model');
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('wa_number', 'Nomor WhatsApp', 'required|numeric');
+            $this->form_validation->set_rules('support_email', 'Email Support', 'required|valid_email');
+
+            if ($this->form_validation->run()) {
+                $data = [
+                    'wa_number'     => $this->input->post('wa_number', TRUE),
+                    'support_email' => $this->input->post('support_email', TRUE),
+                ];
+
+                if ($this->Admin_model->update_settings($data)) {
+                    $this->session->set_flashdata('success', 'Pengaturan berhasil disimpan.');
+                } else {
+                    $this->session->set_flashdata('error', 'Gagal menyimpan pengaturan.');
+                }
+            } else {
+                $this->session->set_flashdata('error', validation_errors());
+            }
+            redirect('admin/settings');
+        }
+
+        $settings = $this->Admin_model->get_all_settings();
+
+        $data = [
+            'page_title'     => 'Pengaturan',
+            'wa_number'       => $settings['wa_number'] ?? '',
+            'support_email'   => $settings['support_email'] ?? '',
+        ];
+
+        $this->load->view('admin/templates/header', $data);
+        $this->load->view('admin/templates/sidebar', $data);
+        $this->load->view('admin/templates/topbar', $data);
+        $this->load->view('admin/settings', $data);
+        $this->load->view('admin/templates/footer');
+    }
+
+    // ===================================================================
+    //  USER MANAGEMENT (Admin UAT Tools)
+    // ===================================================================
+
+    public function users()
+    {
+        $this->load->model('Admin_model');
+        $search   = $this->input->get('q', TRUE);
+        $per_page = 50;
+        $offset   = max(0, intval($this->input->get('per_page', TRUE) ?? 0));
+
+        $total = $this->Admin_model->count_users($search);
+        $users = $this->Admin_model->get_users($search, $per_page, $offset);
+
+        $config['base_url']             = site_url('admin/users') . ($search ? '?q=' . urlencode($search) : '');
+        $config['total_rows']           = $total;
+        $config['per_page']             = $per_page;
+        $config['page_query_string']    = TRUE;
+        $config['query_string_segment'] = 'per_page';
+        $config['full_tag_open']        = '<nav class="flex items-center justify-center gap-1 mt-6">';
+        $config['full_tag_close']       = '</nav>';
+        $config['num_tag_open']         = '<a href="{link}" class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">';
+        $config['num_tag_close']        = '</a>';
+        $config['cur_tag_open']         = '<span class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 text-white font-medium">';
+        $config['cur_tag_close']        = '</span>';
+        $config['next_link']            = '&raquo;';
+        $config['next_tag_open']        = '<a href="{link}" class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">';
+        $config['next_tag_close']       = '</a>';
+        $config['prev_link']            = '&laquo;';
+        $config['prev_tag_open']        = '<a href="{link}" class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">';
+        $config['prev_tag_close']       = '</a>';
+
+        $this->pagination->initialize($config);
+
+        $data = [
+            'page_title' => 'User Management',
+            'users'      => $users,
+            'search'     => $search,
+            'total'      => $total,
+            'pagination' => $this->pagination->create_links(),
+        ];
+
+        $this->load->view('admin/templates/header', $data);
+        $this->load->view('admin/templates/sidebar', $data);
+        $this->load->view('admin/templates/topbar', $data);
+        $this->load->view('admin/users', $data);
+        $this->load->view('admin/templates/footer');
+    }
+
+    public function user_detail($id)
+    {
+        $this->load->model('Admin_model');
+        $id = (int) $id;
+
+        $user = $this->Admin_model->get_user_detail($id);
+        if (!$user) {
+            $this->session->set_flashdata('error', 'User tidak ditemukan.');
+            redirect('admin/users');
+            return;
+        }
+
+        $data = [
+            'page_title'     => 'User Detail',
+            'user'           => $user,
+            'balance'        => $this->Admin_model->get_user_balance($id),
+            'rentals'        => $this->Admin_model->get_user_rentals($id),
+            'wallet_history' => $this->Admin_model->get_wallet_history($id, 20),
+            'downline'       => $this->Admin_model->get_downline($id),
+            'products'       => $this->Admin_model->get_active_products(),
+        ];
+
+        $this->load->view('admin/templates/header', $data);
+        $this->load->view('admin/templates/sidebar', $data);
+        $this->load->view('admin/templates/topbar', $data);
+        $this->load->view('admin/user_detail', $data);
+        $this->load->view('admin/templates/footer');
+    }
+
+    public function update_user($id)
+    {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/user_detail/' . $id);
+            return;
+        }
+
+        $this->load->model('Admin_model');
+        $id = (int) $id;
+
+        $this->form_validation->set_rules('username', 'Username', 'trim|max_length[50]');
+        $this->form_validation->set_rules('phone', 'Phone', 'required|trim');
+        $this->form_validation->set_rules('invite_code', 'Invite Code', 'required|trim|max_length[10]');
+
+        if ($this->form_validation->run() === FALSE) {
+            $this->session->set_flashdata('error', validation_errors());
+            redirect('admin/user_detail/' . $id);
+            return;
+        }
+
+        $phone       = $this->_normalize_phone($this->input->post('phone', TRUE));
+        $_POST['phone'] = $phone;
+        $username    = $this->input->post('username', TRUE);
+        $invite_code = $this->input->post('invite_code', TRUE);
+        $upline_code = trim($this->input->post('upline_invite_code', TRUE));
+
+        // Unique checks
+        if ($this->Admin_model->is_invite_code_taken($invite_code, $id)) {
+            $this->session->set_flashdata('error', 'Invite code sudah digunakan user lain.');
+            redirect('admin/user_detail/' . $id);
+            return;
+        }
+        $phone_exists = $this->db->where('phone', $phone)->where('id !=', $id)->count_all_results('users');
+        if ($phone_exists > 0) {
+            $this->session->set_flashdata('error', 'Nomor telepon sudah digunakan user lain.');
+            redirect('admin/user_detail/' . $id);
+            return;
+        }
+
+        // Upline resolution
+        if ($upline_code !== '') {
+            $upline = $this->Admin_model->resolve_upline($upline_code);
+            if (!$upline) {
+                $this->session->set_flashdata('error', 'Upline invite code tidak ditemukan.');
+                redirect('admin/user_detail/' . $id);
+                return;
+            }
+            if ($upline->id == $id) {
+                $this->session->set_flashdata('error', 'User tidak bisa menjadi upline diri sendiri.');
+                redirect('admin/user_detail/' . $id);
+                return;
+            }
+            if ($this->Admin_model->has_ancestor($id, $upline->id)) {
+                $this->session->set_flashdata('error', 'Upline tidak valid — akan membuat siklus.');
+                redirect('admin/user_detail/' . $id);
+                return;
+            }
+            $this->Admin_model->update_parent_id($id, $upline->id);
+        }
+
+        $this->Admin_model->update_user_profile($id, [
+            'username'    => $username,
+            'phone'       => $phone,
+            'invite_code' => $invite_code,
+        ]);
+
+        $this->session->set_flashdata('success', 'Profil user berhasil diperbarui.');
+        redirect('admin/user_detail/' . $id);
+    }
+
+    public function toggle_ban($id)
+    {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/user_detail/' . $id);
+            return;
+        }
+        $this->load->model('Admin_model');
+        $new_state = $this->Admin_model->toggle_ban($id);
+
+        if ($new_state === FALSE) {
+            $this->session->set_flashdata('error', 'User tidak ditemukan.');
+        } elseif ($new_state) {
+            $this->session->set_flashdata('success', 'User berhasil DIBANNED.');
+        } else {
+            $this->session->set_flashdata('success', 'User berhasil di-UNBAN.');
+        }
+        redirect('admin/user_detail/' . $id);
+    }
+
+    public function inject_balance($id)
+    {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/user_detail/' . $id);
+            return;
+        }
+
+        $this->load->model('Admin_model');
+        $id     = (int) $id;
+        $type   = $this->input->post('type', TRUE);
+        $amount = floatval($this->input->post('amount', TRUE));
+        $desc   = $this->input->post('description', TRUE) ?: 'Admin Manual Adjustment';
+
+        if (!in_array($type, ['credit', 'debit']) || $amount <= 0) {
+            $this->session->set_flashdata('error', 'Data inject tidak valid.');
+            redirect('admin/user_detail/' . $id);
+            return;
+        }
+
+        if ($this->Admin_model->inject_balance($id, $type, $amount, $desc)) {
+            $label = strtoupper($type);
+            $this->session->set_flashdata('success', "Balance {$label}: Rp " . number_format($amount, 0, ',', '.') . " berhasil.");
+        } else {
+            $this->session->set_flashdata('error', 'Gagal inject balance.');
+        }
+        redirect('admin/user_detail/' . $id);
+    }
+
+    public function inject_rental($id)
+    {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/user_detail/' . $id);
+            return;
+        }
+
+        $this->load->model('Admin_model');
+        $id         = (int) $id;
+        $product_id = (int) $this->input->post('product_id', TRUE);
+
+        if ($product_id <= 0) {
+            $this->session->set_flashdata('error', 'Pilih produk terlebih dahulu.');
+            redirect('admin/user_detail/' . $id);
+            return;
+        }
+
+        if ($this->Admin_model->inject_rental($id, $product_id)) {
+            $this->session->set_flashdata('success', 'Rental berhasil di-inject (BYPASS balance).');
+        } else {
+            $this->session->set_flashdata('error', 'Gagal inject rental.');
+        }
+        redirect('admin/user_detail/' . $id);
+    }
+
+    public function cancel_rental($rental_id)
+    {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/users');
+            return;
+        }
+
+        $this->load->model('Admin_model');
+        $rental = $this->db->where('id', $rental_id)->get('user_rentals')->row();
+
+        if (!$rental) {
+            $this->session->set_flashdata('error', 'Rental tidak ditemukan.');
+            redirect('admin/users');
+            return;
+        }
+
+        $this->Admin_model->cancel_rental($rental_id);
+        $this->session->set_flashdata('success', 'Rental #' . $rental_id . ' berhasil dicancel.');
+        redirect('admin/user_detail/' . $rental->user_id);
+    }
+
+    public function adjust_time($rental_id)
+    {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/users');
+            return;
+        }
+
+        $this->load->model('Admin_model');
+        $rental = $this->db->where('id', $rental_id)->get('user_rentals')->row();
+
+        if (!$rental) {
+            $this->session->set_flashdata('error', 'Rental tidak ditemukan.');
+            redirect('admin/users');
+            return;
+        }
+
+        $last_claimed_at = $this->input->post('last_claimed_at', TRUE);
+        $days_processed  = (int) $this->input->post('days_processed', TRUE);
+
+        if (!$last_claimed_at || $days_processed < 0) {
+            $this->session->set_flashdata('error', 'Data time travel tidak valid.');
+            redirect('admin/user_detail/' . $rental->user_id);
+            return;
+        }
+
+        $this->Admin_model->adjust_rental_time($rental_id, $last_claimed_at, $days_processed);
+        $this->session->set_flashdata('success', 'Rental #' . $rental_id . ' — Time Travel berhasil!');
+        redirect('admin/user_detail/' . $rental->user_id);
+    }
+
+    // ===================================================================
+    //  CREATE NEW USER (Admin Bypass Referral)
+    // ===================================================================
+
+    public function create_user()
+    {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/users');
+            return;
+        }
+
+        $this->load->model('Admin_model');
+
+        $this->form_validation->set_rules('phone', 'Phone', 'required|trim|is_unique[users.phone]');
+        $this->form_validation->set_rules('password', 'Password', 'required|min_length[8]');
+
+        if ($this->form_validation->run() === FALSE) {
+            $this->session->set_flashdata('error', validation_errors());
+            redirect('admin/users');
+            return;
+        }
+
+        $phone       = $this->_normalize_phone($this->input->post('phone', TRUE));
+        $_POST['phone'] = $phone;
+        $password    = $this->input->post('password', TRUE);
+        $upline_code = trim($this->input->post('upline_invite_code', TRUE));
+
+        // Auto-generate 6-char alphanumeric invite code
+        $invite_code = $this->Admin_model->generate_invite_code();
+
+        // Resolve upline — empty = root node (parent_id NULL)
+        $parent_id = null;
+        if ($upline_code !== '') {
+            $upline = $this->Admin_model->resolve_upline($upline_code);
+            if (!$upline) {
+                $this->session->set_flashdata('error', 'Upline invite code tidak ditemukan.');
+                redirect('admin/users');
+                return;
+            }
+            $parent_id = $upline->id;
+        }
+
+        $user_id = $this->Admin_model->create_user([
+            'phone'       => $phone,
+            'password'    => password_hash($password, PASSWORD_DEFAULT),
+            'invite_code' => $invite_code,
+            'parent_id'   => $parent_id,
+            'role'        => 'user',
+            'is_banned'   => 0,
+            'balance'     => 0,
+            'created_at'  => date('Y-m-d H:i:s'),
+        ]);
+
+        if ($user_id) {
+            $this->session->set_flashdata('success', "Pengguna berhasil dibuat! Invite Code: {$invite_code}");
+        } else {
+            $this->session->set_flashdata('error', 'Gagal membuat pengguna.');
+        }
+        redirect('admin/users');
+    }
+
+    // ===================================================================
+    //  FORCE RESET PASSWORD
+    // ===================================================================
+
+    public function reset_password($user_id)
+    {
+        if ($this->input->method() !== 'post') {
+            redirect('admin/users');
+            return;
+        }
+
+        $this->load->model('Admin_model');
+        $user_id = (int) $user_id;
+
+        if (!$this->Admin_model->user_exists($user_id)) {
+            $this->session->set_flashdata('error', 'User tidak ditemukan.');
+            redirect('admin/users');
+            return;
+        }
+
+        $this->form_validation->set_rules('new_password', 'Password Baru', 'required|min_length[8]');
+
+        if ($this->form_validation->run() === FALSE) {
+            $this->session->set_flashdata('error', validation_errors());
+            redirect('admin/user_detail/' . $user_id);
+            return;
+        }
+
+        $new_password = $this->input->post('new_password', TRUE);
+        $hashed = password_hash($new_password, PASSWORD_DEFAULT);
+
+        if ($this->Admin_model->force_reset_password($user_id, $hashed)) {
+            $this->session->set_flashdata('success', 'Kata sandi berhasil di-reset.');
+        } else {
+            $this->session->set_flashdata('error', 'Gagal mereset kata sandi.');
+        }
+        redirect('admin/user_detail/' . $user_id);
     }
 }

@@ -71,4 +71,12 @@ class Rental_model extends CI_Model {
             'user_id' => $user_id,
         ])->row();
     }
+
+    public function has_active_rental($user_id) {
+        return $this->db->where('user_id', $user_id)
+                        ->where('status', 'active')
+                        ->limit(1)
+                        ->get('user_rentals')
+                        ->num_rows() > 0;
+    }
 }

@@ -6,6 +6,7 @@ class Wallet extends MY_Controller {
     public function __construct() {
         parent::__construct();
         $this->load->model('Wallet_model');
+        $this->load->model('Rental_model');
     }
 
     public function index() {
@@ -17,6 +18,8 @@ class Wallet extends MY_Controller {
             'pending'               => $this->Wallet_model->get_pending_deposits($user_id),
             'pending_withdrawals'   => $this->Wallet_model->get_pending_withdrawals($user_id),
             'has_pending_wd'        => $this->Wallet_model->has_pending_withdrawal($user_id),
+            'has_active_rental'     => $this->Rental_model->has_active_rental($user_id),
+            'daily_limit_reached'   => $this->Wallet_model->has_reached_daily_wd_limit($user_id),
             'ledger'                => $this->Wallet_model->get_ledger_history($user_id),
         ];
 
@@ -51,42 +54,105 @@ class Wallet extends MY_Controller {
         redirect('wallet');
     }
 
+    // ===== WITHDRAWAL (GET: show form) =====
+
     public function withdraw() {
         $user_id = $this->session->userdata('user_id');
 
-        // Hard-stop: reject if pending withdrawal already exists
+        // Gatekeeper 1: pending withdrawal
         if ($this->Wallet_model->has_pending_withdrawal($user_id)) {
             $this->session->set_flashdata('error', 'Anda masih memiliki penarikan yang sedang diproses.');
             redirect('wallet');
             return;
         }
 
-        $amount  = preg_replace('/[^0-9]/', '', $this->input->post('amount'));
-        $bank    = $this->input->post('bank_name');
-        $acc_num = $this->input->post('account_number');
-        $acc_name = $this->input->post('account_holder');
+        // Gatekeeper 2: active rental required
+        if (!$this->Rental_model->has_active_rental($user_id)) {
+            $this->session->set_flashdata('error', 'Anda harus memiliki minimal 1 produk sewa aktif untuk melakukan penarikan.');
+            redirect('wallet');
+            return;
+        }
 
+        // Gatekeeper 3: daily limit
+        if ($this->Wallet_model->has_reached_daily_wd_limit($user_id)) {
+            $this->session->set_flashdata('error', 'Batas penarikan harian tercapai. Anda sudah melakukan penarikan hari ini.');
+            redirect('wallet');
+            return;
+        }
+
+        // Gatekeeper 4: bank must be bound
+        $bank = $this->Wallet_model->get_user_bank($user_id);
+        if (empty($bank)) {
+            $this->session->set_flashdata('error', 'Anda belum mengikat rekening bank. Silakan ikat rekening terlebih dahulu.');
+            redirect('wallet/bind_bank');
+            return;
+        }
+
+        $data = [
+            'page_title' => 'Penarikan Dana',
+            'balance'    => $this->Wallet_model->get_balance($user_id),
+            'bank'       => $bank,
+        ];
+
+        $this->load->view('templates/header', $data);
+        $this->load->view('wallet/withdraw', $data);
+        $this->load->view('templates/bottom_nav');
+    }
+
+    // ===== WITHDRAWAL (POST: process) =====
+
+    public function process_withdraw() {
+        $user_id = $this->session->userdata('user_id');
+
+        // Same gatekeepers as withdraw() GET
+        if ($this->Wallet_model->has_pending_withdrawal($user_id)) {
+            $this->session->set_flashdata('error', 'Anda masih memiliki penarikan yang sedang diproses.');
+            redirect('wallet');
+            return;
+        }
+
+        if (!$this->Rental_model->has_active_rental($user_id)) {
+            $this->session->set_flashdata('error', 'Anda harus memiliki minimal 1 produk sewa aktif untuk melakukan penarikan.');
+            redirect('wallet');
+            return;
+        }
+
+        if ($this->Wallet_model->has_reached_daily_wd_limit($user_id)) {
+            $this->session->set_flashdata('error', 'Batas penarikan harian tercapai.');
+            redirect('wallet');
+            return;
+        }
+
+        // Fetch bank_account_id server-side — zero client bank input
+        $bank = $this->Wallet_model->get_user_bank($user_id);
+        if (empty($bank)) {
+            $this->session->set_flashdata('error', 'Anda belum mengikat rekening bank.');
+            redirect('wallet/bind_bank');
+            return;
+        }
+
+        $amount = preg_replace('/[^0-9]/', '', $this->input->post('amount'));
         $user_balance = $this->Wallet_model->get_balance($user_id);
 
         if ($amount <= 0) {
             $this->session->set_flashdata('error', 'Nominal penarikan tidak valid.');
-            redirect('wallet');
+            redirect('wallet/withdraw');
             return;
         }
 
         if ($amount < 100000) {
             $this->session->set_flashdata('error', 'Minimal penarikan adalah Rp 100.000');
-            redirect('wallet');
+            redirect('wallet/withdraw');
             return;
         }
 
         if ($user_balance < $amount) {
             $this->session->set_flashdata('error', 'Saldo tidak mencukupi untuk penarikan');
-            redirect('wallet');
+            redirect('wallet/withdraw');
             return;
         }
 
-        $result = $this->Wallet_model->create_withdrawal($user_id, $amount, $bank, $acc_num, $acc_name);
+        $result = $this->Wallet_model->create_withdrawal($user_id, $amount, $bank->id);
 
         if ($result) {
             $this->session->set_flashdata('success', 'Permintaan penarikan berhasil diajukan');
@@ -107,5 +173,65 @@ class Wallet extends MY_Controller {
         }
 
         redirect('wallet');
+    }
+
+    // ===== BANK BINDING (IMMUTABLE) =====
+
+    public function bind_bank() {
+        $user_id = $this->session->userdata('user_id');
+        $existing_bank = $this->Wallet_model->get_user_bank($user_id);
+
+        // POST: Backend Bypass Protection
+        if ($this->input->post()) {
+            if ($existing_bank) {
+                $this->session->set_flashdata('error', 'Rekening sudah terikat dan tidak dapat diubah.');
+                redirect('wallet/bind_bank');
+                return;
+            }
+
+            $bank_name      = $this->input->post('bank_name');
+            $account_number = $this->input->post('account_number');
+            $account_holder = $this->input->post('account_holder');
+
+            // Validation
+            if (empty($bank_name) || empty($account_number) || empty($account_holder)) {
+                $this->session->set_flashdata('error', 'Semua field wajib diisi.');
+                redirect('wallet/bind_bank');
+                return;
+            }
+
+            if (!preg_match('/^[0-9]+$/', $account_number) || strlen($account_number) < 8) {
+                $this->session->set_flashdata('error', 'Nomor rekening harus numeric minimal 8 digit.');
+                redirect('wallet/bind_bank');
+                return;
+            }
+
+            $data = [
+                'user_id'        => $user_id,
+                'bank_name'      => $bank_name,
+                'account_number' => $account_number,
+                'account_holder' => $account_holder,
+                'is_primary'     => 1,
+            ];
+
+            if ($this->Wallet_model->insert_bank($data)) {
+                $this->session->set_flashdata('success', 'Rekening berhasil diikat.');
+            } else {
+                $this->session->set_flashdata('error', 'Gagal menyimpan data rekening.');
+            }
+
+            redirect('wallet/bind_bank');
+            return;
+        }
+
+        // GET: Render view
+        $data = [
+            'page_title'    => 'Bind Rekening',
+            'existing_bank' => $existing_bank,
+        ];
+
+        $this->load->view('templates/header', $data);
+        $this->load->view('wallet/bank_bind', $data);
+        $this->load->view('templates/bottom_nav');
     }
 }

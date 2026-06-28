@@ -36,10 +36,18 @@
                 <button disabled class="flex-1 bg-slate-600 text-slate-300 text-sm font-bold py-2.5 rounded-xl cursor-not-allowed opacity-60">
                     <i class="fas fa-hourglass-half mr-1"></i> Menunggu Persetujuan
                 </button>
-                <?php else: ?>
-                <button type="button" id="btn-open-wd" class="flex-1 bg-orange-500 hover:bg-orange-400 text-white text-sm font-bold py-2.5 rounded-xl transition">
-                    <i class="fas fa-arrow-down mr-1"></i> Tarik Dana
+                <?php elseif (empty($has_active_rental)): ?>
+                <button disabled class="flex-1 bg-slate-400 text-white text-sm font-bold py-2.5 rounded-xl cursor-not-allowed opacity-60">
+                    <i class="fas fa-lock mr-1"></i> Pinjaman Aktif
                 </button>
+                <?php elseif (!empty($daily_limit_reached)): ?>
+                <button disabled class="flex-1 bg-slate-600 text-slate-300 text-sm font-bold py-2.5 rounded-xl cursor-not-allowed opacity-60">
+                    <i class="fas fa-calendar-check mr-1"></i> Batas Harian
+                </button>
+                <?php else: ?>
+                <a href="<?= base_url('wallet/withdraw') ?>" class="flex-1 bg-orange-500 hover:bg-orange-400 text-white text-sm font-bold py-2.5 rounded-xl transition text-center no-underline">
+                    <i class="fas fa-arrow-down mr-1"></i> Tarik Dana
+                </a>
                 <?php endif; ?>
             </div>
         </div>
@@ -165,83 +173,6 @@
 
 </div>
 
-<!-- ===== WITHDRAWAL BOTTOM SHEET MODAL ===== -->
-<div id="withdrawalModal" class="fixed inset-0 z-[60] hidden">
-    <!-- Backdrop -->
-    <div id="wd-backdrop" class="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"></div>
-
-    <!-- Sheet -->
-    <div id="wd-sheet" class="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl transform translate-y-full transition-transform duration-300 ease-out max-h-[85vh] overflow-y-auto">
-
-        <!-- Handle -->
-        <div class="flex justify-center pt-3 pb-1">
-            <div class="w-10 h-1 bg-slate-300 rounded-full"></div>
-        </div>
-
-        <!-- Header -->
-        <div class="px-5 pb-4 flex items-center justify-between border-b border-slate-100">
-            <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
-                <i class="fas fa-arrow-down text-orange-500"></i> Tarik Dana
-            </h3>
-            <button type="button" id="btn-close-wd" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition">
-                <i class="fas fa-times text-slate-500 text-xs"></i>
-            </button>
-        </div>
-
-        <!-- Balance indicator -->
-        <div class="px-5 pt-4 pb-2">
-            <div class="bg-slate-50 rounded-xl p-3 flex items-center justify-between">
-                <span class="text-xs text-slate-500">Saldo Tersedia</span>
-                <span class="text-sm font-bold font-mono text-slate-900">Rp <?= number_format($balance, 0, ',', '.') ?></span>
-            </div>
-        </div>
-
-        <!-- Form -->
-        <?= form_open('wallet/withdraw', 'id="withdrawalForm"'); ?>
-        <div class="px-5 pt-4 pb-6 space-y-4">
-
-            <!-- Nominal Penarikan -->
-            <div>
-                <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nominal Penarikan</label>
-                <div class="relative">
-                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">Rp</span>
-                    <input type="number" name="amount" required min="100000" placeholder="Masukkan nominal" class="w-full bg-white border border-slate-200 rounded-xl py-3 pl-10 pr-4 text-right text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent">
-                </div>
-                <p class="mt-1.5 text-xs text-slate-500">Minimal penarikan: Rp 100.000</p>
-            </div>
-
-            <!-- Nama Bank -->
-            <div>
-                <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nama Bank</label>
-                <select name="bank_name" required class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent appearance-none">
-                    <option value="" disabled selected>Pilih Bank</option>
-                    <option value="BCA">BCA</option>
-                    <option value="Mandiri">Mandiri</option>
-                    <option value="BRI">BRI</option>
-                    <option value="BNI">BNI</option>
-                </select>
-            </div>
-
-            <!-- Nomor Rekening -->
-            <div>
-                <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nomor Rekening</label>
-                <input type="text" name="account_number" required placeholder="Masukkan nomor rekening" class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent font-mono">
-            </div>
-
-            <!-- Nama Pemilik Rekening -->
-            <div>
-                <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nama Pemilik Rekening</label>
-                <input type="text" name="account_holder" required placeholder="Sesuai buku tabungan" class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent">
-            </div>
-
-            <!-- Submit -->
-            <button type="submit" class="w-full bg-slate-950 hover:bg-slate-800 text-white text-sm font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2">
-                <i class="fas fa-paper-plane"></i> Ajukan Penarikan
-            </button>
-        </div>
-        <?= form_close(); ?>
-    </div>
-</div>
 
 <!-- ===== JAVASCRIPT ===== -->
 <script>
@@ -299,39 +230,4 @@ if(btnToggleTopup && topupFormContainer) {
         }
     });
 }
-
-/* --- Withdrawal Bottom Sheet --- */
-(function() {
-    var modal   = document.getElementById('withdrawalModal');
-    var sheet   = document.getElementById('wd-sheet');
-    var backdrop = document.getElementById('wd-backdrop');
-    var btnOpen = document.getElementById('btn-open-wd');
-    var btnClose = document.getElementById('btn-close-wd');
-
-    function openWdModal() {
-        modal.classList.remove('hidden');
-        // Force reflow then animate
-        void modal.offsetWidth;
-        backdrop.style.opacity = '0';
-        sheet.style.transform = 'translateY(100%)';
-        requestAnimationFrame(function() {
-            backdrop.style.opacity = '1';
-            sheet.style.transform = 'translateY(0)';
-        });
-        document.body.style.overflow = 'hidden';
-    }
-
-    function closeWdModal() {
-        backdrop.style.opacity = '0';
-        sheet.style.transform = 'translateY(100%)';
-        setTimeout(function() {
-            modal.classList.add('hidden');
-            document.body.style.overflow = '';
-        }, 300);
-    }
-
-    if (btnOpen)  btnOpen.addEventListener('click', openWdModal);
-    if (btnClose) btnClose.addEventListener('click', closeWdModal);
-    if (backdrop) backdrop.addEventListener('click', closeWdModal);
-})();
 </script>

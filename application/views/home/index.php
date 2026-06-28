@@ -31,8 +31,8 @@
             <div>
                 <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Kode Undangan</span>
                 <div class="flex items-center gap-2 mt-1">
-                    <span class="inline-block px-3 py-1 bg-slate-100 rounded-lg text-sm font-bold text-slate-900 tracking-widest"><?= $user->invite_code ?></span>
-                    <button onclick="navigator.clipboard.writeText('<?= $user->invite_code ?>').then(function(){document.getElementById('copy-toast').classList.remove('opacity-0');setTimeout(function(){document.getElementById('copy-toast').classList.add('opacity-0')},2000);})" class="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors" title="Salin">
+                    <span id="inviteCodeText" class="inline-block px-3 py-1 bg-slate-100 rounded-lg text-sm font-bold text-slate-900 tracking-widest\"><?= $user->invite_code ?></span>
+                    <button id="btnCopyInvite" class="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors" title="Salin">
                         <i class="fas fa-copy text-slate-500 text-xs"></i>
                         <span class="text-[11px] font-semibold text-slate-600">Salin</span>
                     </button>
@@ -48,6 +48,60 @@
     <div id="copy-toast" class="fixed left-1/2 -translate-x-1/2 bottom-24 px-4 py-2 bg-slate-900 text-white text-xs font-medium rounded-xl opacity-0 transition-opacity duration-300 z-50 shadow-lg pointer-events-none">
         Berhasil disalin!
     </div>
+
+    <script>
+    (function () {
+        var btn = document.getElementById('btnCopyInvite');
+        var codeEl = document.getElementById('inviteCodeText');
+        var toast = document.getElementById('copy-toast');
+        var iconEl = btn.querySelector('i');
+        var labelEl = btn.querySelector('span');
+
+        btn.addEventListener('click', function () {
+            var code = codeEl.textContent.trim();
+
+            function onSuccess() {
+                labelEl.textContent = 'Tersalin!';
+                iconEl.className = 'fas fa-check text-white text-xs';
+                btn.classList.remove('bg-slate-100', 'hover:bg-slate-200');
+                btn.classList.add('bg-emerald-500');
+
+                toast.classList.remove('opacity-0');
+
+                setTimeout(function () {
+                    labelEl.textContent = 'Salin';
+                    iconEl.className = 'fas fa-copy text-slate-500 text-xs';
+                    btn.classList.remove('bg-emerald-500');
+                    btn.classList.add('bg-slate-100', 'hover:bg-slate-200');
+                    toast.classList.add('opacity-0');
+                }, 2000);
+            }
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(code).then(onSuccess).catch(function () {
+                    fallbackCopy(code);
+                });
+            } else {
+                fallbackCopy(code);
+            }
+
+            function fallbackCopy(text) {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px';
+                document.body.appendChild(ta);
+                ta.select();
+                try {
+                    document.execCommand('copy');
+                    onSuccess();
+                } catch (e) {
+                    alert('Gagal menyalin kode.');
+                }
+                document.body.removeChild(ta);
+            }
+        });
+    })();
+    </script>
 
     <!-- ═══ Visual Stats Section ═══ -->
     <div>

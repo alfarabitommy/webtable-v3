@@ -135,4 +135,20 @@ CREATE TABLE IF NOT EXISTS `otp_logs` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- -----------------------------------------------------
+-- Table `site_settings` (dynamic key-value settings)
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `site_settings` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `key_name` VARCHAR(50) NOT NULL,
+  `setting_value` TEXT NOT NULL,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_key_name` (`key_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `site_settings` (`key_name`, `setting_value`) VALUES
+('wa_number', '628000000000'),
+('support_email', 'support@synapse.id');
+
 SET FOREIGN_KEY_CHECKS = 1;

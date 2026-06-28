@@ -1,4 +1,12 @@
 <!-- ═══ Infrastruktur Aktif — Dark Server Blade Aesthetic ═══ -->
+
+<!-- ═══ HELP BUTTON ═══ -->
+<div class="px-4 pt-4">
+    <button onclick="openRentalHelpModal()" class="w-full flex items-center justify-center gap-2 bg-indigo-500/10 text-indigo-400 text-[11px] font-bold py-2 px-4 rounded-xl border border-indigo-500/20 transition-all active:scale-95">
+        <i class="fas fa-info-circle"></i> Cara Kerja Bonus
+    </button>
+</div>
+
 <style>
     .blade-bg {
         background: linear-gradient(180deg, #0b1120 0%, #111827 40%, #0f172a 100%);
@@ -37,15 +45,6 @@
     .card-hover:active {
         transform: scale(0.985);
     }
-    .btn-claim {
-        background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
-        box-shadow: 0 4px 20px rgba(37, 99, 235, 0.35), 0 0 40px rgba(79, 70, 229, 0.1);
-        transition: all 0.2s;
-    }
-    .btn-claim:active {
-        transform: scale(0.96);
-        box-shadow: 0 2px 10px rgba(37, 99, 235, 0.25);
-    }
     .data-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -64,6 +63,18 @@
         text-transform: uppercase;
         color: #64748b;
         font-weight: 700;
+    }
+    .progress-bar {
+        height: 6px;
+        background: rgba(30, 41, 59, 0.8);
+        border-radius: 9999px;
+        overflow: hidden;
+    }
+    .progress-fill {
+        height: 100%;
+        border-radius: 9999px;
+        background: linear-gradient(90deg, #3b82f6, #6366f1);
+        transition: width 0.6s ease;
     }
 </style>
 
@@ -111,16 +122,25 @@
     <!-- ═══ Active Rental Cards ═══ -->
     <?php foreach ($rentals as $rental): ?>
         <?php
-        $is_claimed = false;
-        if (!empty($rental->last_claimed_at)) {
-            $last_claim_date = date('Y-m-d', strtotime($rental->last_claimed_at));
-            if (date('Y-m-d') === $last_claim_date) {
-                $is_claimed = true;
-            }
-        }
+        // $actual_claimable is pre-calculated by controller
+        $actual_claimable = (int) ($rental->actual_claimable ?? 0);
 
         $expired = strtotime($rental->expired_at);
         $days_left = max(0, ceil(($expired - time()) / 86400));
+
+        // Progress bar percentage
+        $total_days = max(1, (int) $rental->total_days);
+        $days_processed = (int) $rental->days_processed;
+        $progress_pct = min(100, ($days_processed / $total_days) * 100);
+
+        // Check if already claimed today (for disabled state)
+        $is_claimed_today = false;
+        if (!empty($rental->last_claimed_at)) {
+            $last_claim_date = date('Y-m-d', strtotime($rental->last_claimed_at));
+            if (date('Y-m-d') === $last_claim_date) {
+                $is_claimed_today = true;
+            }
+        }
         ?>
 
     <div class="glow-border bg-slate-900 border border-slate-700/60 rounded-2xl p-5 mb-4 shadow-xl relative overflow-hidden card-hover">
@@ -130,7 +150,7 @@
         <!-- Header Row -->
         <div class="relative flex items-start justify-between mb-4">
             <div class="flex-1 min-w-0">
-                <h3 class="text-base font-extrabold text-white truncate"><?= htmlspecialchars($rental->product_name ?? 'Node #' . $rental->product_id) ?></h3>
+                <h3 class="text-base font-extrabold text-white truncate\"><?= htmlspecialchars($rental->product_name ?? 'Node #' . $rental->product_id) ?></h3>
                 <p class="text-[10px] text-slate-500 mt-0.5 font-mono">ID: #<?= $rental->id ?> · <?= date('d M Y', strtotime($rental->created_at)) ?></p>
             </div>
             <div class="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2.5 py-1 ml-3 flex-shrink-0">
@@ -152,20 +172,32 @@
         </div>
 
         <!-- Expiry Info -->
-        <div class="relative flex items-center justify-between text-[11px] text-slate-500 mb-1">
+        <div class="relative flex items-center justify-between text-[11px] text-slate-500 mb-2">
             <span><i class="fas fa-clock mr-1"></i> Berakhir: <?= date('d M Y', $expired) ?></span>
             <span class="font-mono <?= $days_left <= 3 ? 'text-rose-400' : 'text-slate-500' ?>"><?= $days_left ?> hari lagi</span>
         </div>
 
+        <!-- Progress Bar -->
+        <div class="relative progress-bar mb-1">
+            <div class="progress-fill" style="width: <?= $progress_pct ?>%"></div>
+        </div>
+        <p class="text-[10px] text-slate-500 mb-4 font-mono">
+            Hari klaim: <?= $days_processed ?>/<?= $total_days ?> · <span class="text-slate-400">Maksimal ROI tertampung: 2 Hari</span>
+        </p>
+
         <!-- Claim Button -->
-        <?php if ($is_claimed): ?>
-        <button disabled class="w-full h-12 mt-4 bg-slate-800 text-slate-500 font-bold text-sm rounded-xl cursor-not-allowed border border-slate-700/50 flex justify-center items-center gap-2">
-            <i class="fas fa-check-circle text-slate-600"></i> Penghasilan Hari Ini Telah Diklaim
+        <?php if ($is_claimed_today): ?>
+        <button disabled class="w-full h-12 bg-slate-800 text-slate-500 font-bold text-sm rounded-xl cursor-not-allowed border border-slate-700/50 flex justify-center items-center gap-2">
+            <i class="fas fa-check-circle text-slate-600"></i> Sudah Diklaim
+        </button>
+        <?php elseif ($actual_claimable <= 0 && $days_processed >= $total_days): ?>
+        <button disabled class="w-full h-12 bg-slate-800 text-slate-500 font-bold text-sm rounded-xl cursor-not-allowed border border-slate-700/50 flex justify-center items-center gap-2">
+            <i class="fas fa-lock text-slate-600"></i> Kontrak Habis
         </button>
         <?php else: ?>
         <?php echo form_open('rentals/claim/' . $rental->id, ['class' => 'w-full m-0 p-0']); ?>
             <button type="submit" class="w-full h-12 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-[0_0_15px_rgba(37,99,235,0.4)] transform transition active:scale-95 flex justify-center items-center gap-2">
-                <i class="fas fa-bolt text-yellow-400"></i> Klaim Rp <?= number_format($rental->daily_roi, 0, ',', '.') ?>
+                <i class="fas fa-bolt text-yellow-400"></i> Klaim Rp <?= number_format($rental->daily_roi * $actual_claimable, 0, ',', '.') ?><?= $actual_claimable >= 2 ? ' <span class="text-[10px] font-normal opacity-80">(2 Hari)</span>' : '' ?>
             </button>
         <?php echo form_close(); ?>
         <?php endif; ?>
@@ -176,16 +208,22 @@
     <!-- ═══ Summary Bar ═══ -->
     <?php
         $total_roi = 0;
-        foreach ($rentals as $rental) { $total_roi += $rental->daily_roi; }
+        $total_pending = 0;
+        foreach ($rentals as $rental) {
+            $total_roi += $rental->daily_roi;
+            $actual = (int) ($rental->actual_claimable ?? 0);
+            $total_pending += $actual * $rental->daily_roi;
+        }
     ?>
     <div class="relative bg-gradient-to-br from-slate-800 via-slate-900 to-indigo-950 border border-slate-700/50 rounded-xl p-4 mt-2 shadow-xl overflow-hidden shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
         <div class="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500"></div>
         <div class="flex items-center justify-between relative z-10">
             <div class="flex-1">
                 <span class="text-[10px] text-slate-500 uppercase tracking-widest font-bold flex items-center gap-1.5">
-                    <i class="fas fa-chart-line text-blue-400"></i> Estimasi Penghasilan/Hari
+                    <i class="fas fa-chart-line text-blue-400"></i> Estimasi Klaimable
                 </span>
-                <p class="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400">Rp <?= number_format($total_roi, 0, ',', '.') ?></p>
+                <p class="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400">Rp <?= number_format($total_pending, 0, ',', '.') ?></p>
+                <p class="text-[10px] text-slate-500 mt-0.5">Potensi/Hari: Rp <?= number_format($total_roi, 0, ',', '.') ?></p>
             </div>
             <div class="border-l border-slate-700/50 pl-4 text-right min-w-[100px]">
                 <span class="text-[10px] text-slate-500 uppercase tracking-widest font-bold flex items-center justify-end gap-1.5">
@@ -198,3 +236,51 @@
 
     <?php endif; ?>
 </div>
+
+<!-- ═══ HELP MODAL — Rental Rules Bottom Sheet ═══ -->
+<div id="rentalHelpModal" class="fixed inset-0 z-[60] hidden">
+    <div class="absolute inset-0 bg-black/50" onclick="closeRentalHelpModal()"></div>
+    <div class="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl max-h-[80vh] overflow-y-auto transform translate-y-full transition-transform duration-300" id="rentalHelpSheet">
+        <div class="sticky top-0 bg-white px-5 pt-5 pb-3 border-b border-slate-100 rounded-t-3xl">
+            <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+            <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fas fa-info-circle text-indigo-500"></i> Cara Kerja Klaim ROI</h3>
+        </div>
+        <div class="px-5 py-4 space-y-4">
+            <!-- 2-Day Accumulation -->
+            <div class="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
+                <h4 class="text-xs font-bold text-indigo-700 mb-2"><i class="fas fa-clock mr-1"></i> Akumulasi Maks 2 Hari</h4>
+                <p class="text-[11px] text-slate-600 leading-relaxed">ROI harian diakumulasi hingga <b>maksimal 2 hari</b>. Setelah 2 hari tanpa klaim, hari ke-3 dan seterusnya <b>hilang</b>.</p>
+                <p class="text-[10px] text-indigo-500 mt-2 font-semibold">Contoh: Aktif 3 hari tanpa klaim → hanya 2 hari yang bisa diklaim.</p>
+            </div>
+            <!-- Use It or Lose It -->
+            <div class="bg-amber-50 rounded-xl p-4 border border-amber-100">
+                <h4 class="text-xs font-bold text-amber-700 mb-2"><i class="fas fa-exclamation-triangle mr-1"></i> Gunakan atau Hangus</h4>
+                <p class="text-[11px] text-slate-600 leading-relaxed">ROI yang belum diklaim akan <b>hangus</b> melewati batas akumulasi. Klaim secara berkala untuk memaksimalkan penghasilan!</p>
+            </div>
+            <!-- Over-payment Protection -->
+            <div class="bg-emerald-50 rounded-xl p-4 border border-emerald-100">
+                <h4 class="text-xs font-bold text-emerald-700 mb-2"><i class="fas fa-shield-alt mr-1"></i> Perlindungan Over-payment</h4>
+                <p class="text-[11px] text-slate-600 leading-relaxed">Jika total klaim ROI melebihi harga beli sewa, kelebihan otomatis dikreditkan ke <b>saldo wallet</b> Anda. Tidak ada yang hilang!</p>
+            </div>
+            <!-- Close Button -->
+            <button onclick="closeRentalHelpModal()" class="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition-all active:scale-95">Mengerti</button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ HELP MODAL JS ═══ -->
+<script>
+function openRentalHelpModal() {
+    var m = document.getElementById('rentalHelpModal');
+    var s = document.getElementById('rentalHelpSheet');
+    m.classList.remove('hidden');
+    setTimeout(function() { s.classList.remove('translate-y-full'); s.classList.add('translate-y-0'); }, 10);
+}
+function closeRentalHelpModal() {
+    var m = document.getElementById('rentalHelpModal');
+    var s = document.getElementById('rentalHelpSheet');
+    s.classList.remove('translate-y-0');
+    s.classList.add('translate-y-full');
+    setTimeout(function() { m.classList.add('hidden'); }, 300);
+}
+</script>

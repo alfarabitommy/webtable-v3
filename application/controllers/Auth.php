@@ -10,6 +10,18 @@ class Auth extends CI_Controller {
         $this->load->model('User_model');
     }
 
+    // ─── PHONE NORMALIZER ──────────────────────────────
+    private function _normalize_phone($raw) {
+        $digits = preg_replace('/\D/', '', trim($raw));
+        if (strpos($digits, '62') === 0 && strlen($digits) > 2) {
+            $digits = '0' . substr($digits, 2);
+        }
+        if ($digits !== '' && $digits[0] !== '0') {
+            $digits = '0' . $digits;
+        }
+        return $digits;
+    }
+
     // ─── RECAPTCHA VERIFIER ─────────────────────────────
     private function _verify_recaptcha($recaptcha_response) {
         if (empty($recaptcha_response)) {
@@ -36,7 +48,7 @@ class Auth extends CI_Controller {
     // ─── REGISTER ──────────────────────────────────────
     public function register() {
         if (!empty($this->session->userdata('user_id'))) {
-            redirect('/');
+            redirect('home');
         }
 
         $data['errors'] = [];
@@ -56,7 +68,8 @@ class Auth extends CI_Controller {
             $this->form_validation->set_rules('invite_code', 'Kode Undangan', 'required');
 
             if ($this->form_validation->run()) {
-                $phone       = $this->input->post('phone', TRUE);
+                $phone       = $this->_normalize_phone($this->input->post('phone', TRUE));
+                $_POST['phone'] = $phone;
                 $password    = $this->input->post('password', TRUE);
                 $invite_code = strtoupper(trim($this->input->post('invite_code', TRUE)));
 
@@ -93,7 +106,7 @@ class Auth extends CI_Controller {
     // ─── LOGIN ────────────────────────────────────────
     public function login() {
         if (!empty($this->session->userdata('user_id'))) {
-            redirect('/');
+            redirect('home');
         }
 
         $data['errors'] = [];
@@ -112,7 +125,7 @@ class Auth extends CI_Controller {
             $this->form_validation->set_rules('password', 'Kata Sandi', 'required');
 
             if ($this->form_validation->run()) {
-                $phone    = $this->input->post('phone', TRUE);
+                $phone    = $this->_normalize_phone($this->input->post('phone', TRUE));
                 $password = $this->input->post('password', TRUE);
 
                 // Strictly enforce 'user' role on user portal
@@ -129,7 +142,7 @@ class Auth extends CI_Controller {
                         'invite_code' => $user->invite_code,
                         'role'        => $user->role,
                     ]);
-                    redirect('wallet');
+                    redirect('home');
                 } else {
                     $data['errors'][] = 'Nomor telepon atau kata sandi salah.';
                 }

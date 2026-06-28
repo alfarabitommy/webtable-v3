@@ -17,8 +17,21 @@ class MY_Controller extends CI_Controller {
             $this->load->model('Wallet_model');
             $balance = $this->Wallet_model->get_balance($this->session->userdata('user_id'));
             $this->load->vars(['global_balance' => $balance]);
+
+            // Notification badge + dropdown data
+            $this->load->model('Notification_model');
+            $unread_count = $this->Notification_model->get_unread_count($this->session->userdata('user_id'));
+            $notifications = $this->Notification_model->get_latest($this->session->userdata('user_id'), 5);
+            $this->load->vars([
+                'global_unread_count'  => $unread_count,
+                'global_notifications' => $notifications,
+            ]);
         } else {
-            $this->load->vars(['global_balance' => 0]);
+            $this->load->vars([
+                'global_balance'       => 0,
+                'global_unread_count'  => 0,
+                'global_notifications' => [],
+            ]);
         }
     }
 }

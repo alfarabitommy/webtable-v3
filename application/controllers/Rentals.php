@@ -18,6 +18,19 @@ class Rentals extends MY_Controller {
         $user_id = $this->session->userdata('user_id');
         $rentals = $this->Rental_model->get_active_rentals($user_id);
 
+        // Augment each rental with claimable_days logic
+        foreach ($rentals as &$r) {
+            $ref = !empty($r->last_claimed_at)
+                ? date('Y-m-d', strtotime($r->last_claimed_at))
+                : date('Y-m-d', strtotime($r->created_at));
+            $diff = (int) ((strtotime('today') - strtotime($ref)) / 86400);
+
+            $r->claimable_days = min($diff, 2);
+            $r->remaining_days = max(0, $r->total_days - $r->days_processed);
+            $r->actual_claimable = min($r->claimable_days, $r->remaining_days);
+        }
+        unset($r);
+
         $data = [
             'page_title' => 'Sewa Saya',
             'rentals'    => $rentals,
@@ -67,12 +80,13 @@ class Rentals extends MY_Controller {
             'description'    => 'Sewa ' . $product['name'],
         ]);
 
-        // 4b. Create rental record
+        // 4b. Create rental record with total_days
         $this->db->insert('user_rentals', [
             'user_id'        => $user_id,
             'product_id'     => $product['id'],
             'purchase_price' => $product['price'],
             'daily_roi'      => $product['daily_rate'],
+            'total_days'     => $product['duration_days'],
             'status'         => 'active',
             'expired_at'     => date('Y-m-d H:i:s', strtotime('+' . $product['duration_days'] . ' days')),
         ]);
@@ -91,7 +105,7 @@ class Rentals extends MY_Controller {
     }
 
     /**
-     * POST /rentals/claim/{id} — daily ROI claim
+     * POST /rentals/claim/{id} — ROI claim with 2-day accumulation
      */
     public function claim($rental_id = null) {
         if (!$rental_id) {
@@ -99,37 +113,59 @@ class Rentals extends MY_Controller {
             redirect('rentals');
         }
 
+        $user_id = $this->session->userdata('user_id');
+
         // 1. Fetch Rental Safely
-        $rental = $this->db->get_where('user_rentals', ['id' => $rental_id])->row();
-        
+        $rental = $this->db->get_where('user_rentals', ['id' => $rental_id, 'user_id' => $user_id])->row();
+
         if (!$rental) {
             $this->session->set_flashdata('error', 'Sistem: Data sewa tidak ditemukan.');
             redirect('rentals');
         }
 
-        // 2. Strict NULL Check & Date Validation (The Fix)
-        if (!empty($rental->last_claimed_at)) {
-            $last_claim_date = date('Y-m-d', strtotime($rental->last_claimed_at));
-            if (date('Y-m-d') === $last_claim_date) {
+        // 2. Calculate claimable days (2-day accumulation logic)
+        $reference_date = !empty($rental->last_claimed_at)
+            ? date('Y-m-d', strtotime($rental->last_claimed_at))
+            : date('Y-m-d', strtotime($rental->created_at));
+
+        $day_diff = (int) ((strtotime('today') - strtotime($reference_date)) / 86400);
+
+        // Accumulation cap: max 2 days
+        $claimable_days = min($day_diff, 2);
+
+        // Over-payment protection
+        $remaining_days = $rental->total_days - $rental->days_processed;
+        $actual_claim_days = min($claimable_days, max(0, $remaining_days));
+
+        // Guard: nothing to claim
+        if ($actual_claim_days < 1) {
+            if ($remaining_days <= 0) {
+                $this->session->set_flashdata('error', 'Sistem: Masa kontrak Anda telah habis.');
+            } else {
                 $this->session->set_flashdata('error', 'Sistem: Anda sudah mengklaim penghasilan hari ini.');
-                redirect('rentals');
             }
+            redirect('rentals');
         }
 
-        // 3. Bulletproof ACID Transaction
+        // 3. ACID Transaction
         $this->db->trans_start();
 
-        // Update Claim Date
+        // Update rental: increment days_processed, update last_claimed_at
         $this->db->where('id', $rental_id);
-        $this->db->update('user_rentals', ['last_claimed_at' => date('Y-m-d H:i:s')]);
+        $this->db->where('user_id', $user_id);
+        $this->db->update('user_rentals', [
+            'days_processed'  => $rental->days_processed + $actual_claim_days,
+            'last_claimed_at' => date('Y-m-d H:i:s'),
+        ]);
 
-        // Insert ROI to Wallet Ledger
+        // Credit wallet: actual_claim_days × daily_roi
+        $total_payout = $actual_claim_days * $rental->daily_roi;
         $this->db->insert('wallet_ledger', [
-            'user_id' => $rental->user_id,
+            'user_id'        => $rental->user_id,
             'transaction_id' => 'ROI-' . time() . '-' . $rental_id,
-            'type' => 'credit',
-            'amount' => $rental->daily_roi,
-            'description' => 'Klaim ROI Harian'
+            'type'           => 'credit',
+            'amount'         => $total_payout,
+            'description'    => 'Klaim ROI ' . $actual_claim_days . ' Hari',
         ]);
 
         $this->db->trans_complete();
@@ -138,9 +174,9 @@ class Rentals extends MY_Controller {
         if ($this->db->trans_status() === FALSE) {
             $this->session->set_flashdata('error', 'Sistem: Gagal memproses klaim ke database.');
         } else {
-            $this->session->set_flashdata('success', 'Berhasil! Penghasilan harian Anda telah ditambahkan ke dompet.');
+            $this->session->set_flashdata('success', 'Berhasil! Rp ' . number_format($total_payout, 0, ',', '.') . ' telah ditambahkan ke dompet (' . $actual_claim_days . ' hari klaim).');
         }
-        
+
         redirect('rentals');
     }
 }

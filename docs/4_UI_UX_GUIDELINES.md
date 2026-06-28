@@ -1,4 +1,4 @@
-# UI/UX & Component Guidelines v4.0 (Strict AI Specification)
+# UI/UX & Component Guidelines v5.0 (Strict AI Specification)
 **Project Name:** Synapse
 **CSS Framework:** Tailwind CSS (Strictly Utility Classes)
 **Design Philosophy:** Minimalist, High-Density Data Presentation, Bloomberg Terminal Aesthetic, Mobile-First.
@@ -24,12 +24,12 @@ Strict z-index management is critical to prevent UI overlap issues. The followin
 | Content | `z-10` / `z-20` | Page content, card overlays, decorative elements |
 | Sticky Header | `z-40` | Top App Bar (`sticky top-0`) |
 | Bottom Navigation | **`z-50`** | Fixed bottom nav bar |
-| Bottom Sheet Modal | **`z-[60]`** | All modal overlays, transaction sheets, confirmation dialogs |
+| Bottom Sheet Modal | **`z-[60]`** | All modal overlays, transaction sheets, confirmation dialogs, Notification Dropdown |
 | Modal Backdrop | `z-[59]` | Overlay behind sheet (same modal container) |
 
-> **Rule:** Any Bottom Sheet Modal MUST use `z-[60]` on its container (`<div id="...Modal" class="fixed inset-0 z-[60] hidden">`). This ensures it renders above the Bottom Navigation (`z-50`) and does not conflict with the sticky header (`z-40`).
+> **Rule:** Any Bottom Sheet Modal or Notification Dropdown MUST use `z-[60]` on its container. This ensures it renders above the Bottom Navigation (`z-50`) and does not conflict with the sticky header (`z-40`).
 
-> **Anti-pattern:** Using `z-50` on modals will cause them to render BEHIND the Bottom Navigation on certain scroll positions. Always use `z-[60]` for modals.
+> **Anti-pattern:** Using `z-50` on modals will cause them to render BEHIND the Bottom Navigation on certain scroll positions. Always use `z-[60]` for modals and dropdowns.
 
 ---
 
@@ -110,9 +110,15 @@ Buttons that toggle between active/inactive states MUST explicitly swap backgrou
 w-full h-14 bg-rose-500 hover:bg-rose-600 text-white rounded-2xl font-bold shadow-lg transition-all
 ```
 
-### B. Input Forms
+### B. Input Forms (v5.0 Updated)
 * **Text/Password/Number Inputs:** `w-full h-12 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-600 transition-all`.
 * **Form Group Spacing:** Selalu gunakan `space-y-4` antar elemen input. Beri label di atas input dengan `text-xs font-semibold text-slate-700 mb-1 block`.
+* **Phone Number Inputs — Flexible Frontend, Strict Backend (v5.0):**
+    * Use `type="tel"` + `inputmode="numeric"` for mobile keyboard optimization.
+    * **Do NOT apply rigid `minlength` or `maxlength` HTML attributes** on phone inputs. The backend regex `/^0[0-9]{9,13}$/` is the single source of truth for validation.
+    * Frontend may apply real-time stripping/conversion (+62→0, symbols removed) on `input` event as a UX preview — but this is cosmetic only.
+    * Pattern: `pattern="^0[0-9]{9,13}$"` for native browser hint (optional, not enforced server-side).
+    * **Applies to:** Registration, Login, Profile phone update, Admin user creation.
 
 ### C. Cards (Kartu Produk/Riwayat)
 
@@ -127,6 +133,27 @@ Layout: Image → Header (name) → Description → Data Grid (Price vs. ROI) �
 bg-slate-900 text-white p-6 rounded-2xl shadow-xl relative overflow-hidden
 ```
 Includes a subtle CSS grid overlay pattern (`opacity-5`) for terminal feel. Balance displayed in `text-3xl font-bold font-mono tracking-tight`. Action buttons (Top Up / Tarik Dana) rendered as a `flex gap-2` row below the balance.
+
+**Level 1 Mission Card (v5.0):**
+Bloomberg Terminal dark aesthetic used on the Team page for displaying Level 1 Bonus qualification progress. MUST follow this exact specification:
+
+```html
+<div class="bg-slate-900 rounded-2xl p-5 border border-slate-800">
+```
+
+**Structure:**
+1. **Header:** `text-sm font-bold text-white uppercase tracking-wider` — "Misi Level 1 Agency"
+2. **Agent Progress Bar:**
+    * Label row: `text-xs text-slate-400` — "Agen Aktif" (left) + `font-mono text-xs text-emerald-400` — "{N}/3" (right).
+    * Track: `w-full h-2 bg-slate-700 rounded-full overflow-hidden`.
+    * Fill: `h-full bg-emerald-500 rounded-full transition-all duration-500` — width set via JS: `style="width: {min(agents/3*100, 100)}%"`.
+3. **Turnover Progress Bar:**
+    * Label row: `text-xs text-slate-400` — "Total Sales" (left) + `font-mono text-xs text-emerald-400` — "Rp {formatted}/{target}" (right).
+    * Track + Fill: Same as agent bar.
+4. **Dynamic Action Button:**
+    * **Conditions not met:** Disabled state — `w-full py-3 mt-4 bg-slate-700 text-slate-400 rounded-xl font-semibold text-sm cursor-not-allowed` with dynamic progress text below (e.g., "1/3 Agen Aktif · Rp 150.000/330.000").
+    * **Conditions met:** Enabled state — `w-full py-3 mt-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-semibold text-sm transition-colors` — "Klaim Bonus Rp 80.000".
+5. **Claimed state:** Button replaced with `bg-slate-800 text-emerald-400 rounded-xl` "✓ Bonus Level 1 Telah Diklaim" (disabled, check icon).
 
 **Transaction/Ledger Item:**
 ```html
@@ -189,23 +216,81 @@ Secondary input forms (Top-Up amount selection, custom amount input) MUST be hid
 
 ---
 
-## 6. Animation & Transition Standards
+## 6. Header Elements (v5.0 New)
+
+### A. Balance Capsule (Global User Header)
+**Container:** `<a href="/wallet" class="group flex items-center bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-full transition-all duration-200 active:scale-95 border border-slate-200 shadow-sm hover:shadow">`
+* **Icon:** `<i class="fas fa-wallet text-indigo-500 mr-2 text-xs">`
+* **Balance:** `<span class="text-xs font-mono font-bold tracking-tighter">Rp {global_balance}</span>`
+* **Position:** Right side of sticky header (`z-40`), between logo and notification bell.
+* **Data Source:** `$global_balance` — injected by `MY_Controller.php` via `$this->load->vars()` on every request. Always calculated from `wallet_ledger` SUM at page load time.
+
+### B. Notification Dropdown (v5.0 New)
+AJAX-driven notification system rendered in the sticky header bar. MUST follow this specification.
+
+**Bell Icon Button:**
+```html
+<button id="notif-bell" class="relative p-2 rounded-full hover:bg-slate-100 transition">
+  <i class="fas fa-bell text-slate-500 text-sm"></i>
+  <span id="notif-badge"
+    class="absolute -top-0.5 -right-0.5 flex items-center justify-center w-5 h-5
+           text-[10px] font-bold text-white bg-red-500 rounded-full hidden">
+  </span>
+</button>
+```
+* Badge hidden (`hidden` class) when unread count = 0.
+* Badge text: `N` if ≤ 99, `"99+"` if > 99.
+* Badge updated via AJAX `GET /notifications/unread-count` on page load + every 60 seconds.
+
+**Dropdown Popover (on bell click):**
+```html
+<div id="notif-dropdown"
+     class="hidden absolute right-0 top-full mt-2 w-80 max-h-96 bg-slate-800 rounded-xl
+            shadow-2xl overflow-hidden z-[60]">
+```
+* **Container background:** `bg-slate-800` (dark theme, consistent with Bloomberg Terminal).
+* **Dropdown header:** Flex row with "Notifikasi" (`text-sm font-bold text-white`) and "Tandai semua dibaca" link (`text-xs text-blue-400 hover:text-blue-300`).
+* **Notification list container:** `max-h-80 overflow-y-auto divide-y divide-slate-700/50`.
+* **Individual notification item:**
+    * **Unread:** `px-4 py-3 bg-slate-700/50 border-l-2 border-blue-400 hover:bg-slate-700/70 transition cursor-pointer`.
+    * **Read:** `px-4 py-3 border-l-2 border-transparent hover:bg-slate-700/30 transition cursor-pointer`.
+    * **Icon:** Varies by `type` — info → `fa-info-circle text-slate-400`, warning → `fa-exclamation-triangle text-amber-400`, success → `fa-check-circle text-emerald-400`, commission → `fa-coins text-emerald-400`.
+    * **Title:** `text-sm font-semibold text-white`.
+    * **Message:** `text-xs text-slate-400 line-clamp-2` (truncated to 2 lines via `line-clamp-2` or CSS `-webkit-line-clamp: 2`).
+    * **Timestamp:** `text-[10px] text-slate-500 mt-1`.
+* **Empty state:** `text-center py-8 text-slate-500 text-xs` — "Tidak ada notifikasi."
+* **Footer (if notifications exist):** "Lihat semua" link or scroll-to-bottom indicator.
+
+**AJAX State Management (Vanilla JS):**
+* On page load + every 60s: `fetch('/notifications/unread-count')` → update `#notif-badge`.
+* On bell click: `fetch('/notifications/list')` → render dropdown list HTML.
+* On individual notification click: `fetch('/notifications/mark-read/{id}', { method: 'POST' })` → remove unread styling, decrement badge count.
+* On "Tandai semua dibaca": `fetch('/notifications/mark-all-read', { method: 'POST' })` → clear all unread states, hide badge.
+* **No jQuery. No page reloads.** Pure Vanilla JS `fetch()` API.
+* Dropdown toggle: `classList.toggle('hidden')` on `#notif-dropdown`. Click outside → close.
+
+---
+
+## 7. Animation & Transition Standards
 
 | Element | Property | Duration | Easing |
 |---------|----------|----------|--------|
 | Bottom Sheet Modal | `transform: translateY` | 300ms | `ease-out` |
+| Notification Dropdown | `opacity` + `transform: translateY` | 200ms | `ease-out` |
 | Toggle forms | `max-height` / `opacity` | 300ms | `ease-in-out` |
 | Button press | `transform: scale` | 150ms | default |
 | Card hover | `background-color` | 200ms | default |
 | Flash messages | `animate-bounce-in` | custom | — |
+| Progress bar fill | `width` | 500ms | `ease-out` |
 
 * **Button tactile feedback:** `active:scale-[0.98]` on product "Sewa Sekarang" buttons.
 * **Modal backdrop:** `transition-opacity` for fade in/out.
 * **Form toggle:** `origin-top` transform origin for natural expand feel.
+* **Notification badge pulse:** Optional `animate-pulse` on red badge when new notification arrives (subtle attention-grabber).
 
 ---
 
-## 7. Admin Command Center Components (Phase 7)
+## 8. Admin Command Center Components (Phase 7)
 
 The Admin Command Center operates on a **completely separate dark theme** — distinct from the user-facing light UI. It uses a Bloomberg Terminal / hacking console aesthetic.
 
@@ -267,10 +352,3 @@ The Admin Command Center operates on a **completely separate dark theme** — di
   <span class="font-mono">2026-06-21 14:30:00</span>
 </div>
 ```
-
-### C. Balance Capsule (Global User Header)
-**Container:** `<a href="/wallet" class="group flex items-center bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-full transition-all duration-200 active:scale-95 border border-slate-200 shadow-sm hover:shadow">`
-* **Icon:** `<i class="fas fa-wallet text-indigo-500 mr-2 text-xs">`
-* **Balance:** `<span class="text-xs font-mono font-bold tracking-tighter">Rp {global_balance}</span>`
-* **Position:** Right side of sticky header (`z-40`), between logo and notification bell.
-* **Data Source:** `$global_balance` — injected by `MY_Controller.php` via `$this->load->vars()` on every request. Always calculated from `wallet_ledger` SUM at page load time.

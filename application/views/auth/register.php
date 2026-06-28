@@ -57,7 +57,7 @@
                 <label for="phone" class="text-xs font-semibold text-slate-700 mb-1.5 block">Nomor Telepon <span class="text-rose-500">*</span></label>
                 <input type="text" id="phone" name="phone" value="<?= set_value('phone') ?>"
                        class="h-14 px-5 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all w-full"
-                       placeholder="081234567890" maxlength="12">
+                       placeholder="081234567890">
                 <?= form_error('phone', '<p class="text-xs text-rose-500 mt-1.5">', '</p>') ?>
             </div>
 
