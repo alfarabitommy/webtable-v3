@@ -123,7 +123,13 @@ class Rentals extends MY_Controller {
             redirect('rentals');
         }
 
-        // 2. Calculate claimable days (2-day accumulation logic)
+        // 2. T+1 Rule: prevent same-day claims
+        if (date('Y-m-d', strtotime($rental->created_at)) === date('Y-m-d')) {
+            $this->session->set_flashdata('error', 'Klaim pertama baru dapat dilakukan keesokan harinya (H+1) setelah pembelian.');
+            redirect('rentals');
+        }
+
+        // 3. Calculate claimable days (2-day accumulation logic)
         $reference_date = !empty($rental->last_claimed_at)
             ? date('Y-m-d', strtotime($rental->last_claimed_at))
             : date('Y-m-d', strtotime($rental->created_at));

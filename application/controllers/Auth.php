@@ -51,6 +51,15 @@ class Auth extends CI_Controller {
             redirect('home');
         }
 
+        // Phase 9A: Circuit Breaker — block registration if closed
+        $this->load->model('Admin_model');
+        if ($this->Admin_model->get_setting('is_registration_open') !== '1') {
+            $data['errors'] = ['Pendaftaran member baru sedang ditutup sementara untuk menjaga stabilitas ekosistem. Silakan coba lagi nanti.'];
+            $data['values'] = [];
+            $this->load->view('auth/register', $data);
+            return;
+        }
+
         $data['errors'] = [];
 
         if ($this->input->post()) {

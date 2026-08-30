@@ -106,7 +106,7 @@
 
                     <!-- Footer -->
                     <div class="border-t border-slate-100 px-4 py-2.5">
-                        <a href="<?= base_url('notifications') ?>"
+                        <a href="<?= base_url('notification') ?>"
                            class="block text-center text-[11px] text-indigo-500 hover:text-indigo-700 font-semibold transition-colors">
                             Lihat semua notifikasi <i class="fas fa-arrow-right ml-1 text-[9px]"></i>
                         </a>

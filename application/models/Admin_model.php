@@ -332,4 +332,253 @@ class Admin_model extends CI_Model {
     public function user_exists($id) {
         return $this->db->where('id', $id)->count_all_results('users') > 0;
     }
+
+    // ===================================================================
+    //  TREASURY HEALTH (Phase 9A)
+    // ===================================================================
+
+    public function get_treasury_stats() {
+        // Total Cash In — sum of all rental purchase prices
+        $cash_in = (float) $this->db
+            ->select_sum('purchase_price')
+            ->get('user_rentals')
+            ->row()->purchase_price ?? 0;
+
+        // Total Balances — dynamic from wallet_ledger (credit − debit)
+        $row_bal = $this->db->query(
+            "SELECT COALESCE(
+                SUM(CASE WHEN type = 'credit' THEN amount ELSE 0 END)
+              - SUM(CASE WHEN type = 'debit'  THEN amount ELSE 0 END)
+            , 0) AS total_balances
+            FROM wallet_ledger"
+        )->row();
+        $balances = (float) ($row_bal ? $row_bal->total_balances : 0);
+
+        // Pending ROI — future obligation from active rentals
+        // Use raw query to avoid CI3 aliasing issues with computed columns
+        $row = $this->db->query(
+            "SELECT COALESCE(SUM((total_days - days_processed) * daily_roi), 0) AS pending_roi
+             FROM user_rentals WHERE status = 'active'"
+        )->row();
+        $pending_roi = (float) ($row ? $row->pending_roi : 0);
+
+        return [
+            'total_cash_in'  => $cash_in,
+            'total_balances' => $balances,
+            'pending_roi'    => $pending_roi,
+            'is_critical'    => ($balances + $pending_roi) > $cash_in,
+        ];
+    }
+
+    // ===== SYSTEM SETTINGS (key-value) =====
+
+    public function get_setting($key) {
+        $row = $this->db
+            ->select('key_value')
+            ->where('key_name', $key)
+            ->get('system_settings')
+            ->row();
+        return $row ? $row->key_value : null;
+    }
+
+    public function set_setting($key, $value) {
+        return $this->db->query(
+            'INSERT INTO system_settings (key_name, key_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE key_value = VALUES(key_value), updated_at = CURRENT_TIMESTAMP',
+            [$key, $value]
+        );
+    }
+
+    // ===================================================================
+    //  PHASE 9A: ANALYTICS
+    // ===================================================================
+
+    public function get_active_users_count() {
+        return (int) $this->db->query(
+            "SELECT COUNT(DISTINCT user_id) AS cnt FROM user_rentals WHERE status = 'active'"
+        )->row()->cnt ?? 0;
+    }
+
+    public function get_rental_volume() {
+        return (float) $this->db
+            ->select_sum('purchase_price')
+            ->get('user_rentals')
+            ->row()->purchase_price ?? 0;
+    }
+
+    public function get_withdrawal_volume() {
+        $query = $this->db->query("SELECT COALESCE(SUM(amount), 0) AS total_withdrawal FROM withdrawals WHERE status = 'success'");
+        return (float) $query->row()->total_withdrawal;
+    }
+
+    public function get_revenue_chart_data($days = 7) {
+        $days = max(1, min(90, (int) $days));
+        $from = date('Y-m-d', strtotime("-{$days} days"));
+
+        $rows = $this->db->query(
+            "SELECT DATE(created_at) AS dt, COALESCE(SUM(purchase_price), 0) AS revenue
+             FROM user_rentals
+             WHERE created_at >= ?
+             GROUP BY DATE(created_at)
+             ORDER BY dt ASC",
+            [$from]
+        )->result();
+
+        $labels = [];
+        $data   = [];
+        foreach ($rows as $row) {
+            $labels[] = date('d M', strtotime($row->dt));
+            $data[]   = (float) $row->revenue;
+        }
+        return ['labels' => $labels, 'data' => $data];
+    }
+
+    // ===================================================================
+    //  PHASE 9B: ANALYTICS — GLOBAL METRICS
+    // ===================================================================
+
+    public function get_global_analytics() {
+        $agents = $this->db->query(
+            "SELECT COUNT(*) AS total_agents FROM users WHERE is_banned = 0"
+        )->row();
+
+        $commissions = $this->db->query(
+            "SELECT COALESCE(SUM(amount), 0) AS total_commissions
+             FROM wallet_ledger WHERE type = 'debit'"
+        )->row();
+
+        $active_rentals = $this->db->query(
+            "SELECT COUNT(*) AS active_rentals FROM user_rentals WHERE status = 'active'"
+        )->row();
+
+        $total_users = $this->db->count_all('users');
+
+        return [
+            'total_agents'     => (int) ($agents->total_agents ?? 0),
+            'total_commissions'=> (float) ($commissions->total_commissions ?? 0),
+            'active_rentals'   => (int) ($active_rentals->active_rentals ?? 0),
+            'total_users'      => (int) $total_users,
+        ];
+    }
+
+    // ===================================================================
+    //  PHASE 9B: LEADERBOARD — TOP AFFILIATES (RECURSIVE CTE)
+    // ===================================================================
+
+    public function get_leaderboard($limit = 25) {
+        $sql = "
+            WITH RECURSIVE downline_tree AS (
+                SELECT u.parent_id AS affiliate_id, u.id AS downline_id, 1 AS lvl
+                FROM users u
+                WHERE u.parent_id IS NOT NULL
+                UNION ALL
+                SELECT dt.affiliate_id, u2.id, dt.lvl + 1
+                FROM downline_tree dt
+                JOIN users u2 ON u2.parent_id = dt.downline_id
+                WHERE dt.lvl < 2
+            )
+            SELECT
+                aff.id,
+                aff.phone,
+                aff.username,
+                aff.invite_code,
+                COUNT(DISTINCT dt.downline_id) AS downline_count,
+                COALESCE(SUM(CASE WHEN ur.status = 'active' THEN ur.purchase_price ELSE 0 END), 0) AS total_sales,
+                COUNT(DISTINCT CASE WHEN ur.status = 'active' THEN ur.id END) AS active_rental_count
+            FROM users aff
+            INNER JOIN downline_tree dt ON dt.affiliate_id = aff.id
+            LEFT JOIN user_rentals ur ON ur.user_id = dt.downline_id
+            GROUP BY aff.id, aff.phone, aff.username, aff.invite_code
+            ORDER BY downline_count DESC, total_sales DESC
+            LIMIT ?";
+
+        return $this->db->query($sql, [(int) $limit])->result();
+    }
+
+    // ===================================================================
+    //  PHASE 9B: FINANCIAL X-RAY (SINGLE USER)
+    // ===================================================================
+
+    public function get_user_xray($user_id) {
+        $user = $this->db->select('id, phone, username, invite_code, parent_id')
+            ->where('id', $user_id)
+            ->get('users')
+            ->row();
+
+        if (!$user) return null;
+
+        $credit = (float) $this->db
+            ->select_sum('amount')
+            ->where('user_id', $user_id)
+            ->where('type', 'credit')
+            ->get('wallet_ledger')
+            ->row()->amount ?? 0;
+
+        $debit = (float) $this->db
+            ->select_sum('amount')
+            ->where('user_id', $user_id)
+            ->where('type', 'debit')
+            ->get('wallet_ledger')
+            ->row()->amount ?? 0;
+
+        $rentals = $this->db->query(
+            "SELECT COUNT(*) AS active_count,
+                    COALESCE(SUM(purchase_price), 0) AS total_invested
+             FROM user_rentals WHERE user_id = ? AND status = 'active'",
+            [$user_id]
+        )->row();
+
+        $downline_count = $this->db
+            ->where('parent_id', $user_id)
+            ->count_all_results('users');
+
+        $total_wd = (float) $this->db
+            ->select_sum('amount')
+            ->where('user_id', $user_id)
+            ->where('status', 'success')
+            ->get('withdrawals')
+            ->row()->amount ?? 0;
+
+        $balance = $credit - $debit;
+
+        return [
+            'user'              => $user,
+            'total_credit'      => $credit,
+            'total_debit'       => $debit,
+            'balance'           => $balance,
+            'total_withdrawals' => $total_wd,
+            'active_rentals'    => (int) ($rentals->active_count ?? 0),
+            'total_invested'    => (float) ($rentals->total_invested ?? 0),
+            'downline_count'    => (int) $downline_count,
+        ];
+    }
+
+    // ===================================================================
+    //  PHASE 9C: CSV EXPORT — DATA QUERY METHODS
+    // ===================================================================
+
+    public function get_all_ledger() {
+        return $this->db->select('id, user_id, amount, type, description, created_at')
+            ->from('wallet_ledger')
+            ->order_by('created_at', 'DESC')
+            ->get()
+            ->result_array();
+    }
+
+    public function get_active_rentals() {
+        return $this->db->select('id, user_id, product_name, purchase_price, daily_roi, days_processed, total_days, status, created_at')
+            ->from('user_rentals')
+            ->where('status', 'active')
+            ->order_by('created_at', 'DESC')
+            ->get()
+            ->result_array();
+    }
+
+    public function get_all_withdrawals() {
+        return $this->db->select('id, user_id, amount, bank_name, account_number, status, created_at')
+            ->from('withdrawals')
+            ->order_by('created_at', 'DESC')
+            ->get()
+            ->result_array();
+    }
+
 }

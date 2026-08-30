@@ -74,6 +74,14 @@ class Team extends MY_Controller {
         if ($result['success']) {
             $user = $this->User_model->get_user_by_id($user_id);
             $result['new_balance'] = $user->balance;
+
+            // Notify user
+            $this->Notification_model->insert(
+                $user_id,
+                'Bonus Level 1 Cair',
+                'Selamat! Bonus Level 1 sebesar Rp 80.000 telah masuk ke saldo.',
+                'commission'
+            );
         }
 
         echo json_encode($result);

@@ -12,6 +12,107 @@
         </div>
     <?php endif; ?>
 
+    <!-- Phase 9A: Treasury Health Dashboard -->
+    <?php $is_critical = $treasury['is_critical'] ?? false; ?>
+    <div class="mb-6 p-5 rounded-xl border-2 <?= $is_critical ? 'bg-red-950/40 border-red-500 animate-pulse' : 'bg-slate-900 border-slate-700' ?> shadow-lg">
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+                <i class="fas fa-shield-halved <?= $is_critical ? 'text-red-400' : 'text-emerald-400' ?>"></i>
+                <h2 class="text-sm font-bold <?= $is_critical ? 'text-red-300' : 'text-emerald-300' ?> uppercase tracking-wider">Treasury Health</h2>
+            </div>
+            <button id="circuit-breaker-btn" onclick="toggleRegistration()"
+                    class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 <?= $is_registration_open ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white' ?>">
+                <i class="fas fa-power-off mr-1"></i>
+                <span id="cb-label"><?= $is_registration_open ? 'TUTUP PENDAFTARAN' : 'BUKA PENDAFTARAN' ?></span>
+            </button>
+        </div>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <!-- Cash In -->
+            <div class="bg-slate-800/80 rounded-lg p-3">
+                <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Cash In</div>
+                <div class="text-lg font-bold text-emerald-400 font-mono">Rp <?= number_format($treasury['total_cash_in'], 0, ',', '.') ?></div>
+            </div>
+            <!-- User Balances -->
+            <div class="bg-slate-800/80 rounded-lg p-3">
+                <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">User Balances</div>
+                <div class="text-lg font-bold text-blue-400 font-mono">Rp <?= number_format($treasury['total_balances'], 0, ',', '.') ?></div>
+            </div>
+            <!-- Pending ROI -->
+            <div class="bg-slate-800/80 rounded-lg p-3">
+                <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Pending ROI</div>
+                <div class="text-lg font-bold text-amber-400 font-mono">Rp <?= number_format($treasury['pending_roi'], 0, ',', '.') ?></div>
+            </div>
+            <!-- Status -->
+            <div class="bg-slate-800/80 rounded-lg p-3">
+                <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Status</div>
+                <div class="flex items-center gap-2 mt-1">
+                    <span class="w-2.5 h-2.5 rounded-full <?= $is_critical ? 'bg-red-500 animate-pulse' : 'bg-emerald-500' ?>"></span>
+                    <span class="text-lg font-bold <?= $is_critical ? 'text-red-400' : 'text-emerald-400' ?>"><?= $is_critical ? 'CRITICAL' : 'SAFE' ?></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Phase 9A: Analytics Stat Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <!-- Active Users -->
+        <div class="bg-slate-900 rounded-xl p-4 border border-slate-700 shadow-lg">
+            <div class="flex items-center gap-3 mb-2">
+                <div class="w-9 h-9 rounded-lg bg-indigo-500/15 flex items-center justify-center">
+                    <i class="fas fa-users text-indigo-400 text-sm"></i>
+                </div>
+                <div>
+                    <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Active Users</div>
+                    <div id="stat-active-users" class="text-xl font-bold text-indigo-400 font-mono"><?= number_format($analytics_stats['active_users']) ?></div>
+                </div>
+            </div>
+            <div class="text-[10px] text-slate-500">Users with active rentals</div>
+        </div>
+        <!-- Rental Volume -->
+        <div class="bg-slate-900 rounded-xl p-4 border border-slate-700 shadow-lg">
+            <div class="flex items-center gap-3 mb-2">
+                <div class="w-9 h-9 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+                    <i class="fas fa-coins text-emerald-400 text-sm"></i>
+                </div>
+                <div>
+                    <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Rental Volume</div>
+                    <div id="stat-rental-volume" class="text-xl font-bold text-emerald-400 font-mono">Rp <?= number_format($analytics_stats['rental_volume'], 0, ',', '.') ?></div>
+                </div>
+            </div>
+            <div class="text-[10px] text-slate-500">Total purchase price across all rentals</div>
+        </div>
+        <!-- Withdrawal Volume -->
+        <div class="bg-slate-900 rounded-xl p-4 border border-slate-700 shadow-lg">
+            <div class="flex items-center gap-3 mb-2">
+                <div class="w-9 h-9 rounded-lg bg-amber-500/15 flex items-center justify-center">
+                    <i class="fas fa-arrow-up-from-bracket text-amber-400 text-sm"></i>
+                </div>
+                <div>
+                    <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Withdrawal Volume</div>
+                    <div id="stat-wd-volume" class="text-xl font-bold text-amber-400 font-mono">Rp <?= number_format($analytics_stats['withdrawal_volume'], 0, ',', '.') ?></div>
+                </div>
+            </div>
+            <div class="text-[10px] text-slate-500">Total successful withdrawal amount</div>
+        </div>
+    </div>
+
+    <!-- Phase 9A: Revenue Chart -->
+    <div class="bg-slate-900 rounded-xl p-5 border border-slate-700 shadow-lg mb-6">
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+                <i class="fas fa-chart-line text-emerald-400"></i>
+                <h2 class="text-sm font-bold text-emerald-300 uppercase tracking-wider">Revenue Over Time</h2>
+            </div>
+            <select id="chartPeriod" class="bg-slate-800 border border-slate-600 text-slate-300 text-xs font-medium rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none cursor-pointer">
+                <option value="7">7 Hari Terakhir</option>
+                <option value="30">30 Hari Terakhir</option>
+            </select>
+        </div>
+        <div style="position:relative; height:280px;">
+            <canvas id="revenueChart"></canvas>
+        </div>
+    </div>
+
     <!-- Page Header -->
     <div class="mb-6">
         <h1 class="text-xl font-bold text-slate-900">Dashboard</h1>
@@ -119,3 +220,48 @@
         </div>
 
     </div>
+
+    <script>
+        function toggleRegistration() {
+            const btn = document.getElementById('circuit-breaker-btn');
+            const label = document.getElementById('cb-label');
+            const originalText = label.textContent;
+            const originalClass = btn.className;
+
+            btn.disabled = true;
+            label.textContent = 'Memproses...';
+            btn.classList.add('opacity-75', 'cursor-not-allowed');
+
+            fetch('<?= base_url('admin/toggle_registration') ?>', {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    const isOpen = data.is_open;
+                    label.textContent = isOpen ? 'TUTUP PENDAFTARAN' : 'BUKA PENDAFTARAN';
+                    if (isOpen) {
+                        btn.classList.remove('bg-emerald-600', 'hover:bg-emerald-700');
+                        btn.classList.add('bg-red-600', 'hover:bg-red-700');
+                    } else {
+                        btn.classList.remove('bg-red-600', 'hover:bg-red-700');
+                        btn.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
+                    }
+                } else {
+                    label.textContent = originalText;
+                    alert('Gagal: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(() => {
+                label.textContent = originalText;
+                alert('Terjadi kesalahan jaringan.');
+            })
+            .finally(() => {
+                btn.disabled = false;
+            });
+        }
+    </script>

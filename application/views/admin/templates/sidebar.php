@@ -39,6 +39,12 @@
                 <i class="fas fa-users w-5 text-center text-xs"></i>
                 <span>User Management</span>
             </a>
+            <a href="<?= site_url('admin/analytics') ?>"
+               class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
+                      <?= $this->uri->segment(2) === 'analytics' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900' ?>">
+                <i class="fas fa-chart-line w-5 text-center text-xs"></i>
+                <span>Analytics</span>
+            </a>
             <a href="<?= site_url('admin/settings') ?>"
                class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
                       <?= $this->uri->segment(2) === 'settings' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900' ?>">

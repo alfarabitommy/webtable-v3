@@ -27,6 +27,27 @@ class Notification_model extends CI_Model {
             ->update($this->table, ['is_read' => 1]);
     }
 
+    /**
+     * Get all notifications for full history page
+     */
+    public function get_by_user($user_id, $limit = 100) {
+        return $this->db
+            ->where('user_id', $user_id)
+            ->order_by('created_at', 'DESC')
+            ->get($this->table, $limit)
+            ->result_array();
+    }
+
+    /**
+     * Mark single notification as read (by id + user_id for security)
+     */
+    public function mark_single_read($id, $user_id) {
+        return $this->db
+            ->where('id', $id)
+            ->where('user_id', $user_id)
+            ->update($this->table, ['is_read' => 1]);
+    }
+
     public function insert($user_id, $title, $message, $type = 'info') {
         return $this->db->insert($this->table, [
             'user_id' => $user_id,

@@ -29,6 +29,8 @@ class Admin extends CI_Controller {
     }
 
     public function index() {
+        $this->load->model('Admin_model');
+
         $pending_deposits = $this->db->select('d.*, u.phone')
             ->from('deposits d')
             ->join('users u', 'u.id = d.user_id', 'left')
@@ -44,10 +46,25 @@ class Admin extends CI_Controller {
             ->order_by('w.created_at', 'ASC')
             ->get()->result();
 
+        // Phase 9A: Treasury Health + Circuit Breaker
+        $treasury = $this->Admin_model->get_treasury_stats();
+
+        // Phase 9A: Analytics Stats
+        $analytics_stats = [
+            'active_users'       => $this->Admin_model->get_active_users_count(),
+            'rental_volume'      => $this->Admin_model->get_rental_volume(),
+            'withdrawal_volume'  => $this->Admin_model->get_withdrawal_volume(),
+        ];
+        $chart_data = $this->Admin_model->get_revenue_chart_data(7);
+
         $data = [
             'page_title'         => 'Command Center',
             'pending_deposits'   => $pending_deposits,
             'pending_withdrawals'=> $pending_withdrawals,
+            'treasury'           => $treasury,
+            'analytics_stats'    => $analytics_stats,
+            'chart_data'         => $chart_data,
+            'is_registration_open' => ($this->Admin_model->get_setting('is_registration_open') === '1'),
         ];
 
         $this->load->view('admin/templates/header', $data);
@@ -82,6 +99,14 @@ class Admin extends CI_Controller {
         $this->db->trans_complete();
 
         if ($this->db->trans_status()) {
+            // 3. Notify user — fire-and-forget after committed TX
+            $this->load->model('Notification_model');
+            $this->Notification_model->insert(
+                $deposit->user_id,
+                'Deposit Berhasil',
+                'Top Up sebesar Rp ' . number_format($deposit->amount, 0, ',', '.') . ' telah masuk ke saldo Anda.',
+                'success'
+            );
             $this->session->set_flashdata('success', 'Deposit #' . $deposit->invoice_number . ' berhasil disetujui.');
         } else {
             $this->session->set_flashdata('error', 'Gagal memproses deposit.');
@@ -106,6 +131,14 @@ class Admin extends CI_Controller {
         $this->db->trans_complete();
 
         if ($this->db->trans_status()) {
+            // 2. Notify user
+            $this->load->model('Notification_model');
+            $this->Notification_model->insert(
+                $wd->user_id,
+                'Penarikan Berhasil',
+                'Penarikan sebesar Rp ' . number_format($wd->amount, 0, ',', '.') . ' telah diproses.',
+                'success'
+            );
             $this->session->set_flashdata('success', 'Penarikan #' . $wd->wd_number . ' berhasil disetujui.');
         } else {
             $this->session->set_flashdata('error', 'Gagal memproses penarikan.');
@@ -140,6 +173,14 @@ class Admin extends CI_Controller {
         $this->db->trans_complete();
 
         if ($this->db->trans_status()) {
+            // 3. Notify user
+            $this->load->model('Notification_model');
+            $this->Notification_model->insert(
+                $wd->user_id,
+                'Penarikan Ditolak',
+                'Penarikan sebesar Rp ' . number_format($wd->amount, 0, ',', '.') . ' ditolak. Dana telah dikembalikan ke saldo.',
+                'error'
+            );
             $this->session->set_flashdata('success', 'Penarikan #' . $wd->wd_number . ' ditolak & dana dikembalikan.');
         } else {
             $this->session->set_flashdata('error', 'Gagal menolak penarikan.');
@@ -615,4 +656,153 @@ class Admin extends CI_Controller {
         }
         redirect('admin/user_detail/' . $user_id);
     }
+
+    // ===================================================================
+    //  PHASE 9A: CIRCUIT BREAKER TOGGLE
+    // ===================================================================
+
+    public function toggle_registration() {
+        if ($this->input->method() !== 'post') {
+            $this->output->set_status_header(405)->set_output(json_encode(['success' => false, 'error' => 'Method not allowed']));
+            return;
+        }
+
+        $this->load->model('Admin_model');
+
+        $current = $this->Admin_model->get_setting('is_registration_open');
+        $new_value = ($current === '1') ? '0' : '1';
+
+        $this->Admin_model->set_setting('is_registration_open', $new_value);
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'success' => true,
+                'is_open' => ($new_value === '1'),
+                'message' => ($new_value === '1') ? 'Pendaftaran dibuka' : 'Pendaftaran ditutup'
+            ]));
+    }
+
+    // ===================================================================
+    //  PHASE 9A: CHART DATA (AJAX)
+    // ===================================================================
+
+    public function chart_data() {
+        $this->load->model('Admin_model');
+        $days = max(1, min(90, intval($this->input->get('days', TRUE) ?: 7)));
+        $chart = $this->Admin_model->get_revenue_chart_data($days);
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($chart));
+    }
+
+    // ===================================================================
+    //  PHASE 9B: ANALYTICS PAGE
+    // ===================================================================
+
+    public function analytics() {
+        $this->load->model('Admin_model');
+
+        $global   = $this->Admin_model->get_global_analytics();
+        $leaders  = $this->Admin_model->get_leaderboard(25);
+
+        $data = [
+            'page_title' => 'Analytics',
+            'global'     => $global,
+            'leaders'    => $leaders,
+        ];
+
+        $this->load->view('admin/templates/header', $data);
+        $this->load->view('admin/templates/sidebar', $data);
+        $this->load->view('admin/templates/topbar', $data);
+        $this->load->view('admin/analytics', $data);
+        $this->load->view('admin/templates/footer');
+    }
+
+    // ===================================================================
+    //  PHASE 9B: FINANCIAL X-RAY (AJAX JSON)
+    // ===================================================================
+
+    public function user_xray($user_id) {
+        $this->load->model('Admin_model');
+        $user_id = (int) $user_id;
+
+        $xray = $this->Admin_model->get_user_xray($user_id);
+
+        if (!$xray) {
+            $this->output
+                ->set_content_type('application/json')
+                ->set_status_header(404)
+                ->set_output(json_encode(['success' => false, 'error' => 'User not found']));
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['success' => true, 'data' => $xray]));
+    }
+
+
+    // ===================================================================
+    //  PHASE 9C: NATIVE CSV EXPORT
+    // ===================================================================
+
+    public function export_csv($type = '')
+    {
+        if (!$this->session->userdata('admin_logged_in')) {
+            redirect('admin_auth');
+        }
+
+        $allowed = ['ledger', 'rentals', 'withdrawals'];
+        if (!in_array($type, $allowed)) {
+            show_404();
+        }
+
+        $this->load->model('Admin_model');
+        $date = date('Y-m-d');
+
+        switch ($type) {
+            case 'ledger':
+                $data     = $this->Admin_model->get_all_ledger();
+                $filename = 'wallet_ledger';
+                $headers  = ['ID', 'User ID', 'Amount', 'Type', 'Description', 'Created At'];
+                break;
+
+            case 'rentals':
+                $data     = $this->Admin_model->get_active_rentals();
+                $filename = 'active_rentals';
+                $headers  = ['ID', 'User ID', 'Product Name', 'Purchase Price', 'Daily ROI',
+                             'Days Processed', 'Total Days', 'Status', 'Created At'];
+                break;
+
+            case 'withdrawals':
+                $data     = $this->Admin_model->get_all_withdrawals();
+                $filename = 'withdrawals';
+                $headers  = ['ID', 'User ID', 'Amount', 'Bank Name', 'Account Number',
+                             'Status', 'Created At'];
+                break;
+        }
+
+        // Force download
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '_' . $date . '.csv"');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        // Stream to browser via php://output
+        $fp = fopen('php://output', 'w');
+        fwrite($fp, "\xEF\xBB\xBF"); // UTF-8 BOM for Excel compat
+        fputcsv($fp, $headers);
+
+        foreach ($data as $row) {
+            if (isset($row['created_at'])) {
+                $row['created_at'] = date('Y-m-d H:i', strtotime($row['created_at']));
+            }
+            fputcsv($fp, $row);
+        }
+
+        fclose($fp);
+        exit;
+    }
+
 }
