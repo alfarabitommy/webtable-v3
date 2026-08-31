@@ -3,10 +3,9 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Auth extends CI_Controller {
 
-    private $recaptcha_secret = '6Le3PSgtAAAAAL65R6znylzjtBpAp9i8yBi-HW2w';
-
     public function __construct() {
         parent::__construct();
+        $this->config->load('recaptcha', TRUE);
         $this->load->model('User_model');
     }
 
@@ -28,7 +27,15 @@ class Auth extends CI_Controller {
             return FALSE;
         }
 
-        $data = array('secret' => $this->recaptcha_secret, 'response' => $recaptcha_response);
+        // Fail-closed: tanpa secret yang terkonfigurasi, tolak verifikasi
+        // dan catat error — JANGAN pernah lanjut ke curl ke Google.
+        $secret = (string) $this->config->item('recaptcha_secret', 'recaptcha');
+        if ($secret === '') {
+            log_message('error', 'reCAPTCHA secret belum dikonfigurasi (env RECAPTCHA_SECRET) — verifikasi ditolak (fail-closed).');
+            return FALSE;
+        }
+
+        $data = array('secret' => $secret, 'response' => $recaptcha_response);
 
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, "https://www.google.com/recaptcha/api/siteverify");

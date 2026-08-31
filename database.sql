@@ -151,4 +151,131 @@ INSERT INTO `site_settings` (`key_name`, `setting_value`) VALUES
 ('wa_number', '628000000000'),
 ('support_email', 'support@synapse.id');
 
+-- -----------------------------------------------------
+-- PHASE B (Langkah 0): production tables + Phase 10 baseline
+-- -----------------------------------------------------
+
+-- -----------------------------------------------------
+-- Table `wallet_ledger` (immutable append-only ledger)
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `wallet_ledger` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` BIGINT UNSIGNED NOT NULL,
+  `transaction_id` VARCHAR(50) NOT NULL,
+  `type` ENUM('credit', 'debit') NOT NULL,
+  `amount` DECIMAL(15,2) NOT NULL,
+  `description` VARCHAR(255) NOT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_user_id` (`user_id`),
+  INDEX `idx_type` (`type`),
+  INDEX `idx_created_at` (`created_at`),
+  CONSTRAINT `fk_wallet_ledger_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------
+-- Table `deposits` (transaction invoices)
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `deposits` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` BIGINT UNSIGNED NOT NULL,
+  `invoice_number` VARCHAR(50) NOT NULL,
+  `amount` DECIMAL(15,2) NOT NULL,
+  `status` ENUM('pending', 'success', 'failed') NOT NULL DEFAULT 'pending',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_invoice_number` (`invoice_number`),
+  INDEX `idx_user_status` (`user_id`, `status`),
+  CONSTRAINT `fk_deposits_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------
+-- Table `user_rentals` (active/expired GPU leases)
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `user_rentals` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` BIGINT UNSIGNED NOT NULL,
+  `product_id` INT UNSIGNED NOT NULL,
+  `purchase_price` DECIMAL(15,2) NOT NULL,
+  `daily_roi` DECIMAL(15,2) NOT NULL,
+  `total_days` INT UNSIGNED NOT NULL DEFAULT 0,
+  `days_processed` INT UNSIGNED NOT NULL DEFAULT 0,
+  `status` ENUM('active', 'completed', 'cancelled') NOT NULL DEFAULT 'active',
+  `expired_at` TIMESTAMP NULL DEFAULT NULL,
+  `last_claimed_at` TIMESTAMP NULL DEFAULT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_user_status` (`user_id`, `status`),
+  INDEX `idx_product_id` (`product_id`),
+  CONSTRAINT `fk_user_rentals_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_user_rentals_product` FOREIGN KEY (`product_id`) REFERENCES `gpu_products` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------
+-- Table `admins` (isolated admin auth — no FK to users)
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `admins` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `username` VARCHAR(50) NOT NULL,
+  `password` VARCHAR(255) NOT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_username` (`username`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------
+-- Table `user_notifications` (in-app notifications)
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `user_notifications` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` BIGINT UNSIGNED NOT NULL,
+  `title` VARCHAR(100) NOT NULL,
+  `message` TEXT NOT NULL,
+  `type` ENUM('info', 'warning', 'success', 'commission') NOT NULL DEFAULT 'info',
+  `is_read` TINYINT(1) NOT NULL DEFAULT 0,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_user_read` (`user_id`, `is_read`),
+  CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------
+-- Table `system_settings` (key-value; circuit breaker Phase 9A)
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `system_settings` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `key_name` VARCHAR(50) NOT NULL,
+  `key_value` TEXT NOT NULL,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_key_name` (`key_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Seed is idempotent: never fails on duplicate key, never overwrites a live value.
+INSERT IGNORE INTO `system_settings` (`key_name`, `key_value`) VALUES
+('is_registration_open', '1');
+
+-- -----------------------------------------------------
+-- Table `system_audit_logs` — Phase 10 baseline (ERD §6)
+-- No code writes to this until Phase 10A; created now per audit-report prerequisite.
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `system_audit_logs` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `admin_id` INT UNSIGNED DEFAULT NULL,
+  `user_id` BIGINT UNSIGNED DEFAULT NULL,
+  `action` VARCHAR(100) NOT NULL,
+  `details` TEXT NULL,
+  `ip_address` VARCHAR(45) NOT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_admin_id` (`admin_id`),
+  INDEX `idx_user_id` (`user_id`),
+  INDEX `idx_action` (`action`),
+  INDEX `idx_created_at` (`created_at`),
+  CONSTRAINT `fk_audit_admin` FOREIGN KEY (`admin_id`) REFERENCES `admins` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_audit_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

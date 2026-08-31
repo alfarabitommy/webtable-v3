@@ -749,8 +749,8 @@ class Admin extends CI_Controller {
 
     public function export_csv($type = '')
     {
-        if (!$this->session->userdata('admin_logged_in')) {
-            redirect('admin_auth');
+        if (!$this->session->userdata('admin_id')) {
+            redirect('control-panel');
         }
 
         $allowed = ['ledger', 'rentals', 'withdrawals'];

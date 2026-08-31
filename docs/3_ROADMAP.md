@@ -78,8 +78,8 @@
 - [x] **7D6: Vanilla JS Fetch Manager** — No jQuery. `fetch()` for all AJAX calls. Badge update on load + every 60s. Dropdown render on bell click. Per-item mark-read on click. "Tandai semua dibaca" bulk action.
 
 ### Phase 7E: Advanced User Management ✅ COMPLETED
-- [x] **7E1: Create User (Referral Bypass)** — `POST /admin/create-user` from Command Center. Backend (`Admin::create_user()`): validate phone (sanitization regex `/^0[0-9]{9,13}$/`), unique check, auto-generate `invite_code`, set `parent_id = NULL` (root node, no agency tree), `password_hash(PASSWORD_BCRYPT)`, insert to `users` + audit log (`action: 'admin_create_user'`). Flash success with phone + invite code.
-- [x] **7E2: Force Reset Password** — `POST /admin/reset-password/{user_id}`. Generate random 8-char password (mixed alphanumeric), hash with bcrypt, update `users.password`, audit log (`action: 'admin_reset_password'`). One-time plaintext display to admin in flash message. `must_change_password` flag forces user to change on next login via redirect to `/auth/change-password`.
+- [x] **7E1: Create User (Referral Bypass)** — `POST /admin/create-user` from Command Center. Backend (`Admin::create_user()`): validate phone (sanitization regex `/^0[0-9]{9,13}$/`), unique check, auto-generate `invite_code`, set `parent_id = NULL` (root node, no agency tree), `password_hash(PASSWORD_BCRYPT)`, insert to `users`. Flash success with phone + invite code. *(Audit logging menyusul di Phase 10A.)*
+- [x] **7E2: Force Reset Password** — `POST /admin/reset-password/{user_id}`. Generate random 8-char password (mixed alphanumeric), hash with bcrypt, update `users.password`. One-time plaintext display to admin in flash message. *(Audit logging menyusul di Phase 10A.)* `must_change_password` flag forces user to change on next login via redirect to `/auth/change-password`.
 - [x] **7E3: `must_change_password` Column** — Added to `users` table: `TINYINT(1) DEFAULT 0`. `MY_Controller` checks flag → redirects to `/auth/change-password` if set. Cleared after successful password update.
 
 ### Phase 8A: Daily Revenue Distribution ✅ COMPLETED
@@ -106,14 +106,14 @@
     * On failure: full rollback. Returns error JSON with specific message ("Agen aktif belum mencukupi" / "Total sales belum mencapai Rp 330.000" / "Bonus sudah diklaim").
 - [x] **8C3: Team Page Integration** — Mission Card rendered prominently on `/team` page. Real-time data from `User_model`. AJAX claim with optimistic UI update + fallback reload.
 
+### Phase 9: Advanced Analytics & Reporting ✅ COMPLETED
+- [x] **9A: Treasury & Chart.js** — Admin Command Center "Treasury Health" panel: total cash-in (SUM `user_rentals.purchase_price`), total user balances (SUM credit − SUM debit on `wallet_ledger`), pending ROI obligation dari rental aktif, circuit breaker `is_registration_open`; Chart.js 4.4.1 revenue chart dengan AJAX refresh via `admin/chart_data`.
+- [x] **9B: Analytics & VIP Leaderboard** — Halaman `admin/analytics`: global metrics (`get_global_analytics()`), per-user financial X-ray (`get_user_xray()`), "TOP AFFILIATES — VIP LEADERBOARD" via recursive CTE (`get_leaderboard()`).
+- [x] **9C: CSV Export Streaming** — `Admin::export_csv()` native streaming ke `php://output`, UTF-8 BOM untuk Excel, 3 tipe: `ledger` / `rentals` / `withdrawals`.
+
 ---
 
 ## Upcoming Phases
-
-### Phase 9: Advanced Analytics & Reporting (PLANNED)
-- [ ] **9A: Revenue Dashboard** — Admin dashboard with daily/weekly/monthly revenue charts. Total active users, total rental volume, total withdrawal volume.
-- [ ] **9B: User Analytics** — Per-user revenue breakdown. Agency performance metrics. Top earners leaderboard.
-- [ ] **9C: Export Functionality** — CSV/Excel export for transaction history, user lists, withdrawal reports.
 
 ### Phase 10: System Hardening & Audit Trail (PLANNED)
 - [ ] **10A: Audit Logging** — `system_audit_logs` table (ERD v5.0 §6). Every admin action logged: deposit approval, withdrawal approval/decline, user creation, password reset.
