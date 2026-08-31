@@ -8,6 +8,24 @@ class Admin_model extends CI_Model {
         $this->load->database();
     }
 
+    // ===== AUDIT WRITE (Phase 10A) =====
+    // Plain INSERT via Audit_model — called INSIDE an open transaction
+    // (trans_start/trans_complete) so rollback removes the audit row too.
+
+    private function _write_audit($audit = null) {
+        if (!is_array($audit) || empty($audit)) {
+            return;
+        }
+        $this->load->model('Audit_model');
+        $this->Audit_model->log_admin_action(
+            isset($audit['admin_id'])  ? $audit['admin_id']  : null,
+            isset($audit['user_id'])   ? $audit['user_id']   : null,
+            isset($audit['action'])    ? $audit['action']    : '',
+            isset($audit['details'])   ? $audit['details']   : null,
+            isset($audit['ip_address'])? $audit['ip_address']: ''
+        );
+    }
+
     // ===== HISTORY: COUNTS =====
 
     public function count_history_deposits() {
@@ -56,11 +74,12 @@ class Admin_model extends CI_Model {
         return $settings;
     }
 
-    public function update_settings($data) {
+    public function update_settings($data, $audit = null) {
         $this->db->trans_start();
         foreach ($data as $key => $value) {
             $this->db->where('key_name', $key)->update('site_settings', ['setting_value' => $value]);
         }
+        $this->_write_audit($audit);
         $this->db->trans_complete();
         return $this->db->trans_status();
     }
@@ -232,7 +251,7 @@ class Admin_model extends CI_Model {
 
     // --- Balance Injection (ACID) ---
 
-    public function inject_balance($user_id, $type, $amount, $description) {
+    public function inject_balance($user_id, $type, $amount, $description, $audit = null) {
         $transaction_id = 'ADM-' . date('YmdHis') . '-' . strtoupper(substr(md5(uniqid()), 0, 6));
 
         $this->db->trans_start();
@@ -243,6 +262,7 @@ class Admin_model extends CI_Model {
             'amount'         => $amount,
             'description'    => $description,
         ]);
+        $this->_write_audit($audit);
         $this->db->trans_complete();
 
         return $this->db->trans_status();
@@ -260,7 +280,7 @@ class Admin_model extends CI_Model {
 
     // --- Inject Rental (Bypass) ---
 
-    public function inject_rental($user_id, $product_id) {
+    public function inject_rental($user_id, $product_id, $audit = null) {
         $product = $this->db->where('id', $product_id)->get('gpu_products')->row();
         if (!$product) return false;
 
@@ -276,6 +296,7 @@ class Admin_model extends CI_Model {
             'last_claimed_at' => date('Y-m-d H:i:s'),
             'expired_at'      => date('Y-m-d H:i:s', strtotime('+' . $product->duration_days . ' days')),
         ]);
+        $this->_write_audit($audit);
         $this->db->trans_complete();
 
         return $this->db->trans_status();

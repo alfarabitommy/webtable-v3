@@ -77,12 +77,12 @@
                             <td class="px-4 py-3 font-mono text-xs text-slate-500"><?= htmlspecialchars($u->parent_invite_code ?? '—') ?></td>
                             <td class="px-4 py-3">
                                 <?php if ($u->is_banned): ?>
-                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
-                                        <i class="fas fa-ban text-[10px]"></i> Banned
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-500 text-white">
+                                        <i class="fas fa-ban text-[10px]"></i> BANNED
                                     </span>
                                 <?php else: ?>
-                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
-                                        <i class="fas fa-check-circle text-[10px]"></i> Active
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500 text-white">
+                                        <i class="fas fa-check-circle text-[10px]"></i> AKTIF
                                     </span>
                                 <?php endif; ?>
                             </td>
@@ -91,10 +91,22 @@
                             </td>
                             <td class="px-4 py-3 text-xs text-slate-500"><?= date('d M Y', strtotime($u->created_at)) ?></td>
                             <td class="px-4 py-3">
-                                <a href="<?= site_url('admin/user_detail/' . $u->id) ?>"
-                                   class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-medium hover:bg-indigo-100 transition-colors">
-                                    <i class="fas fa-eye text-[10px]"></i> Detail
-                                </a>
+                                <div class="flex items-center gap-2">
+                                    <a href="<?= site_url('admin/user_detail/' . $u->id) ?>"
+                                       class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-medium hover:bg-indigo-100 transition-colors">
+                                        <i class="fas fa-eye text-[10px]"></i> Detail
+                                    </a>
+                                    <form method="POST" action="<?= site_url('admin/toggle_ban/' . $u->id) ?>"
+                                          onsubmit="return confirm('<?= $u->is_banned ? 'Buka blokir user ini?' : 'Blokir user ini? User tidak bisa login & sesi aktif akan diakhiri.' ?>')"
+                                          class="inline">
+                                        <button type="submit"
+                                                class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
+                                                       <?= $u->is_banned ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-rose-600 text-white hover:bg-rose-700' ?>">
+                                            <i class="fas <?= $u->is_banned ? 'fa-unlock' : 'fa-ban' ?> text-[10px]"></i>
+                                            <?= $u->is_banned ? 'Buka Blokir' : 'Blokir Akun' ?>
+                                        </button>
+                                    </form>
+                                </div>
                             </td>
                         </tr>
                     <?php endforeach; ?>

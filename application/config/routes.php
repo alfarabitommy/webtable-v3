@@ -7,6 +7,7 @@ $route['translate_uri_dashes'] = FALSE;
 $route['login'] = 'auth/login';
 $route['register'] = 'auth/register';
 $route['logout'] = 'auth/logout';
+$route['auth/change-password'] = 'auth/change_password';
 
 // Phase 5: Wallet Routes
 $route['wallet/simulate_payment/(:any)'] = 'wallet/simulate_payment/$1';

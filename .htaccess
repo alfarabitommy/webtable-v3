@@ -1,3 +1,4 @@
+SetEnv RECAPTCHA_SECRET "6Le3PSgtAAAAAL65R6znylzjtBpAp9i8yBi-HW2w"
 RewriteEngine On
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d

@@ -37,12 +37,12 @@
     </div>
     <div class="flex items-center gap-3">
         <?php if ($user->is_banned): ?>
-            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-semibold">
-                <i class="fas fa-ban"></i> DIBANNED
+            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-400 text-xs font-semibold">
+                <i class="fas fa-ban"></i> BANNED
             </span>
         <?php else: ?>
             <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs font-semibold">
-                <i class="fas fa-check-circle"></i> ACTIVE
+                <i class="fas fa-check-circle"></i> AKTIF
             </span>
         <?php endif; ?>
     </div>
@@ -101,24 +101,26 @@
                 <button type="submit" class="px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors flex items-center gap-2">
                     <i class="fas fa-save text-xs"></i> Simpan Profil
                 </button>
-
-                <!-- Ban Toggle -->
-                <?php if ($user->is_banned): ?>
-                    <form method="POST" action="<?= site_url('admin/toggle_ban/' . $user->id) ?>" onsubmit="return confirm('Unban user ini?')">
-                        <button type="submit" class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors flex items-center gap-2">
-                            <i class="fas fa-unlock text-xs"></i> Unban
-                        </button>
-                    </form>
-                <?php else: ?>
-                    <form method="POST" action="<?= site_url('admin/toggle_ban/' . $user->id) ?>" onsubmit="return confirm('BANNED user ini? User tidak akan bisa login.')">
-                        <button type="submit" class="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors flex items-center gap-2">
-                            <i class="fas fa-ban text-xs"></i> Ban
-                        </button>
-                    </form>
-                <?php endif; ?>
             </div>
 
         <?= form_close() ?>
+
+        <!-- Ban Toggle — standalone form; MUST NOT be nested inside another <form> -->
+        <div class="flex items-center gap-3 pt-2">
+            <?php if ($user->is_banned): ?>
+                <form method="POST" action="<?= site_url('admin/toggle_ban/' . $user->id) ?>" onsubmit="return confirm('Buka blokir user ini?')">
+                    <button type="submit" class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors flex items-center gap-2">
+                        <i class="fas fa-unlock text-xs"></i> Buka Blokir
+                    </button>
+                </form>
+            <?php else: ?>
+                <form method="POST" action="<?= site_url('admin/toggle_ban/' . $user->id) ?>" onsubmit="return confirm('Blokir user ini? User tidak bisa login & sesi aktif akan diakhiri.')">
+                    <button type="submit" class="px-4 py-2 rounded-lg bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 transition-colors flex items-center gap-2">
+                        <i class="fas fa-ban text-xs"></i> Blokir Akun
+                    </button>
+                </form>
+            <?php endif; ?>
+        </div>
     </div>
 
     <!-- ================================================================= -->

@@ -151,6 +151,16 @@ class Auth extends CI_Controller {
                 ])->row();
 
                 if ($user && password_verify($password, $user->password)) {
+                    // Ban lockout — reject banned accounts. Checked AFTER credential
+                    // verification so ban status is not leaked to callers without
+                    // valid credentials.
+                    if ((int) $user->is_banned === 1) {
+                        $data['errors'][] = 'Akun Anda telah dinonaktifkan. Silakan hubungi admin.';
+                        $data['values']   = $this->input->post();
+                        $this->load->view('auth/login', $data);
+                        return;
+                    }
+
                     $this->session->set_userdata([
                         'user_id'     => $user->id,
                         'phone'       => $user->phone,
@@ -158,6 +168,13 @@ class Auth extends CI_Controller {
                         'invite_code' => $user->invite_code,
                         'role'        => $user->role,
                     ]);
+
+                    // Forced password change (7E3): go straight to change-password
+                    // instead of the dashboard; MY_Controller guards all other pages.
+                    if ((int) $user->must_change_password === 1) {
+                        redirect('auth/change-password');
+                    }
+
                     redirect('home');
                 } else {
                     $data['errors'][] = 'Nomor telepon atau kata sandi salah.';
@@ -167,6 +184,50 @@ class Auth extends CI_Controller {
 
         $data['values'] = $this->input->post();
         $this->load->view('auth/login', $data);
+    }
+
+    // ─── CHANGE PASSWORD (forced reset flow — 7E3) ────────
+    public function change_password() {
+        // Self-guard: Auth extends CI_Controller, not MY_Controller
+        $user_id = $this->session->userdata('user_id');
+        if (empty($user_id)) {
+            redirect('login');
+        }
+
+        $user = $this->User_model->get_user_by_id($user_id);
+
+        // Banned users cannot use the change-password flow either
+        if ($user && (int) $user->is_banned === 1) {
+            $this->session->unset_userdata('user_id');
+            $this->session->set_flashdata('error', 'Akun Anda telah dinonaktifkan. Silakan hubungi admin.');
+            redirect('login');
+        }
+
+        $data['errors'] = [];
+
+        if ($this->input->post()) {
+            $this->form_validation->set_rules('new_password', 'Kata Sandi Baru', 'required|min_length[8]');
+            $this->form_validation->set_rules('confirm_password', 'Konfirmasi Kata Sandi', 'required|matches[new_password]');
+
+            if ($this->form_validation->run()) {
+                $new_password = $this->input->post('new_password', TRUE);
+
+                $updated = $this->User_model->update_user($user_id, [
+                    'password'             => password_hash($new_password, PASSWORD_BCRYPT),
+                    'must_change_password' => 0,
+                ]);
+
+                if ($updated) {
+                    $this->session->set_flashdata('success', 'Kata sandi berhasil diperbarui.');
+                    redirect('home');
+                } else {
+                    $data['errors'][] = 'Gagal memperbarui kata sandi. Silakan coba lagi.';
+                }
+            }
+        }
+
+        $data['values'] = $this->input->post();
+        $this->load->view('auth/change_password', $data);
     }
 
     // ─── LOGOUT ───────────────────────────────────────

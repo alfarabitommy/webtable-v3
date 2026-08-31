@@ -28,6 +28,21 @@ class Admin extends CI_Controller {
         return $digits;
     }
 
+    // ─── AUDIT CONTEXT (Phase 10A) ─────────────────────
+    // Builds the $audit array passed to Admin_model TX methods.
+    // (Direct calls to Audit_model::log_admin_action() are used where the
+    // transaction lives in this controller — see approve_deposit et al.)
+
+    private function _audit_ctx($user_id, $action, $details = null) {
+        return [
+            'admin_id'   => (int) $this->session->userdata('admin_id'),
+            'user_id'    => $user_id,
+            'action'     => $action,
+            'details'    => $details,
+            'ip_address' => $this->input->ip_address(),
+        ];
+    }
+
     public function index() {
         $this->load->model('Admin_model');
 
@@ -96,6 +111,16 @@ class Admin extends CI_Controller {
             'description'    => 'Top Up via ' . $deposit->invoice_number,
         ]);
 
+        // 3. Audit log — inside the same ACID transaction (rollback erases it too)
+        $this->load->model('Audit_model');
+        $this->Audit_model->log_admin_action(
+            (int) $this->session->userdata('admin_id'),
+            $deposit->user_id,
+            'approve_deposit',
+            ['invoice_number' => $deposit->invoice_number, 'amount' => $deposit->amount],
+            $this->input->ip_address()
+        );
+
         $this->db->trans_complete();
 
         if ($this->db->trans_status()) {
@@ -127,6 +152,16 @@ class Admin extends CI_Controller {
 
         // Balance was already deducted on request — just flip status
         $this->db->where('id', $wd_id)->update('withdrawals', ['status' => 'success']);
+
+        // Audit log — inside the same ACID transaction
+        $this->load->model('Audit_model');
+        $this->Audit_model->log_admin_action(
+            (int) $this->session->userdata('admin_id'),
+            $wd->user_id,
+            'approve_withdrawal',
+            ['wd_number' => $wd->wd_number, 'amount' => $wd->amount],
+            $this->input->ip_address()
+        );
 
         $this->db->trans_complete();
 
@@ -169,6 +204,16 @@ class Admin extends CI_Controller {
             'type'           => 'credit',
             'description'    => 'Pengembalian Dana: Penarikan Ditolak (' . $wd->wd_number . ')',
         ]);
+
+        // 3. Audit log — inside the same ACID transaction
+        $this->load->model('Audit_model');
+        $this->Audit_model->log_admin_action(
+            (int) $this->session->userdata('admin_id'),
+            $wd->user_id,
+            'decline_withdrawal',
+            ['wd_number' => $wd->wd_number, 'amount' => $wd->amount, 'refunded' => true],
+            $this->input->ip_address()
+        );
 
         $this->db->trans_complete();
 
@@ -260,7 +305,7 @@ class Admin extends CI_Controller {
                     'support_email' => $this->input->post('support_email', TRUE),
                 ];
 
-                if ($this->Admin_model->update_settings($data)) {
+                if ($this->Admin_model->update_settings($data, $this->_audit_ctx(null, 'admin_update_settings', ['fields' => array_keys($data)]))) {
                     $this->session->set_flashdata('success', 'Pengaturan berhasil disimpan.');
                 } else {
                     $this->session->set_flashdata('error', 'Gagal menyimpan pengaturan.');
@@ -403,7 +448,8 @@ class Admin extends CI_Controller {
             return;
         }
 
-        // Upline resolution
+        // Upline resolution — validation only (no writes yet; TX starts after all guards)
+        $resolved_upline_id = null;
         if ($upline_code !== '') {
             $upline = $this->Admin_model->resolve_upline($upline_code);
             if (!$upline) {
@@ -421,14 +467,35 @@ class Admin extends CI_Controller {
                 redirect('admin/user_detail/' . $id);
                 return;
             }
-            $this->Admin_model->update_parent_id($id, $upline->id);
+            $resolved_upline_id = $upline->id;
         }
 
+        // Atomic: profile/upline writes + audit log commit or rollback together
+        $this->db->trans_start();
+        if ($resolved_upline_id !== null) {
+            $this->Admin_model->update_parent_id($id, $resolved_upline_id);
+        }
         $this->Admin_model->update_user_profile($id, [
             'username'    => $username,
             'phone'       => $phone,
             'invite_code' => $invite_code,
         ]);
+
+        $this->load->model('Audit_model');
+        $this->Audit_model->log_admin_action(
+            (int) $this->session->userdata('admin_id'),
+            $id,
+            'admin_update_user',
+            ['phone' => $phone, 'invite_code' => $invite_code, 'upline_id' => $resolved_upline_id],
+            $this->input->ip_address()
+        );
+        $this->db->trans_complete();
+
+        if (!$this->db->trans_status()) {
+            $this->session->set_flashdata('error', 'Gagal memperbarui profil user.');
+            redirect('admin/user_detail/' . $id);
+            return;
+        }
 
         $this->session->set_flashdata('success', 'Profil user berhasil diperbarui.');
         redirect('admin/user_detail/' . $id);
@@ -441,7 +508,21 @@ class Admin extends CI_Controller {
             return;
         }
         $this->load->model('Admin_model');
+
+        // Atomic: ban state change + audit log
+        $this->db->trans_start();
         $new_state = $this->Admin_model->toggle_ban($id);
+        if ($new_state !== FALSE) {
+            $this->load->model('Audit_model');
+            $this->Audit_model->log_admin_action(
+                (int) $this->session->userdata('admin_id'),
+                $id,
+                'admin_toggle_ban',
+                ['new_state' => $new_state ? 'banned' : 'unbanned'],
+                $this->input->ip_address()
+            );
+        }
+        $this->db->trans_complete();
 
         if ($new_state === FALSE) {
             $this->session->set_flashdata('error', 'User tidak ditemukan.');
@@ -472,7 +553,7 @@ class Admin extends CI_Controller {
             return;
         }
 
-        if ($this->Admin_model->inject_balance($id, $type, $amount, $desc)) {
+        if ($this->Admin_model->inject_balance($id, $type, $amount, $desc, $this->_audit_ctx($id, 'admin_inject_balance', ['type' => $type, 'amount' => $amount]))) {
             $label = strtoupper($type);
             $this->session->set_flashdata('success', "Balance {$label}: Rp " . number_format($amount, 0, ',', '.') . " berhasil.");
         } else {
@@ -498,7 +579,7 @@ class Admin extends CI_Controller {
             return;
         }
 
-        if ($this->Admin_model->inject_rental($id, $product_id)) {
+        if ($this->Admin_model->inject_rental($id, $product_id, $this->_audit_ctx($id, 'admin_inject_rental', ['product_id' => $product_id]))) {
             $this->session->set_flashdata('success', 'Rental berhasil di-inject (BYPASS balance).');
         } else {
             $this->session->set_flashdata('error', 'Gagal inject rental.');
@@ -522,7 +603,25 @@ class Admin extends CI_Controller {
             return;
         }
 
+        // Atomic: cancel + audit log
+        $this->db->trans_start();
         $this->Admin_model->cancel_rental($rental_id);
+        $this->load->model('Audit_model');
+        $this->Audit_model->log_admin_action(
+            (int) $this->session->userdata('admin_id'),
+            $rental->user_id,
+            'admin_cancel_rental',
+            ['rental_id' => $rental_id],
+            $this->input->ip_address()
+        );
+        $this->db->trans_complete();
+
+        if (!$this->db->trans_status()) {
+            $this->session->set_flashdata('error', 'Gagal cancel rental.');
+            redirect('admin/user_detail/' . $rental->user_id);
+            return;
+        }
+
         $this->session->set_flashdata('success', 'Rental #' . $rental_id . ' berhasil dicancel.');
         redirect('admin/user_detail/' . $rental->user_id);
     }
@@ -552,7 +651,25 @@ class Admin extends CI_Controller {
             return;
         }
 
+        // Atomic: time travel + audit log
+        $this->db->trans_start();
         $this->Admin_model->adjust_rental_time($rental_id, $last_claimed_at, $days_processed);
+        $this->load->model('Audit_model');
+        $this->Audit_model->log_admin_action(
+            (int) $this->session->userdata('admin_id'),
+            $rental->user_id,
+            'admin_adjust_time',
+            ['rental_id' => $rental_id, 'days_processed' => $days_processed],
+            $this->input->ip_address()
+        );
+        $this->db->trans_complete();
+
+        if (!$this->db->trans_status()) {
+            $this->session->set_flashdata('error', 'Gagal menyesuaikan waktu rental.');
+            redirect('admin/user_detail/' . $rental->user_id);
+            return;
+        }
+
         $this->session->set_flashdata('success', 'Rental #' . $rental_id . ' — Time Travel berhasil!');
         redirect('admin/user_detail/' . $rental->user_id);
     }
@@ -599,6 +716,8 @@ class Admin extends CI_Controller {
             $parent_id = $upline->id;
         }
 
+        // Atomic: user insert + audit log (PRD §7.D.1)
+        $this->db->trans_start();
         $user_id = $this->Admin_model->create_user([
             'phone'       => $phone,
             'password'    => password_hash($password, PASSWORD_DEFAULT),
@@ -610,7 +729,17 @@ class Admin extends CI_Controller {
             'created_at'  => date('Y-m-d H:i:s'),
         ]);
 
-        if ($user_id) {
+        $this->load->model('Audit_model');
+        $this->Audit_model->log_admin_action(
+            (int) $this->session->userdata('admin_id'),
+            $user_id ?: null,
+            'admin_create_user',
+            ['phone' => $phone, 'created_by' => (int) $this->session->userdata('admin_id')],
+            $this->input->ip_address()
+        );
+        $this->db->trans_complete();
+
+        if ($user_id && $this->db->trans_status()) {
             $this->session->set_flashdata('success', "Pengguna berhasil dibuat! Invite Code: {$invite_code}");
         } else {
             $this->session->set_flashdata('error', 'Gagal membuat pengguna.');
@@ -649,7 +778,20 @@ class Admin extends CI_Controller {
         $new_password = $this->input->post('new_password', TRUE);
         $hashed = password_hash($new_password, PASSWORD_DEFAULT);
 
-        if ($this->Admin_model->force_reset_password($user_id, $hashed)) {
+        // Atomic: password update + audit log (PRD §7.D.2 — plaintext never logged)
+        $this->db->trans_start();
+        $ok = $this->Admin_model->force_reset_password($user_id, $hashed);
+        $this->load->model('Audit_model');
+        $this->Audit_model->log_admin_action(
+            (int) $this->session->userdata('admin_id'),
+            $user_id,
+            'admin_reset_password',
+            ['user_id' => $user_id],
+            $this->input->ip_address()
+        );
+        $this->db->trans_complete();
+
+        if ($ok && $this->db->trans_status()) {
             $this->session->set_flashdata('success', 'Kata sandi berhasil di-reset.');
         } else {
             $this->session->set_flashdata('error', 'Gagal mereset kata sandi.');
@@ -672,14 +814,29 @@ class Admin extends CI_Controller {
         $current = $this->Admin_model->get_setting('is_registration_open');
         $new_value = ($current === '1') ? '0' : '1';
 
+        // Atomic: setting write + audit log
+        $this->db->trans_start();
         $this->Admin_model->set_setting('is_registration_open', $new_value);
+        $this->load->model('Audit_model');
+        $this->Audit_model->log_admin_action(
+            (int) $this->session->userdata('admin_id'),
+            null,
+            'admin_toggle_registration',
+            ['was_open' => ($current === '1'), 'is_open' => ($new_value === '1')],
+            $this->input->ip_address()
+        );
+        $this->db->trans_complete();
+
+        $success = $this->db->trans_status();
 
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode([
-                'success' => true,
+                'success' => $success,
                 'is_open' => ($new_value === '1'),
-                'message' => ($new_value === '1') ? 'Pendaftaran dibuka' : 'Pendaftaran ditutup'
+                'message' => !$success
+                    ? 'Gagal mengubah pengaturan pendaftaran.'
+                    : (($new_value === '1') ? 'Pendaftaran dibuka' : 'Pendaftaran ditutup')
             ]));
     }
 
@@ -742,6 +899,69 @@ class Admin extends CI_Controller {
             ->set_output(json_encode(['success' => true, 'data' => $xray]));
     }
 
+
+    // ===================================================================
+    //  PHASE 10A: AUDIT VIEWER (/admin/audit)
+    // ===================================================================
+
+    public function audit()
+    {
+        $this->load->model('Admin_model');
+        $this->load->model('Audit_model');
+
+        // Filters — action is passed through; date format validated here
+        $action = trim((string) $this->input->get('action', TRUE));
+        $from   = trim((string) $this->input->get('from', TRUE));
+        $to     = trim((string) $this->input->get('to', TRUE));
+
+        if ($from !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) $from = '';
+        if ($to   !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to))   $to   = '';
+
+        $per_page = 50;
+        $offset   = max(0, intval($this->input->get('per_page', TRUE) ?? 0));
+
+        $total = $this->Audit_model->count_audit_logs($action, $from, $to);
+        $logs  = $this->Audit_model->get_audit_logs($action, $from, $to, $per_page, $offset);
+
+        // Pagination — reuse_query_string keeps action/from/to across page links
+        $config['base_url']             = site_url('admin/audit');
+        $config['total_rows']           = $total;
+        $config['per_page']             = $per_page;
+        $config['page_query_string']    = TRUE;
+        $config['query_string_segment'] = 'per_page';
+        $config['reuse_query_string']   = TRUE;
+        $config['full_tag_open']        = '<nav class="flex items-center justify-center gap-1 mt-6">';
+        $config['full_tag_close']       = '</nav>';
+        $config['num_tag_open']         = '<a href="{link}" class="px-3 py-1.5 text-sm rounded-lg border border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors font-mono">';
+        $config['num_tag_close']        = '</a>';
+        $config['cur_tag_open']         = '<span class="px-3 py-1.5 text-sm rounded-lg bg-emerald-600 text-white font-medium font-mono">';
+        $config['cur_tag_close']        = '</span>';
+        $config['next_link']            = '&raquo;';
+        $config['next_tag_open']        = '<a href="{link}" class="px-3 py-1.5 text-sm rounded-lg border border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors font-mono">';
+        $config['next_tag_close']       = '</a>';
+        $config['prev_link']            = '&laquo;';
+        $config['prev_tag_open']        = '<a href="{link}" class="px-3 py-1.5 text-sm rounded-lg border border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors font-mono">';
+        $config['prev_tag_close']       = '</a>';
+
+        $this->pagination->initialize($config);
+
+        $data = [
+            'page_title' => 'Audit Logs',
+            'logs'       => $logs,
+            'actions'    => $this->Audit_model->get_action_options(),
+            'f_action'   => $action,
+            'f_from'     => $from,
+            'f_to'       => $to,
+            'total'      => $total,
+            'pagination' => $this->pagination->create_links(),
+        ];
+
+        $this->load->view('admin/templates/header', $data);
+        $this->load->view('admin/templates/sidebar', $data);
+        $this->load->view('admin/templates/topbar', $data);
+        $this->load->view('admin/audit', $data);
+        $this->load->view('admin/templates/footer');
+    }
 
     // ===================================================================
     //  PHASE 9C: NATIVE CSV EXPORT
