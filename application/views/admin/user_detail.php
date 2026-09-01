@@ -108,17 +108,17 @@
         <!-- Ban Toggle — standalone form; MUST NOT be nested inside another <form> -->
         <div class="flex items-center gap-3 pt-2">
             <?php if ($user->is_banned): ?>
-                <form method="POST" action="<?= site_url('admin/toggle_ban/' . $user->id) ?>" onsubmit="return confirm('Buka blokir user ini?')">
+                <?= form_open('admin/toggle_ban/' . $user->id, "onsubmit=\"return confirm('Buka blokir user ini?')\"") ?>
                     <button type="submit" class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors flex items-center gap-2">
                         <i class="fas fa-unlock text-xs"></i> Buka Blokir
                     </button>
-                </form>
+                <?= form_close() ?>
             <?php else: ?>
-                <form method="POST" action="<?= site_url('admin/toggle_ban/' . $user->id) ?>" onsubmit="return confirm('Blokir user ini? User tidak bisa login & sesi aktif akan diakhiri.')">
+                <?= form_open('admin/toggle_ban/' . $user->id, "onsubmit=\"return confirm('Blokir user ini? User tidak bisa login & sesi aktif akan diakhiri.')\"") ?>
                     <button type="submit" class="px-4 py-2 rounded-lg bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 transition-colors flex items-center gap-2">
                         <i class="fas fa-ban text-xs"></i> Blokir Akun
                     </button>
-                </form>
+                <?= form_close() ?>
             <?php endif; ?>
         </div>
     </div>
@@ -260,11 +260,11 @@
                                     <div class="flex items-center gap-1">
                                         <!-- Cancel Button -->
                                         <?php if ($r->status === 'active'): ?>
-                                            <form method="POST" action="<?= site_url('admin/cancel_rental/' . $r->id) ?>" onsubmit="return confirm('Cancel rental #<?= $r->id ?>?')">
+                                            <?= form_open('admin/cancel_rental/' . $r->id, ['onsubmit' => "return confirm('Cancel rental #{$r->id}?')"]) ?>
                                                 <button type="submit" class="px-2 py-1 rounded text-[10px] font-medium bg-red-50 text-red-600 hover:bg-red-100 transition-colors">
                                                     <i class="fas fa-times-circle"></i>
                                                 </button>
-                                            </form>
+                                            <?= form_close() ?>
                                         <?php endif; ?>
                                         <!-- Time Travel Toggle -->
                                         <?php if ($r->status === 'active'): ?>
@@ -281,7 +281,7 @@
                             <?php if ($r->status === 'active'): ?>
                                 <tr id="tt-<?= $r->id ?>" class="hidden bg-amber-50/50">
                                     <td colspan="9" class="px-4 py-3">
-                                        <form method="POST" action="<?= site_url('admin/adjust_time/' . $r->id) ?>" class="flex flex-wrap items-end gap-3">
+                                        <?= form_open('admin/adjust_time/' . $r->id, 'class="flex flex-wrap items-end gap-3"') ?>
                                             <div>
                                                 <label class="block text-[10px] font-medium text-slate-500 mb-1">Last Claimed At</label>
                                                 <input type="datetime-local" name="last_claimed_at"
@@ -297,7 +297,7 @@
                                             <button type="submit" class="px-4 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 transition-colors flex items-center gap-1.5">
                                                 <i class="fas fa-forward text-[10px]"></i> Time Travel
                                             </button>
-                                        </form>
+                                        <?= form_close() ?>
                                     </td>
                                 </tr>
                             <?php endif; ?>

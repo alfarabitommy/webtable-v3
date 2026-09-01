@@ -276,8 +276,7 @@ function closeHelpModal() {
 }
 
 // ═══ Claim AJAX ═══
-var csrfName = '<?= $this->config->item("csrf_token_name") ?>';
-var csrfHash = '<?= $this->security->get_csrf_hash() ?>';
+// Token CSRF disuntik otomatis oleh csrfFetch() (partial templates/csrf_meta.php)
 
 function claimLevel1() {
     var btn = document.getElementById('btn-claim-l1');
@@ -285,8 +284,7 @@ function claimLevel1() {
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Memproses...';
     var fd = new FormData();
-    fd.append(csrfName, csrfHash);
-    fetch('<?= site_url("team/claim_level1") ?>', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
+    csrfFetch('<?= site_url("team/claim_level1") ?>', { method: 'POST', body: fd })
     .then(function(r) { return r.json(); })
     .then(function(d) {
         if (d.success) {
@@ -316,8 +314,7 @@ function claimWage() {
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Memproses...';
     var fd = new FormData();
-    fd.append(csrfName, csrfHash);
-    fetch('<?= site_url("team/claim_wage") ?>', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
+    csrfFetch('<?= site_url("team/claim_wage") ?>', { method: 'POST', body: fd })
     .then(function(r) { return r.json(); })
     .then(function(d) {
         if (d.success) {

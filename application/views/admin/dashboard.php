@@ -153,12 +153,11 @@
                                 <div class="text-[11px] text-slate-400 mt-0.5"><?= date('d M Y H:i', strtotime($dep->created_at)) ?></div>
                             </div>
                         </div>
-                        <form method="POST" action="<?= site_url('admin/approve_deposit/' . $dep->id) ?>"
-                              onsubmit="return confirm('Approve deposit <?= $dep->invoice_number ?>?')">
+                        <?= form_open('admin/approve_deposit/' . $dep->id, ['onsubmit' => "return confirm('Approve deposit {$dep->invoice_number}?')"]) ?>
                             <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
                                 <i class="fas fa-check mr-1"></i> Approve
                             </button>
-                        </form>
+                        <?= form_close() ?>
                     </div>
                     <?php endforeach; ?>
                 </div>
@@ -200,18 +199,16 @@
                             </div>
                         </div>
                         <div class="flex gap-2 mt-3">
-                            <form method="POST" action="<?= site_url('admin/approve_withdrawal/' . $wd->id) ?>" class="flex-1"
-                                  onsubmit="return confirm('Approve withdrawal <?= $wd->wd_number ?>?')">
+                            <?= form_open('admin/approve_withdrawal/' . $wd->id, ['class' => 'flex-1', 'onsubmit' => "return confirm('Approve withdrawal {$wd->wd_number}?')"]) ?>
                                 <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
                                     <i class="fas fa-check mr-1"></i> Approve
                                 </button>
-                            </form>
-                            <form method="POST" action="<?= site_url('admin/decline_withdrawal/' . $wd->id) ?>" class="flex-1"
-                                  onsubmit="return confirm('Decline withdrawal <?= $wd->wd_number ?>? Dana akan dikembalikan.')">
+                            <?= form_close() ?>
+                            <?= form_open('admin/decline_withdrawal/' . $wd->id, ['class' => 'flex-1', 'onsubmit' => "return confirm('Decline withdrawal {$wd->wd_number}? Dana akan dikembalikan.')"]) ?>
                                 <button type="submit" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-3 py-2 rounded-lg transition-colors">
                                     <i class="fas fa-times mr-1"></i> Decline
                                 </button>
-                            </form>
+                            <?= form_close() ?>
                         </div>
                     </div>
                     <?php endforeach; ?>
@@ -232,12 +229,8 @@
             label.textContent = 'Memproses...';
             btn.classList.add('opacity-75', 'cursor-not-allowed');
 
-            fetch('<?= base_url('admin/toggle_registration') ?>', {
-                method: 'POST',
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'Content-Type': 'application/json'
-                }
+            csrfFetch('<?= base_url('admin/toggle_registration') ?>', {
+                method: 'POST'
             })
             .then(r => r.json())
             .then(data => {

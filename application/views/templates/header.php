@@ -6,6 +6,7 @@
     <title><?= isset($page_title) ? $page_title . ' · ' : '' ?>Synapse</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <?php $this->load->view('templates/csrf_meta'); ?>
     <style>
         * { -webkit-tap-highlight-color: transparent; }
         body { overscroll-behavior: none; }
@@ -134,9 +135,8 @@
 
         // Auto mark-read on open if unread
         if (notifUnreadCount > 0) {
-            fetch('<?= base_url('user/read_notifications') ?>', {
-                method: 'POST',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            csrfFetch('<?= base_url('user/read_notifications') ?>', {
+                method: 'POST'
             })
             .then(r => r.json())
             .then(data => {
@@ -166,9 +166,8 @@
     }
 
     function markAllRead() {
-        fetch('<?= base_url('user/read_notifications') ?>', {
-            method: 'POST',
-            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        csrfFetch('<?= base_url('user/read_notifications') ?>', {
+            method: 'POST'
         })
         .then(r => r.json())
         .then(data => {

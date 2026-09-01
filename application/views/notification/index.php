@@ -128,9 +128,8 @@ function markAllRead() {
         btn.textContent = 'Memproses...';
     }
 
-    fetch('<?= base_url('notification/mark_all_read') ?>', {
-        method: 'POST',
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    csrfFetch('<?= base_url('notification/mark_all_read') ?>', {
+        method: 'POST'
     })
     .then(r => r.json())
     .then(data => {

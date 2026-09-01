@@ -96,16 +96,14 @@
                                        class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-medium hover:bg-indigo-100 transition-colors">
                                         <i class="fas fa-eye text-[10px]"></i> Detail
                                     </a>
-                                    <form method="POST" action="<?= site_url('admin/toggle_ban/' . $u->id) ?>"
-                                          onsubmit="return confirm('<?= $u->is_banned ? 'Buka blokir user ini?' : 'Blokir user ini? User tidak bisa login & sesi aktif akan diakhiri.' ?>')"
-                                          class="inline">
+                                    <?= form_open('admin/toggle_ban/' . $u->id, ['onsubmit' => "return confirm('" . ($u->is_banned ? 'Buka blokir user ini?' : 'Blokir user ini? User tidak bisa login & sesi aktif akan diakhiri.') . "')", 'class' => 'inline']) ?>
                                         <button type="submit"
                                                 class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
                                                        <?= $u->is_banned ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-rose-600 text-white hover:bg-rose-700' ?>">
                                             <i class="fas <?= $u->is_banned ? 'fa-unlock' : 'fa-ban' ?> text-[10px]"></i>
                                             <?= $u->is_banned ? 'Buka Blokir' : 'Blokir Akun' ?>
                                         </button>
-                                    </form>
+                                    <?= form_close() ?>
                                 </div>
                             </td>
                         </tr>
