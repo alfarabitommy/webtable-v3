@@ -9,6 +9,8 @@ class Rentals extends MY_Controller {
         $this->load->model('Rental_model');
         $this->load->model('Wallet_model');
         $this->load->model('Product_model');
+        $this->load->model('Rate_limit_model');
+        $this->load->helper('ratelimit');
     }
 
     /**
@@ -108,12 +110,32 @@ class Rentals extends MY_Controller {
      * POST /rentals/claim/{id} — ROI claim with 2-day accumulation
      */
     public function claim($rental_id = null) {
+        // POST-only guard (10B hardening): claim memutasi DB (wallet + rental),
+        // tidak boleh dieksekusi via GET. Form view memakai form_open (POST).
+        if (!$this->input->post()) {
+            redirect('rentals');
+        }
+
         if (!$rental_id) {
             $this->session->set_flashdata('error', 'Sistem: ID Sewa tidak valid.');
             redirect('rentals');
         }
 
         $user_id = $this->session->userdata('user_id');
+
+        // ─── RATE LIMIT (10B): anti-spam klaim — key claim_roi:{user_id}.
+        // Setiap percobaan klaim dihitung (burst limiter); business guard
+        // T+1 tetap menjadi otoritas utama jumlah ROI harian.
+        $rl_key   = 'claim_roi:' . $user_id;
+        $throttle = $this->Rate_limit_model->check($rl_key, 5, 900);
+        if (!$throttle['allowed']) {
+            if ($this->input->is_ajax_request()) {
+                rate_limit_json_response($throttle);
+            }
+            $this->session->set_flashdata('error', rate_limit_message($throttle['remaining_seconds']));
+            redirect('rentals');
+        }
+        $this->Rate_limit_model->hit($rl_key, 900, 5);
 
         // 1. Fetch Rental Safely
         $rental = $this->db->get_where('user_rentals', ['id' => $rental_id, 'user_id' => $user_id])->row();

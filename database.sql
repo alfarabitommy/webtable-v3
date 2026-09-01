@@ -280,4 +280,20 @@ CREATE TABLE IF NOT EXISTS `system_audit_logs` (
   CONSTRAINT `fk_audit_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- -----------------------------------------------------
+-- Table `rate_limits` — Phase 10B (rate limiting & brute force)
+-- Satu baris per composite key (endpoint + identitas). Baris pendek
+-- umurnya (GC ≤ 30 menit); tidak perlu FK (bukan data bisnis).
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `rate_limits` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `rate_key` VARCHAR(191) NOT NULL,
+  `attempts` INT UNSIGNED NOT NULL DEFAULT 0,
+  `last_attempt_at` DATETIME NOT NULL,
+  `locked_until` DATETIME NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_rate_key` (`rate_key`),
+  INDEX `idx_last_attempt_at` (`last_attempt_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

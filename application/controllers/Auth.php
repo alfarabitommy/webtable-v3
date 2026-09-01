@@ -7,6 +7,8 @@ class Auth extends CI_Controller {
         parent::__construct();
         $this->config->load('recaptcha', TRUE);
         $this->load->model('User_model');
+        $this->load->model('Rate_limit_model');
+        $this->load->helper('ratelimit');
     }
 
     // ─── PHONE NORMALIZER ──────────────────────────────
@@ -70,6 +72,22 @@ class Auth extends CI_Controller {
         $data['errors'] = [];
 
         if ($this->input->post()) {
+            // ─── RATE LIMIT (10B): burst limiter registrasi — key register:{ip}.
+            // Setiap submission dihitung (sukses maupun gagal) agar bot yang
+            // berhasil membuat akun pun tetap terkena pagu 5/15 menit per IP.
+            $rl_key   = 'register:' . $this->input->ip_address();
+            $throttle = $this->Rate_limit_model->check($rl_key, 5, 900);
+            if (!$throttle['allowed']) {
+                if ($this->input->is_ajax_request()) {
+                    rate_limit_json_response($throttle);
+                }
+                $data['errors'][] = rate_limit_message($throttle['remaining_seconds']);
+                $data['values']   = $this->input->post();
+                $this->load->view('auth/register', $data);
+                return;
+            }
+            $this->Rate_limit_model->hit($rl_key, 900, 5);
+
             // reCAPTCHA check first (fail-fast before DB)
             $recaptcha = $this->input->post('g-recaptcha-response', TRUE);
             if (!$this->_verify_recaptcha($recaptcha)) {
@@ -128,6 +146,20 @@ class Auth extends CI_Controller {
         $data['errors'] = [];
 
         if ($this->input->post()) {
+            // ─── RATE LIMIT (10B): fail-fast sebelum reCAPTCHA — key login:{phone}:{ip}
+            $rl_phone = $this->_normalize_phone($this->input->post('phone', TRUE));
+            $rl_key   = 'login:' . $rl_phone . ':' . $this->input->ip_address();
+            $throttle = $this->Rate_limit_model->check($rl_key, 5, 900);
+            if (!$throttle['allowed']) {
+                if ($this->input->is_ajax_request()) {
+                    rate_limit_json_response($throttle);
+                }
+                $data['errors'][] = rate_limit_message($throttle['remaining_seconds']);
+                $data['values']   = $this->input->post();
+                $this->load->view('auth/login', $data);
+                return;
+            }
+
             // reCAPTCHA check first (fail-fast before DB)
             $recaptcha = $this->input->post('g-recaptcha-response', TRUE);
             if (!$this->_verify_recaptcha($recaptcha)) {
@@ -151,6 +183,9 @@ class Auth extends CI_Controller {
                 ])->row();
 
                 if ($user && password_verify($password, $user->password)) {
+                    // Rate limit (10B): kredensial benar → bersihkan counter
+                    $this->Rate_limit_model->clear($rl_key);
+
                     // Ban lockout — reject banned accounts. Checked AFTER credential
                     // verification so ban status is not leaked to callers without
                     // valid credentials.
@@ -177,6 +212,8 @@ class Auth extends CI_Controller {
 
                     redirect('home');
                 } else {
+                    // Rate limit (10B): kredensial salah → catat percobaan gagal
+                    $this->Rate_limit_model->hit($rl_key, 900, 5);
                     $data['errors'][] = 'Nomor telepon atau kata sandi salah.';
                 }
             }

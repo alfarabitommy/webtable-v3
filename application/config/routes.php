@@ -20,9 +20,11 @@ $route['rentals/claim/(:num)'] = 'rentals/claim/$1';
 $route['profile'] = 'profile/index';
 $route['profile/update'] = 'profile/update';
 $route['profile/avatar_delete'] = 'profile/avatar_delete';
+$route['profile/change-password'] = 'profile/change_password';
 
 // Phase 7: Admin Portal (cloaked)
 $route['control-panel'] = 'Admin_auth/login';
+$route['admin/logout'] = 'admin_auth/logout';
 
 // Phase 8: Bank Binding
 $route['wallet/bind_bank'] = 'wallet/bind_bank';

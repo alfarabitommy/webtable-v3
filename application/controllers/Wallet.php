@@ -7,6 +7,8 @@ class Wallet extends MY_Controller {
         parent::__construct();
         $this->load->model('Wallet_model');
         $this->load->model('Rental_model');
+        $this->load->model('Rate_limit_model');
+        $this->load->helper('ratelimit');
     }
 
     public function index() {
@@ -103,6 +105,20 @@ class Wallet extends MY_Controller {
 
     public function process_withdraw() {
         $user_id = $this->session->userdata('user_id');
+
+        // ─── RATE LIMIT (10B): rate limit pengajuan WD — key withdraw:{user_id}.
+        // Setiap submission dihitung; Gatekeeper existing (single-pending-WD,
+        // daily limit) tetap menjadi otoritas utama.
+        $rl_key   = 'withdraw:' . $user_id;
+        $throttle = $this->Rate_limit_model->check($rl_key, 5, 900);
+        if (!$throttle['allowed']) {
+            if ($this->input->is_ajax_request()) {
+                rate_limit_json_response($throttle);
+            }
+            $this->session->set_flashdata('error', rate_limit_message($throttle['remaining_seconds']));
+            redirect('wallet/withdraw');
+        }
+        $this->Rate_limit_model->hit($rl_key, 900, 5);
 
         // Same gatekeepers as withdraw() GET
         if ($this->Wallet_model->has_pending_withdrawal($user_id)) {

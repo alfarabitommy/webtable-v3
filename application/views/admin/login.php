@@ -24,6 +24,13 @@
         <!-- Card -->
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
 
+            <?php if ($this->session->flashdata('success')): ?>
+                <div class="bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium px-4 py-3 rounded-xl mb-4 flex items-center gap-2">
+                    <i class="fas fa-check-circle"></i>
+                    <?= $this->session->flashdata('success') ?>
+                </div>
+            <?php endif; ?>
+
             <?php if ($this->session->flashdata('error')): ?>
                 <div class="bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-xl mb-4 flex items-center gap-2">
                     <i class="fas fa-exclamation-circle"></i>

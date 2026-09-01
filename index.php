@@ -91,6 +91,19 @@ switch (ENVIRONMENT)
 
 /*
  *---------------------------------------------------------------
+ * TIMEZONE
+ *---------------------------------------------------------------
+ *
+ * Seluruh aplikasi memakai Asia/Jakarta (WIB, UTC+7). Di-set eksplisit
+ * di sini agar PHP date()/strtotime() konsisten dengan timestamp yang
+ * ditulis Rate_limit_model dan tidak bergantung pada date.timezone
+ * server (fix timezone mismatch Phase 10B — MySQL NOW() tidak lagi
+ * dipakai; semua timestamp rate limit di-generate dari PHP).
+ */
+	date_default_timezone_set('Asia/Jakarta');
+
+/*
+ *---------------------------------------------------------------
  * SYSTEM DIRECTORY NAME
  *---------------------------------------------------------------
  *
