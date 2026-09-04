@@ -23,7 +23,8 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 | a PHP script and you can easily do that on your own.
 |
 */
-$config['base_url'] = (string) (getenv('APP_BASE_URL') ?: 'http://synapse.test/');
+// $config['base_url'] = (string) (getenv('APP_BASE_URL') ?: 'http://synapse.test/');
+$config['base_url'] = (string) (getenv('APP_BASE_URL') ?: 'https://synapse.cml-indonesia.com/');
 
 /*
 |--------------------------------------------------------------------------
