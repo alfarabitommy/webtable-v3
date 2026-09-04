@@ -438,7 +438,7 @@ class User_model extends CI_Model {
             $tx_id = 'WAGE-' . (int) $user_id . '-Y' . $week;
             $credited = $this->Wallet_model->credit(
                 (int) $user_id,
-                (float) $wage_level['amount'],
+                (int) $wage_level['amount'],
                 $tx_id,
                 'Gaji Mingguan Level ' . $wage_level['level']
                     . ' — ' . $total_active . ' downline aktif (siklus Y' . $week . ')'

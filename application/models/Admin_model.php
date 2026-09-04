@@ -135,14 +135,14 @@ class Admin_model extends CI_Model {
     // --- Calculated Balance (from wallet_ledger) ---
 
     public function get_user_balance($id) {
-        $credit = (float) $this->db
+        $credit = (int) $this->db
             ->select_sum('amount')
             ->where('user_id', $id)
             ->where('type', 'credit')
             ->get('wallet_ledger')
             ->row()->amount ?? 0;
 
-        $debit = (float) $this->db
+        $debit = (int) $this->db
             ->select_sum('amount')
             ->where('user_id', $id)
             ->where('type', 'debit')
@@ -298,7 +298,7 @@ class Admin_model extends CI_Model {
             // 3. Kredit ledger + cache atomik (helper C4).
             $credited = $this->Wallet_model->credit(
                 (int) $deposit->user_id,
-                (float) $deposit->amount,
+                (int) $deposit->amount,
                 $deposit->invoice_number,
                 'Top Up via ' . $deposit->invoice_number
             );
@@ -425,7 +425,7 @@ class Admin_model extends CI_Model {
             // 3. Refund: kredit ledger + cache atomik.
             $refunded = $this->Wallet_model->credit(
                 (int) $wd->user_id,
-                (float) $wd->amount,
+                (int) $wd->amount,
                 $wd->wd_number,
                 'Pengembalian Dana: Penarikan Ditolak (' . $wd->wd_number . ')'
             );
@@ -463,9 +463,12 @@ class Admin_model extends CI_Model {
      * W7 — Inject balance manual (credit/debit) via ledger ingestion helper:
      * anchor lock → Wallet_model::credit()/debit() → audit, satu TX.
      *
+     * M8 (plan/74 §2.2): amount di-(int) kan di sini (boundary model) — nilai
+     * 0/negatif/pecahan ditolak oleh guard Wallet_model::_post.
+     *
      * @param int    $user_id
      * @param string $type   'credit' | 'debit'
-     * @param float  $amount
+     * @param int    $amount Nominal IDR bulat positif.
      * @param string $description
      * @param array|null $audit
      * @return bool
@@ -474,6 +477,8 @@ class Admin_model extends CI_Model {
         if (!in_array($type, ['credit', 'debit'], true)) {
             return false;
         }
+
+        $amount = (int) $amount;
 
         $transaction_id = 'ADM-' . date('YmdHis') . '-' . strtoupper(substr(md5(uniqid()), 0, 6));
 
@@ -490,8 +495,8 @@ class Admin_model extends CI_Model {
 
             // 2. Kredit/debit via helper (ledger + cache atomik).
             $ok = ($type === 'credit')
-                ? $this->Wallet_model->credit((int) $user_id, (float) $amount, $transaction_id, $description)
-                : $this->Wallet_model->debit((int) $user_id, (float) $amount, $transaction_id, $description);
+                ? $this->Wallet_model->credit((int) $user_id, (int) $amount, $transaction_id, $description)
+                : $this->Wallet_model->debit((int) $user_id, (int) $amount, $transaction_id, $description);
 
             if (!$ok) {
                 $this->db->trans_rollback();
@@ -503,7 +508,7 @@ class Admin_model extends CI_Model {
                 $audit['user_id'] = (int) $user_id;
                 $audit['details'] = is_array($audit['details'] ?? null) ? $audit['details'] : [];
                 $audit['details']['type']         = $type;
-                $audit['details']['amount']       = (float) $amount;
+                $audit['details']['amount']       = (int) $amount;
                 $audit['details']['description']  = $description;
                 $audit['details']['balance_after'] = $this->Wallet_model->get_balance((int) $user_id);
                 $this->_write_audit($audit);
@@ -540,8 +545,9 @@ class Admin_model extends CI_Model {
         $this->db->insert('user_rentals', [
             'user_id'         => $user_id,
             'product_id'      => $product_id,
-            'purchase_price'  => $product->price,
-            'daily_roi'       => $product->daily_rate,
+            // M8: simpan snapshot harga/ROI sebagai integer IDR bulat.
+            'purchase_price'  => (int) $product->price,
+            'daily_roi'       => (int) $product->daily_rate,
             'days_processed'  => 0,
             'total_days'      => $product->duration_days,
             'status'          => 'active',
@@ -612,7 +618,7 @@ class Admin_model extends CI_Model {
 
     public function get_treasury_stats() {
         // Total Cash In — sum of all rental purchase prices
-        $cash_in = (float) $this->db
+        $cash_in = (int) $this->db
             ->select_sum('purchase_price')
             ->get('user_rentals')
             ->row()->purchase_price ?? 0;
@@ -625,7 +631,7 @@ class Admin_model extends CI_Model {
             , 0) AS total_balances
             FROM wallet_ledger"
         )->row();
-        $balances = (float) ($row_bal ? $row_bal->total_balances : 0);
+        $balances = (int) ($row_bal ? $row_bal->total_balances : 0);
 
         // Pending ROI — future obligation from active rentals
         // Use raw query to avoid CI3 aliasing issues with computed columns
@@ -637,7 +643,7 @@ class Admin_model extends CI_Model {
              FROM user_rentals WHERE status = 'active' AND expired_at > ?",
             [$now]
         )->row();
-        $pending_roi = (float) ($row ? $row->pending_roi : 0);
+        $pending_roi = (int) ($row ? $row->pending_roi : 0);
 
         return [
             'total_cash_in'  => $cash_in,
@@ -716,7 +722,7 @@ class Admin_model extends CI_Model {
     }
 
     public function get_rental_volume() {
-        return (float) $this->db
+        return (int) $this->db
             ->select_sum('purchase_price')
             ->get('user_rentals')
             ->row()->purchase_price ?? 0;
@@ -724,7 +730,7 @@ class Admin_model extends CI_Model {
 
     public function get_withdrawal_volume() {
         $query = $this->db->query("SELECT COALESCE(SUM(amount), 0) AS total_withdrawal FROM withdrawals WHERE status = 'success'");
-        return (float) $query->row()->total_withdrawal;
+        return (int) $query->row()->total_withdrawal;
     }
 
     public function get_revenue_chart_data($days = 7) {
@@ -744,7 +750,7 @@ class Admin_model extends CI_Model {
         $data   = [];
         foreach ($rows as $row) {
             $labels[] = date('d M', strtotime($row->dt));
-            $data[]   = (float) $row->revenue;
+            $data[]   = (int) $row->revenue;
         }
         return ['labels' => $labels, 'data' => $data];
     }
@@ -772,7 +778,7 @@ class Admin_model extends CI_Model {
 
         return [
             'total_agents'     => (int) ($agents->total_agents ?? 0),
-            'total_commissions'=> (float) ($commissions->total_commissions ?? 0),
+            'total_commissions'=> (int) ($commissions->total_commissions ?? 0),
             'active_rentals'   => (int) ($active_rentals->active_rentals ?? 0),
             'total_users'      => (int) $total_users,
         ];
@@ -827,14 +833,14 @@ class Admin_model extends CI_Model {
 
         if (!$user) return null;
 
-        $credit = (float) $this->db
+        $credit = (int) $this->db
             ->select_sum('amount')
             ->where('user_id', $user_id)
             ->where('type', 'credit')
             ->get('wallet_ledger')
             ->row()->amount ?? 0;
 
-        $debit = (float) $this->db
+        $debit = (int) $this->db
             ->select_sum('amount')
             ->where('user_id', $user_id)
             ->where('type', 'debit')
@@ -852,7 +858,7 @@ class Admin_model extends CI_Model {
             ->where('parent_id', $user_id)
             ->count_all_results('users');
 
-        $total_wd = (float) $this->db
+        $total_wd = (int) $this->db
             ->select_sum('amount')
             ->where('user_id', $user_id)
             ->where('status', 'success')
@@ -868,7 +874,7 @@ class Admin_model extends CI_Model {
             'balance'           => $balance,
             'total_withdrawals' => $total_wd,
             'active_rentals'    => (int) ($rentals->active_count ?? 0),
-            'total_invested'    => (float) ($rentals->total_invested ?? 0),
+            'total_invested'    => (int) ($rentals->total_invested ?? 0),
             'downline_count'    => (int) $downline_count,
         ];
     }

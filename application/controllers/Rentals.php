@@ -139,7 +139,7 @@ class Rentals extends MY_Controller {
             $this->Notification_model->insert(
                 $user_id,
                 'ROI Harian Cair',
-                'ROI sebesar Rp ' . number_format((float) $result['amount'], 0, ',', '.')
+                'ROI sebesar Rp ' . number_format((int) $result['amount'], 0, ',', '.')
                     . ' telah masuk ke saldo (kontrak #' . (int) $rental_id . ').',
                 'commission'
             );

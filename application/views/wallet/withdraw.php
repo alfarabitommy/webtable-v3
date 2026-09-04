@@ -99,6 +99,9 @@ if (!$wd_open) {
                 Minimal: Rp <?= number_format((int) $wd_config['min_amount'], 0, ',', '.'); ?>
                 &bull; Maksimal: Rp <?= number_format((int) $wd_config['max_amount'], 0, ',', '.'); ?>
             </p>
+            <!-- M8 parity: pesan error format non-integer (client-side,
+                 selaras dengan validasi backend ^[1-9][0-9]*$). -->
+            <p id="wdAmountError" class="hidden mt-1.5 text-xs font-bold text-rose-500 dark:text-rose-400"></p>
         </div>
 
         <!-- Fee Display (dynamic tier preview — M1) -->
@@ -140,8 +143,29 @@ if (!$wd_open) {
 
     var DAY_CODE = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
 
+    // M8 parity (plan/74 §2.4): hanya integer bulat ^[1-9][0-9]*$ yang valid —
+    // konsisten dengan validasi backend process_withdraw. parseAmount TIDAK
+    // lagi strip-senyap (replace(/[^0-9]/g,'') mengubah "50000.50" → 5000050);
+    // input non-integer dianggap INVALID (0), bukan dimanipulasi.
+    function isIntegerAmount(str) {
+        return /^[1-9][0-9]*$/.test(str);
+    }
+
     function parseAmount(str) {
-        return parseInt(str.replace(/[^0-9]/g, ''), 10) || 0;
+        return isIntegerAmount(str) ? parseInt(str, 10) : 0;
+    }
+
+    var amountErrorEl = document.getElementById('wdAmountError');
+
+    function showAmountError(msg) {
+        if (!amountErrorEl) { return; }
+        if (msg) {
+            amountErrorEl.textContent = msg;
+            amountErrorEl.classList.remove('hidden');
+        } else {
+            amountErrorEl.textContent = '';
+            amountErrorEl.classList.add('hidden');
+        }
     }
 
     function formatRupiah(num) {
@@ -188,8 +212,18 @@ if (!$wd_open) {
     }
 
     function refresh() {
-        var amount = parseAmount(amountInput.value);
-        var op = openState();
+        var raw    = amountInput.value;
+        var amount = parseAmount(raw);
+        var op     = openState();
+
+        // M8 parity: error inline saat input memuat non-integer
+        // (mis. "50000.50") — jangan pernah menampilkan preview yang
+        // berdasarkan nilai hasil strip.
+        if (raw !== '' && !isIntegerAmount(raw)) {
+            showAmountError('Nominal harus berupa bilangan bulat (angka saja tanpa titik atau desimal).');
+        } else {
+            showAmountError(null);
+        }
 
         // Notice + disable saat di luar jam/hari operasional.
         if (!op.open) {
@@ -222,6 +256,30 @@ if (!$wd_open) {
     }
 
     refresh();
+
+    // M8 parity: backstop submit — cegah pengiriman (e.preventDefault()) bila
+    // nominal bukan integer bulat atau di luar ambang, selaras dengan aturan
+    // backend. Menutup jalur selain klik tombol (mis. Enter / autofill).
+    var wdForm = document.getElementById('withdrawForm');
+    if (wdForm) {
+        wdForm.addEventListener('submit', function(e) {
+            var raw    = amountInput.value;
+            var amount = parseAmount(raw);
+            var op     = openState();
+            var within = amount >= WD_CONFIG.min_amount
+                      && amount <= WD_CONFIG.max_amount
+                      && amount <= balance;
+            if (!isIntegerAmount(raw) || !op.open || !within) {
+                e.preventDefault();
+                if (raw !== '' && !isIntegerAmount(raw)) {
+                    showAmountError('Nominal harus berupa bilangan bulat (angka saja tanpa titik atau desimal).');
+                } else {
+                    showAmountError('Nominal penarikan tidak valid.');
+                }
+                amountInput.focus();
+            }
+        });
+    }
 
     // Segarkan status jam operasional setiap 30 detik (halaman bisa terbuka
     // melewati batas buka/tutup).

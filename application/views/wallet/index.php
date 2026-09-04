@@ -108,8 +108,10 @@
                 // ditampilkan besar adalah total yang HARUS ditransfer
                 // (total_payable), bukan pokok — mencegah underpayment.
                 $has_fee  = !empty($deposit_fee_enabled) && !empty($row->deposit_fee);
-                $primary  = $has_fee ? (float) $row->total_payable : (float) $row->amount;
-                $copy_val = (int) $primary;
+                // M8: nilai finansial sudah integer di sumbernya (controller/
+                // model) — tampilkan & salin sebagai int, tanpa cast float.
+                $primary  = (int) ($has_fee ? $row->total_payable : $row->amount);
+                $copy_val = $primary;
             ?>
             <div class="bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-xl p-4">
                 <!-- Header: invoice + copy nominal -->
@@ -134,11 +136,11 @@
                 <div class="mt-2 rounded-lg bg-white/70 dark:bg-black/20 border border-amber-200/80 dark:border-amber-500/15 px-3 py-2 space-y-1">
                     <div class="flex items-center justify-between text-[11px]">
                         <span class="u-muted">Saldo Masuk (Pokok)</span>
-                        <span class="font-mono font-bold u-text">Rp <?= number_format((float) $row->amount, 0, ',', '.') ?></span>
+                        <span class="font-mono font-bold u-text">Rp <?= number_format((int) $row->amount, 0, ',', '.') ?></span>
                     </div>
                     <div class="flex items-center justify-between text-[11px]">
                         <span class="u-muted">Biaya Layanan</span>
-                        <span class="font-mono font-bold u-text">Rp <?= number_format((float) $row->deposit_fee, 0, ',', '.') ?></span>
+                        <span class="font-mono font-bold u-text">Rp <?= number_format((int) $row->deposit_fee, 0, ',', '.') ?></span>
                     </div>
                 </div>
                 <?php endif; ?>
@@ -299,13 +301,20 @@ document.querySelectorAll('.amt-btn').forEach(function(btn) {
 
 function setCustomAmount() {
     var custom = prompt('Masukkan nominal (angka saja):\nContoh: 750000');
-    if (custom) {
-        var val = parseInt(custom.replace(/[^0-9]/g, ''), 10);
-        if (val > 0) {
-            resetAllBtns();
-            setAmount(val);
-        }
+    if (!custom) { return; } // batal / kosong
+
+    // M8 parity (plan/74 §2.4): tolak karakter non-digit (titik, koma,
+    // minus, 'e', spasi, dll) SECARA EKSPLISIT. Strip regex lama diam-diam
+    // mengubah "50000.50" → 5000050, sehingga validasi integer backend
+    // tidak pernah terpanggil. Hanya string bulat ^[1-9][0-9]*$ diterima.
+    if (!/^[1-9][0-9]*$/.test(custom)) {
+        alert('Nominal harus berupa bilangan bulat (angka saja tanpa titik atau desimal).');
+        return; // abort — jangan mengisi form dengan nilai yang dimanipulasi
     }
+
+    var val = parseInt(custom, 10);
+    resetAllBtns();
+    setAmount(val);
 }
 
 /* --- Top-up Toggle --- */

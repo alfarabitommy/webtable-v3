@@ -332,7 +332,9 @@ class Wallet_model extends CI_Model {
      * PRD fee tier calculation (plan/52 §1.4, dec-30928987d7ae1c74) —
      * reads the DYNAMIC merged config (plan/56 M1).
      * Half-open tiers [min, max): boundary amount belongs to the higher tier.
-     * Integer IDR math: fee = floor(gross*bps/10000) + fixed_fee.
+     * Integer IDR math (M8 plan/74 §2.3): fee = floor(gross*bps/10000) +
+     * fixed_fee via integer division — `intdiv` == floor untuk operand
+     * non-negatif (gross ≥ 1, bps ≥ 0), TANPA jalur float.
      *
      * @param int $gross Nominal penarikan (gross_amount == amount).
      * @return array{fee:int, net:int, bps:int} fee_amount & net_amount (gross − fee).
@@ -347,16 +349,22 @@ class Wallet_model extends CI_Model {
                 break;
             }
         }
-        $fee = (int) floor($gross * $bps / 10000) + (int) $cfg['fixed_fee'];
+        // gross ≤ wd_max (5e7 seed) & bps ≤ 10000 → gross*bps ≤ 5e11 < PHP_INT_MAX.
+        $fee = intdiv($gross * $bps, 10000) + (int) $cfg['fixed_fee'];
         return ['fee' => $fee, 'net' => $gross - $fee, 'bps' => $bps];
     }
 
     /**
      * Deposit fee (M1 plan/56 §2.1): user pays amount + fee, wallet credit
      * stays pure principal. flat → fee = value IDR; percent → value in
-     * percentage points (0.70 = 0.70%): fee = floor(amount * pct / 100).
+     * percentage points (0.70 = 0.70%).
      *
-     * @param int|float $amount Principal nominal.
+     * M8 (plan/74 §2.3): basis-point INTEGER math — persen (≤2 desimal)
+     * dikonversi SEKALI ke basis point integer (0.70% = 70 bp) via
+     * round(pct*100) — round() hanya untuk konversi unit konfigurasi, TIDAK
+     * pernah pada uang. fee = floor(amount * bp / 10000) via intdiv.
+     *
+     * @param int $amount Principal nominal (IDR bulat).
      * @return int Fee IDR (0 saat deposit fee non-aktif).
      */
     public function calculate_deposit_fee($amount) {
@@ -364,11 +372,14 @@ class Wallet_model extends CI_Model {
         if (empty($cfg['deposit_fee_enabled'])) {
             return 0;
         }
-        $amount = (float) $amount;
+        $amount = (int) $amount;
         if ($cfg['deposit_fee_type'] === 'flat') {
             return (int) $cfg['deposit_fee_value'];
         }
-        return (int) floor($amount * (float) $cfg['deposit_fee_value'] / 100);
+        // 0.70 (%) → 70 bp. round() menghindari truncation gotcha
+        // `(int)(0.7*100) === 69` akibat representasi biner float.
+        $bps = (int) round(((float) $cfg['deposit_fee_value']) * 100);
+        return intdiv($amount * $bps, 10000);
     }
 
     /**
@@ -405,18 +416,29 @@ class Wallet_model extends CI_Model {
         return $base + ['open' => true, 'code' => 'open'];
     }
 
+    /**
+     * M8 (plan/74 §2.1): saldo otoritatif = Σcredit − Σdebit dalam SATU query.
+     * Return SELALU strict int — MySQL mengembalikan SUM(DECIMAL) sebagai
+     * numeric-string, jadi kalkulasi dilakukan di sisi SQL dan hasilnya
+     * di-(int) kan di sini (baris kosong → COALESCE 0 → 0). Tidak pernah
+     * float/string, tidak pernah null.
+     *
+     * @param int $user_id
+     * @return int Saldo IDR bulat (0 saat tidak ada baris ledger).
+     */
     public function get_balance($user_id) {
-        $credit = $this->db->query(
-            "SELECT COALESCE(SUM(amount), 0) AS total FROM wallet_ledger WHERE user_id = ? AND type = 'credit'",
-            [$user_id]
-        )->row()->total;
+        $row = $this->db->query(
+            "SELECT COALESCE(
+                      SUM(CASE WHEN type = 'credit' THEN amount ELSE 0 END)
+                    - SUM(CASE WHEN type = 'debit'  THEN amount ELSE 0 END),
+                    0
+            ) AS balance
+             FROM wallet_ledger
+            WHERE user_id = ?",
+            [(int) $user_id]
+        )->row();
 
-        $debit = $this->db->query(
-            "SELECT COALESCE(SUM(amount), 0) AS total FROM wallet_ledger WHERE user_id = ? AND type = 'debit'",
-            [$user_id]
-        )->row()->total;
-
-        return (int)($credit - $debit);
+        return (int) $row->balance;
     }
 
     /**
@@ -436,7 +458,7 @@ class Wallet_model extends CI_Model {
      * menjadi anchor serialisasi; sumber saldo tetap wallet_ledger.
      *
      * @param int $user_id
-     * @return float|false Saldo segar, atau false bila baris users tidak ada.
+     * @return int|false Saldo segar (strict int), atau false bila baris users tidak ada.
      */
     public function lock_and_get_balance($user_id) {
         $user = $this->db->query(
@@ -456,7 +478,9 @@ class Wallet_model extends CI_Model {
             [$user_id]
         )->row();
 
-        return (float) $row->balance;
+        // M8 (plan/74 §2.1): strict int — saldo otoritatif di dalam TX terkunci
+        // tidak boleh float (menghilangkan vektor drift untuk gate sufficiency).
+        return (int) $row->balance;
     }
 
     // =====================================================================
@@ -483,8 +507,11 @@ class Wallet_model extends CI_Model {
     /**
      * Kredit: +1 baris wallet_ledger (type=credit) + users.balance += amount.
      *
+     * M8 (plan/74 §2.2): amount WAJIB integer IDR positif — di-(int) kan dan
+     * di-guard di _post() (nilai 0/negatif/pecahan ditolak, log + false).
+     *
      * @param int    $user_id
-     * @param float  $amount  Nominal IDR positif.
+     * @param int    $amount  Nominal IDR bulat positif.
      * @param string $transaction_id  ID deterministik pemanggil (INV-/RENT-/ROI-/WD-/L1-/WAGE-/ADM-…).
      * @param string $description
      * @return bool false → pemanggil harus rollback.
@@ -497,7 +524,7 @@ class Wallet_model extends CI_Model {
      * Debit: +1 baris wallet_ledger (type=debit) + users.balance -= amount.
      *
      * @param int    $user_id
-     * @param float  $amount  Nominal IDR positif.
+     * @param int    $amount  Nominal IDR bulat positif.
      * @param string $transaction_id
      * @param string $description
      * @return bool false → pemanggil harus rollback.
@@ -515,7 +542,18 @@ class Wallet_model extends CI_Model {
             return false;
         }
 
-        $amount = (float) $amount;
+        // M8 (plan/74 §2.2): INTEGER-IDR choke point — satu-satunya gerbang
+        // tulis wallet_ledger. Amount wajib integer POSITIF: nilai 0/negatif
+        // adalah programming error (bukan no-op seperti `== 0` lama), dan
+        // nilai pecahan dilarang (IDR zero-fraction). Di-(int) kan dulu agar
+        // perbandingan & persistensi tidak pernah kena type-coercion.
+        $amount = (int) $amount;
+        if ($amount <= 0) {
+            log_message('warning', 'Wallet_model::_post — amount tidak valid (type=' . $type
+                . ', user=' . (int) $user_id . ', amount=' . var_export($amount, true)
+                . ', tx=' . (string) $transaction_id . ')');
+            return false;
+        }
 
         // 1. Baris ledger (immutable append-only).
         $inserted = $this->db->insert('wallet_ledger', [
@@ -532,12 +570,7 @@ class Wallet_model extends CI_Model {
             return false;
         }
 
-        // 2. Update cache relatif. Amount 0 tidak mengubah saldo (parity lama),
-        //    jadi tanpa UPDATE — cache tetap konsisten dengan ledger.
-        if ($amount == 0) {
-            return true;
-        }
-
+        // 2. Update cache relatif (amount dijamin > 0 oleh guard di atas).
         $sign  = ($type === 'credit') ? '+' : '-';
         $query = "UPDATE users SET balance = balance {$sign} ? WHERE id = ?";
 
@@ -566,10 +599,11 @@ class Wallet_model extends CI_Model {
      * terduga di-retry maksimal 3x (sufiks baru tiap percobaan).
      *
      * @param int $user_id
-     * @param int|string $amount Nominal IDR positif (sudah disanitasi digit).
+     * @param int $amount Nominal IDR bulat positif (M8: di-(int) kan di boundary model).
      * @return array{success:bool, invoice_number:string|null}
      */
     public function create_deposit($user_id, $amount) {
+        $amount = (int) $amount;
         for ($attempt = 0; $attempt < 3; $attempt++) {
             $invoice = 'INV-' . date('YmdHis') . '-' . (int) $user_id . '-'
                      . strtoupper(bin2hex(random_bytes(3))); // 6-hex suffix acak
@@ -653,7 +687,7 @@ class Wallet_model extends CI_Model {
 
             if (!$this->credit(
                 (int) $deposit->user_id,
-                (float) $deposit->amount,
+                (int) $deposit->amount,
                 $deposit->invoice_number,
                 'Top Up via ' . $deposit->invoice_number
             )) {
@@ -735,7 +769,8 @@ class Wallet_model extends CI_Model {
             }
 
             // 2. Penolakan overspend STRICT di dalam TX terkunci.
-            if ($fresh_balance < (float) $amount) {
+            //    (M8: fresh_balance & amount keduanya strict int.)
+            if ($fresh_balance < $amount) {
                 $this->db->trans_rollback();
                 return ['success' => false, 'code' => 'insufficient', 'message' => 'Saldo tidak mencukupi untuk penarikan', 'wd_number' => null];
             }
@@ -772,7 +807,7 @@ class Wallet_model extends CI_Model {
             //    lock funds immediately; kegagalan → rollback seluruh TX.
             $debited = $this->debit(
                 $user_id,
-                (float) $amount,
+                $amount,
                 $wd_number,
                 'Penarikan Dana via ' . $wd_number
             );

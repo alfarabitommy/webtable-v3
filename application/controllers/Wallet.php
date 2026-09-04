@@ -33,10 +33,10 @@ class Wallet extends MY_Controller {
         ];
 
         // Enrich pending deposit invoices with the payable total
-        // (pokok + biaya deposit) for display.
+        // (pokok + biaya deposit) for display. M8: jumlah integer murni.
         foreach ($data['pending'] as $inv) {
-            $inv->deposit_fee   = $this->Wallet_model->calculate_deposit_fee($inv->amount);
-            $inv->total_payable = (float) $inv->amount + $inv->deposit_fee;
+            $inv->deposit_fee   = $this->Wallet_model->calculate_deposit_fee((int) $inv->amount);
+            $inv->total_payable = (int) $inv->amount + $inv->deposit_fee;
         }
 
         $this->load->view('templates/header', $data);
@@ -46,20 +46,26 @@ class Wallet extends MY_Controller {
 
     public function topup() {
         $user_id = $this->session->userdata('user_id');
-        $amount  = preg_replace('/[^0-9]/', '', $this->input->post('amount'));
 
-        if ($amount > 0) {
-            // M4 (plan/62 H2): hasil terstruktur {success, invoice_number} —
-            // jangan pernah flash "sukses" saat insert invoice gagal
-            // (P2 audit lama: hasil create_deposit tidak pernah dicek).
-            $result = $this->Wallet_model->create_deposit($user_id, $amount);
-            if ($result['success']) {
-                $this->session->set_flashdata('success', 'Invoice ' . $result['invoice_number'] . ' berhasil dibuat. Silakan selesaikan pembayaran.');
-            } else {
-                $this->session->set_flashdata('error', 'Gagal membuat invoice. Silakan coba lagi.');
-            }
-        } else {
+        // M8 (plan/74 §2.4): validasi INTEGER ketat — hanya digit positif.
+        // Tolak "10000.50", "1e5", negatif, "100,000" & kosong SECARA EKSPLISIT.
+        // (preg_replace lama diam-diam menulis ulang "10000.50" → "1000050".)
+        $amount_raw = $this->input->post('amount');
+        if (!is_string($amount_raw) || !preg_match('/^[1-9][0-9]*$/', $amount_raw)) {
             $this->session->set_flashdata('error', 'Nominal tidak valid.');
+            redirect('wallet');
+            return;
+        }
+        $amount = (int) $amount_raw;
+
+        // M4 (plan/62 H2): hasil terstruktur {success, invoice_number} —
+        // jangan pernah flash "sukses" saat insert invoice gagal
+        // (P2 audit lama: hasil create_deposit tidak pernah dicek).
+        $result = $this->Wallet_model->create_deposit($user_id, $amount);
+        if ($result['success']) {
+            $this->session->set_flashdata('success', 'Invoice ' . $result['invoice_number'] . ' berhasil dibuat. Silakan selesaikan pembayaran.');
+        } else {
+            $this->session->set_flashdata('error', 'Gagal membuat invoice. Silakan coba lagi.');
         }
 
         redirect('wallet');
@@ -215,7 +221,17 @@ class Wallet extends MY_Controller {
             return;
         }
 
-        $amount = preg_replace('/[^0-9]/', '', $this->input->post('amount'));
+        // M8 (plan/74 §2.4): validasi INTEGER ketat — hanya digit positif.
+        // Tolak "10000.50" / "1e5" / negatif / "100,000" / kosong SECARA
+        // EKSPLISIT (preg_replace lama diam-diam mengubah "10000.50" →
+        // "1000050" dan "1e5" → "15"). Tidak ada penulisan ulang input.
+        $amount_raw = $this->input->post('amount');
+        if (!is_string($amount_raw) || !preg_match('/^[1-9][0-9]*$/', $amount_raw)) {
+            $this->session->set_flashdata('error', 'Nominal penarikan tidak valid.');
+            redirect('wallet/withdraw');
+            return;
+        }
+        $amount = (int) $amount_raw;
 
         // M1 (plan/56 §3): config dinamis + gerbang operasional (UX mirror —
         // otoritas finansial tetap di Wallet_model::create_withdrawal TX).
@@ -238,12 +254,6 @@ class Wallet extends MY_Controller {
         // anti-race ada di Wallet_model::create_withdrawal (kunci anchor
         // users + saldo segar di dalam TX) — audit C5, plan/48.
         $user_balance = $this->Wallet_model->get_balance($user_id);
-
-        if ($amount <= 0) {
-            $this->session->set_flashdata('error', 'Nominal penarikan tidak valid.');
-            redirect('wallet/withdraw');
-            return;
-        }
 
         if ($amount < $min_wd) {
             $this->session->set_flashdata('error', 'Minimal penarikan adalah Rp ' . number_format($min_wd, 0, ',', '.'));

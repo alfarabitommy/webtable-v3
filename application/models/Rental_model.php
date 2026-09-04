@@ -24,8 +24,9 @@ class Rental_model extends CI_Model {
         $data = [
             'user_id'         => $user_id,
             'product_id'      => $product_id,
-            'purchase_price'  => $price,
-            'daily_roi'       => $roi,
+            // M8: snapshot integer IDR bulat.
+            'purchase_price'  => (int) $price,
+            'daily_roi'       => (int) $roi,
             'status'          => 'active',
             'expired_at'      => date('Y-m-d H:i:s', strtotime("+{$duration_days} days")),
         ];
@@ -80,7 +81,8 @@ class Rental_model extends CI_Model {
             }
 
             // 2. Penolakan overspend STRICT di dalam TX terkunci.
-            if ($fresh_balance < (float) $product['price']) {
+            //    (M8: fresh_balance int & harga produk di-(int) kan.)
+            if ($fresh_balance < (int) $product['price']) {
                 $this->db->trans_rollback();
                 return ['success' => false, 'code' => 'insufficient', 'message' => 'Sistem: Saldo USC/IDR Anda tidak mencukupi.', 'rental_id' => null];
             }
@@ -89,7 +91,7 @@ class Rental_model extends CI_Model {
             //    kegagalan → rollback seluruh TX (tidak ada kontrak tanpa debit).
             $debited = $this->Wallet_model->debit(
                 $user_id,
-                (float) $product['price'],
+                (int) $product['price'],
                 'RENT-' . $product['id'] . '-' . date('YmdHis'),
                 'Sewa ' . $product['name']
             );
@@ -100,11 +102,12 @@ class Rental_model extends CI_Model {
             }
 
             // 4. Buat kontrak sewa (dengan expired_at = now + duration_days)
+            //    M8: snapshot harga & ROI harian disimpan sebagai integer IDR.
             $this->db->insert('user_rentals', [
                 'user_id'        => $user_id,
                 'product_id'     => $product['id'],
-                'purchase_price' => $product['price'],
-                'daily_roi'      => $product['daily_rate'],
+                'purchase_price' => (int) $product['price'],
+                'daily_roi'      => (int) $product['daily_rate'],
                 'total_days'     => $product['duration_days'],
                 'status'         => 'active',
                 'expired_at'     => date('Y-m-d H:i:s', strtotime('+' . $product['duration_days'] . ' days')),
@@ -188,7 +191,7 @@ class Rental_model extends CI_Model {
      *
      * @param int $rental_id
      * @param int $user_id   Pemilik sewa (scope autentikasi).
-     * @return array{code:string, message:string, amount:int|float, days:int}
+     * @return array{code:string, message:string, amount:int, days:int}
      */
     public function claim_roi($rental_id, $user_id) {
         $this->db->trans_begin();
@@ -265,11 +268,14 @@ class Rental_model extends CI_Model {
             //    ID deterministik per urutan klaim: ROI-{rental_id}-D{days_processed_setelah_klaim}
             //    (monotonic). Kegagalan → rollback (0 payout, kontrak tidak maju).
             $new_days_processed = (int) $rental->days_processed + $info['actual_claimable'];
-            $payout             = $info['actual_claimable'] * $rental->daily_roi;
+            // M8 (plan/74 §2.3): perkalian integer murni — daily_roi (string
+            // DECIMAL dari DB) di-(int) kan SEBELUM aritmetika; hasil payout
+            // SELALU int (tidak ada koersi float int × "5000.00").
+            $payout             = $info['actual_claimable'] * (int) $rental->daily_roi;
 
             $credited = $this->Wallet_model->credit(
                 (int) $rental->user_id,
-                (float) $payout,
+                (int) $payout,
                 'ROI-' . $rental_id . '-D' . $new_days_processed,
                 'Klaim ROI ' . $info['actual_claimable'] . ' Hari'
             );

@@ -639,7 +639,12 @@ class Admin extends CI_Controller {
         $this->load->model('Admin_model');
         $id     = (int) $id;
         $type   = $this->input->post('type', TRUE);
-        $amount = floatval($this->input->post('amount', TRUE));
+        // M8 (plan/74 §2.4): validasi INTEGER ketat — floatval() lama menerima
+        // "0.001" & "1e5". Kini hanya digit positif yang diteruskan ke model
+        // (guard <= 0 di bawah menangkap 0/input tak valid).
+        $amount_raw = $this->input->post('amount', TRUE);
+        $amount     = (is_string($amount_raw) && preg_match('/^[1-9][0-9]*$/', $amount_raw))
+            ? (int) $amount_raw : 0;
         $desc   = $this->input->post('description', TRUE) ?: 'Admin Manual Adjustment';
 
         if (!in_array($type, ['credit', 'debit']) || $amount <= 0) {
@@ -729,8 +734,8 @@ class Admin extends CI_Controller {
             [
                 'rental_id'      => (int) $rental_id,
                 'product_id'     => isset($rental->product_id) ? (int) $rental->product_id : null,
-                'purchase_price' => isset($rental->purchase_price) ? (float) $rental->purchase_price : null,
-                'daily_roi'      => isset($rental->daily_roi) ? (float) $rental->daily_roi : null,
+                'purchase_price' => isset($rental->purchase_price) ? (int) $rental->purchase_price : null,
+                'daily_roi'      => isset($rental->daily_roi) ? (int) $rental->daily_roi : null,
                 // Soft-cancel (status → 'cancelled') TANPA refund — snapshot transparan.
                 'refunded'       => false,
             ],
@@ -1237,14 +1242,15 @@ class Admin extends CI_Controller {
                 $rows     = [];
                 foreach ($data as $r) {
                     // Legacy fallback: gross_amount 0/NULL -> amount (gross_eff alias).
-                    $gross = (float) $r['gross_eff'];
-                    $fee   = (float) $r['fee_amount'];
-                    $net   = (float) $r['net_amount'];
+                    // M8: baca sebagai integer IDR bulat (kolom DECIMAL → string).
+                    $gross = (int) $r['gross_eff'];
+                    $fee   = (int) $r['fee_amount'];
+                    $net   = (int) $r['net_amount'];
 
                     // Read-side recompute: legacy rows tanpa fee/net tersimpan
                     // (0/NULL) -> hitung ulang dari gross sesuai tier PRD.
                     if ($gross > 0 && ($fee <= 0 || $net <= 0)) {
-                        $calc = $this->Wallet_model->calculate_withdrawal_fee((int) $gross);
+                        $calc = $this->Wallet_model->calculate_withdrawal_fee($gross);
                         $fee  = $calc['fee'];
                         $net  = $calc['net'];
                     }
@@ -1283,10 +1289,12 @@ class Admin extends CI_Controller {
     /**
      * IDR ke integer polos untuk CSV (machine-readable; tanpa "Rp", tanpa
      * pemisah ribuan). Nilai UI number_format hanya untuk tampilan.
+     * M8: tidak ada round() pada uang — nilai sudah integer IDR di sumbernya,
+     * helper hanya menormalkan tipe (int) → string.
      */
     private function _csv_money($value)
     {
-        return (string) (int) round((float) $value);
+        return (string) (int) $value;
     }
 
     /** Format timestamp DB ke Y-m-d H:i; kosong bila null/00:00. */

@@ -140,7 +140,7 @@ class Team extends MY_Controller {
                 $user_id,
                 'Gaji Mingguan Cair',
                 'Selamat! Gaji mingguan Level ' . $result['level']
-                    . ' sebesar Rp ' . number_format((float) $result['amount'], 0, ',', '.')
+                    . ' sebesar Rp ' . number_format((int) $result['amount'], 0, ',', '.')
                     . ' telah masuk ke saldo.',
                 'commission'
             );
