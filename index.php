@@ -67,19 +67,13 @@
 	// TETAP production (display_errors=0). Untuk development lokal wajib
 	// eksplisit: CI_ENV=development (Apache SetEnv / env FPM / export CLI).
 	
-if (isset($_SERVER['HTTP_HOST']) && in_array($_SERVER['HTTP_HOST'], ['synapse.test', 'localhost', '127.0.0.1'])) {
-    define('ENVIRONMENT', 'development');
-} else {
-    define('ENVIRONMENT', 'production');
-}
-
-	// $ci_env = '';
-	// if (isset($_SERVER['CI_ENV']) && $_SERVER['CI_ENV'] !== '') {
-	// 	$ci_env = $_SERVER['CI_ENV'];
-	// } elseif (($env_ci_env = getenv('CI_ENV')) !== false && $env_ci_env !== '') {
-	// 	$ci_env = $env_ci_env;
-	// }
-	// define('ENVIRONMENT', $ci_env !== '' ? $ci_env : 'production');
+	$ci_env = '';
+	if (isset($_SERVER['CI_ENV']) && $_SERVER['CI_ENV'] !== '') {
+		$ci_env = $_SERVER['CI_ENV'];
+	} elseif (($env_ci_env = getenv('CI_ENV')) !== false && $env_ci_env !== '') {
+		$ci_env = $env_ci_env;
+	}
+	define('ENVIRONMENT', $ci_env !== '' ? $ci_env : 'production');
 
 	// $ci_env = '';
 	// if (isset($_SERVER['CI_ENV']) && $_SERVER['CI_ENV'] !== '') {
