@@ -1,3 +1,4 @@
+<IfModule mod_rewrite.c>
 # Phase 10D (WS-5) + Plan 34: reCAPTCHA secret TIDAK boleh ada di repo.
 # Secret (RECAPTCHA_SECRET) dan site key (RECAPTCHA_SITE_KEY) wajib dari
 # environment server (FPM pool env[] / nginx fastcgi_param / shell export).
@@ -6,8 +7,9 @@
 SetEnv CI_ENV "development"
 #
 # Production: CI_ENV harus 'production' (default fail-closed bila unset, lihat index.php).
-
 RewriteEngine On
+RewriteBase /
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^(.*)$ index.php?/$1 [L]
+</IfModule>
