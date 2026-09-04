@@ -19,7 +19,6 @@
     </script>
 
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://www.google.com/recaptcha/api.js" async defer></script>
     <script>
         tailwind.config = { darkMode: 'class' };
     </script>
@@ -128,9 +127,29 @@
                 <?= form_error('password', '<p class="text-xs text-rose-500 mt-1.5">', '</p>') ?>
             </div>
 
-            <!-- Google reCAPTCHA v2 -->
-            <div class="flex justify-center my-2 rounded-xl overflow-hidden">
-                <div class="g-recaptcha" data-sitekey="<?= htmlspecialchars($recaptcha_site_key ?? '') ?>"></div>
+            <!-- Native SVG CAPTCHA (plan/72): inline SVG, single-use, TTL 3 menit -->
+            <div>
+                <label for="captcha" class="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">Kode Keamanan <span class="text-rose-500">*</span></label>
+                <div class="flex items-center gap-3">
+                    <input type="text" id="captcha" name="captcha" maxlength="5" autocomplete="off"
+                           class="u-input h-14 px-3 rounded-2xl text-sm text-center uppercase tracking-[0.25em] w-36 focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all"
+                           placeholder="Kode Keamanan" aria-label="Kode Keamanan"
+                           oninput="this.value = this.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase()">
+                    <div id="captcha-box"
+                         class="flex-1 h-14 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 flex items-center justify-center overflow-hidden p-1"
+                         aria-live="polite">
+                        <?= $captcha_svg ?>
+                    </div>
+                    <button type="button" id="captcha-refresh" title="Muat ulang kode keamanan"
+                            aria-label="Muat ulang kode keamanan"
+                            class="h-14 w-12 shrink-0 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center justify-center transition-colors">
+                        <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
+                            <polyline points="21 3 21 9 15 9"></polyline>
+                        </svg>
+                    </button>
+                </div>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1.5">5 karakter alfanumerik, berlaku 3 menit &amp; hanya sekali pakai.</p>
             </div>
 
             <button type="submit" class="u-btn-dark h-14 w-full rounded-2xl shadow-lg flex items-center justify-center mt-2">
@@ -146,6 +165,32 @@
     </div>
 
 </div>
+
+<script>
+    /* Native SVG CAPTCHA refresh (plan/72) — vanilla fetch, no library. */
+    var siteUrl = function (path) { return '<?= site_url() ?>' + path; };
+    (function () {
+        var btn = document.getElementById('captcha-refresh');
+        if (!btn) { return; }
+        btn.addEventListener('click', function () {
+            if (btn.disabled) { return; }
+            btn.disabled = true;
+            fetch(siteUrl('auth/refresh_captcha'), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                .then(function (res) {
+                    if (!res.ok) { throw new Error('HTTP ' + res.status); }
+                    return res.json();
+                })
+                .then(function (data) {
+                    var box = document.getElementById('captcha-box');
+                    if (box) { box.innerHTML = data.svg; }
+                    var input = document.getElementById('captcha');
+                    if (input) { input.value = ''; input.focus(); }
+                })
+                .catch(function () { window.location.reload(); }) /* fallback: full GET re-issues */
+                .finally(function () { btn.disabled = false; });
+        });
+    })();
+</script>
 
 </body>
 </html>

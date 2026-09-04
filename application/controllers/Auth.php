@@ -10,7 +10,7 @@ class Auth extends CI_Controller {
         // pertama (Auth bukan MY_Controller — entry point login/register).
         $this->db->query("SET time_zone = '+07:00'");
 
-        $this->config->load('recaptcha', TRUE);
+        $this->load->helper('captcha');
         $this->load->model('User_model');
         $this->load->model('Rate_limit_model');
         $this->load->helper('ratelimit');
@@ -28,135 +28,59 @@ class Auth extends CI_Controller {
         return $digits;
     }
 
-    // ─── RECAPTCHA VERIFIER ─────────────────────────────
-    private function _verify_recaptcha($recaptcha_response) {
-        if (empty($recaptcha_response)) {
-            return FALSE;
+    // ─── NATIVE SVG CAPTCHA LIFECYCLE (plan/72) ─────────────
+    // Session-bound challenge with strict single-use + TTL 180s. No external
+    // service, no disk I/O, no GD/Imagick — the challenge exists only in the
+    // `auth_captcha` session data; rendering is pure (captcha_helper).
+    private const CAPTCHA_TTL_SECONDS = 180;
+
+    // Issue a fresh 5-char challenge: persist session (auth_captcha) and
+    // return the inline SVG (for views/refresh) plus the raw code (tests).
+    private function _issue_captcha() {
+        $alphabet = captcha_alphabet();
+        $code     = '';
+        for ($i = 0; $i < 5; $i++) {
+            $code .= $alphabet[random_int(0, strlen($alphabet) - 1)];
         }
 
-        // Fail-closed: tanpa secret yang terkonfigurasi, tolak verifikasi
-        // dan catat error — JANGAN pernah lanjut ke curl ke Google.
-        $secret = (string) $this->config->item('recaptcha_secret', 'recaptcha');
-        if ($secret === '') {
-            log_message('error', 'reCAPTCHA secret belum dikonfigurasi (env RECAPTCHA_SECRET) — verifikasi ditolak (fail-closed).');
-            return FALSE;
-        }
+        $this->session->set_userdata('auth_captcha', array(
+            'code'    => $code,
+            'expires' => time() + self::CAPTCHA_TTL_SECONDS,
+        ));
 
-        $data = array('secret' => $secret, 'response' => $recaptcha_response);
-
-        // ─── STRICT SSL (Phase 10D WS-1) ─────────────────────────────
-        // Production zero-trust: VERIFYPEER=true + VERIFYHOST=2 adalah
-        // default yang TIDAK BISA dinonaktifkan di production. CA publik
-        // Google tervalidasi oleh bundle sistem, jadi verifikasi ketat
-        // tetap berfungsi dari dev lokal. Bypass sandbox dev hanya
-        // dihormati di luar production dan hanya via flag env eksplisit.
-        //
-        // ─── Plan 40: iterasi kandidat CA bundle ─────────────────────
-        // _resolve_ca_bundles() mengembalikan daftar CA bundle yang sudah
-        // divalidasi (is_file + is_readable + filesize > 0), dengan bundle
-        // sistem lebih diutamakan. Bila kandidat terpilih gagal di curl
-        // dengan errno 77 (CURLE_SSL_CACERT_BADFILE — file CA rusak) atau
-        // 60 (CURLE_SSL_CACERT — sertifikat tidak tertrust), coba kandidat
-        // berikutnya sebelum fail-closed. Kegagalan lain (timeout/DNS) tidak
-        // di-retry karena mengganti CA bundle tidak akan menyembuhkannya.
-        $ca_bundles = $this->_resolve_ca_bundles();
-        if (empty($ca_bundles)) {
-            // Tidak ada bundle valid — serahkan ke default CA path PHP
-            // (tanpa CURLOPT_CAINFO). Bila default pun tidak tersedia,
-            // strict verify akan fail-closed di production (perilaku aman).
-            $ca_bundles = array('');
-        }
-
-        $response   = false;
-        $last_error = '';
-        foreach ($ca_bundles as $ca_bundle) {
-            $ch = curl_init('https://www.google.com/recaptcha/api/siteverify');
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
-
-            if ($ca_bundle !== '') {
-                curl_setopt($ch, CURLOPT_CAINFO, $ca_bundle);
-            }
-
-            // Environment-aware dev sandbox bypass: HANYA dihormati di luar
-            // production; guard di bawah membuat flag ini inert di produksi.
-            if (ENVIRONMENT !== 'production' && getenv('CURL_SSL_VERIFY_DEV_BYPASS') === '1') {
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-                log_message('debug', 'reCAPTCHA: SSL verify bypass aktif (dev sandbox only).');
-            }
-
-            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
-            curl_setopt($ch, CURLOPT_USERAGENT, 'Synapse-CI3/1.0 (reCAPTCHA verifier)');
-
-            $attempt = curl_exec($ch);
-            $errno   = curl_errno($ch);
-            $errmsg  = curl_error($ch);
-            curl_close($ch);
-
-            if ($attempt !== false) {
-                $response = $attempt;
-                break;
-            }
-
-            $last_error = $errmsg . ' (errno ' . $errno . ')';
-            if ($errno !== 77 && $errno !== 60) {
-                // Bukan kegagalan CA bundle — retry tidak akan membantu.
-                break;
-            }
-        }
-
-        if ($response === false) {
-            // Fail-closed: transport error / timeout — jangan pernah loloskan
-            // verifikasi saat koneksi ke Google gagal.
-            log_message('error', 'reCAPTCHA curl gagal: ' . $last_error);
-            return FALSE;
-        }
-
-        $result = json_decode($response);
-        return isset($result->success) && $result->success === true;
+        return array(
+            'svg'  => build_captcha_svg($code),
+            'code' => $code,
+        );
     }
 
-    // ─── CA BUNDLE RESOLVER (Plan 34 + Plan 40) ─────────────────
-    // Mengembalikan daftar SEMUA kandidat CA bundle yang VALID, dengan
-    // urutan prioritas:
-    //   1. SSL_CA_BUNDLE (env eksplisit — enterprise CA / sandbox self-signed)
-    //   2. bundle sistem yang dikenal (Debian/Ubuntu, RHEL/Fedora, SUSE)
-    //   3. ini_get('openssl.cafile') bila file-nya valid
-    //   4. fallback Homebrew (macOS)
-    // Setiap kandidat WAJIB lolos is_file() && is_readable() && filesize() > 0.
-    // Kandidat kosong/rusak dilewati — mencegah curl errno 77
-    // (CURLE_SSL_CACERT_BADFILE) akibat CA file yang ada tapi tidak valid
-    // (kasus Plan 40: /usr/local/etc/openssl@1.1/cert.pem di build PHP
-    // FlyEnv). Pemanggil (_verify_recaptcha) mengiterasi daftar ini dan
-    // mencoba kandidat berikutnya bila curl gagal dengan errno 77/60.
-    private function _resolve_ca_bundles() {
-        $candidates = array(
-            (string) getenv('SSL_CA_BUNDLE'),                      // 1. explicit override (env)
-            '/etc/ssl/certs/ca-certificates.crt',                  // 2. Debian / Ubuntu
-            '/etc/pki/tls/certs/ca-bundle.crt',                    //    RHEL / Fedora / CentOS
-            '/etc/ssl/ca-bundle.pem',                              //    SUSE / OpenSUSE
-            '/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem',   //    RHEL (ca-trust)
-            (string) ini_get('openssl.cafile'),                    // 3. PHP ini setting
-            '/usr/local/etc/openssl/cert.pem',                     // 4. Homebrew (macOS)
-        );
+    // Evaluate a submitted code. STRICT single-use: the stored challenge is
+    // flushed on EVERY evaluation — success, empty input, wrong code, or
+    // expired — so a captured response can never be replayed. TTL (180s)
+    // enforced here; failures surface as one friendly message upstream.
+    private function _verify_captcha($input) {
+        $stored = $this->session->userdata('auth_captcha');
+        $this->session->unset_userdata('auth_captcha');
 
-        $valid = array();
-        foreach ($candidates as $path) {
-            $path = trim((string) $path);
-            if ($path === '') {
-                continue;
-            }
-            if (is_file($path) && is_readable($path) && filesize($path) > 0) {
-                $valid[] = $path;
-            }
+        if (!is_array($stored) || empty($stored['code'])) {
+            return FALSE;
+        }
+        if (time() > (int) $stored['expires']) {
+            return FALSE;
         }
 
-        return $valid;
+        $input   = strtolower(trim((string) $input));
+        $captcha = strtolower(trim((string) $stored['code']));
+        return $input !== '' && $input === $captcha;
+    }
+
+    // Render an auth view with a FRESH captcha challenge on every render
+    // (initial GET and each failed-POST re-render). The previous challenge
+    // was already consumed by _verify_captcha(), so re-issuing here keeps
+    // the displayed SVG the only valid one.
+    private function _render_auth_view($view, array $data) {
+        $data['captcha_svg'] = $this->_issue_captcha()['svg'];
+        $this->load->view($view, $data);
     }
 
     // ─── REGISTER ──────────────────────────────────────
@@ -165,16 +89,12 @@ class Auth extends CI_Controller {
             redirect('home');
         }
 
-        // Plan 34 (C4): site key publik dari config (env RECAPTCHA_SITE_KEY),
-        // bukan hardcoded di view.
-        $data['recaptcha_site_key'] = (string) $this->config->item('recaptcha_site_key', 'recaptcha');
-
         // Phase 9A: Circuit Breaker — block registration if closed
         $this->load->model('Admin_model');
         if ($this->Admin_model->get_setting('is_registration_open') !== '1') {
             $data['errors'] = ['Pendaftaran member baru sedang ditutup sementara untuk menjaga stabilitas ekosistem. Silakan coba lagi nanti.'];
             $data['values'] = [];
-            $this->load->view('auth/register', $data);
+            $this->_render_auth_view('auth/register', $data);
             return;
         }
 
@@ -192,17 +112,18 @@ class Auth extends CI_Controller {
                 }
                 $data['errors'][] = rate_limit_message($throttle['remaining_seconds']);
                 $data['values']   = $this->input->post();
-                $this->load->view('auth/register', $data);
+                $this->_render_auth_view('auth/register', $data);
                 return;
             }
             $this->Rate_limit_model->hit($rl_key, 900, 5);
 
-            // reCAPTCHA check first (fail-fast before DB)
-            $recaptcha = $this->input->post('g-recaptcha-response', TRUE);
-            if (!$this->_verify_recaptcha($recaptcha)) {
-                $data['errors'][] = 'Verifikasi reCAPTCHA gagal. Silakan centang kotak \'Saya bukan robot\'.';
+            // Native SVG captcha gate (fail-fast before DB) — plan/72.
+            // Single-use: whatever the outcome, the stored challenge is
+            // flushed, so a fresh code is always required on the next POST.
+            if (!$this->_verify_captcha($this->input->post('captcha', TRUE))) {
+                $data['errors'][] = 'Kode keamanan salah atau sudah kedaluwarsa.';
                 $data['values']   = $this->input->post();
-                $this->load->view('auth/register', $data);
+                $this->_render_auth_view('auth/register', $data);
                 return;
             }
 
@@ -228,7 +149,7 @@ class Auth extends CI_Controller {
                 if (!$parent) {
                     $data['errors'][] = 'Kode Undangan tidak valid. Silakan periksa kembali.';
                     $data['values']   = $this->input->post();
-                    $this->load->view('auth/register', $data);
+                    $this->_render_auth_view('auth/register', $data);
                     return;
                 }
 
@@ -261,7 +182,7 @@ class Auth extends CI_Controller {
         }
 
         $data['values'] = $this->input->post();
-        $this->load->view('auth/register', $data);
+        $this->_render_auth_view('auth/register', $data);
     }
 
     // ─── LOGIN ────────────────────────────────────────
@@ -272,12 +193,8 @@ class Auth extends CI_Controller {
 
         $data['errors'] = [];
 
-        // Plan 34 (C4): site key publik dari config (env RECAPTCHA_SITE_KEY),
-        // bukan hardcoded di view.
-        $data['recaptcha_site_key'] = (string) $this->config->item('recaptcha_site_key', 'recaptcha');
-
         if ($this->input->post()) {
-            // ─── RATE LIMIT (10B): fail-fast sebelum reCAPTCHA — key login:{phone}:{ip}
+            // ─── RATE LIMIT (10B): fail-fast sebelum captcha — key login:{phone}:{ip}
             $rl_phone = $this->_normalize_phone($this->input->post('phone', TRUE));
             $rl_key   = 'login:' . $rl_phone . ':' . $this->input->ip_address();
             $throttle = $this->Rate_limit_model->check($rl_key, 5, 900);
@@ -287,16 +204,17 @@ class Auth extends CI_Controller {
                 }
                 $data['errors'][] = rate_limit_message($throttle['remaining_seconds']);
                 $data['values']   = $this->input->post();
-                $this->load->view('auth/login', $data);
+                $this->_render_auth_view('auth/login', $data);
                 return;
             }
 
-            // reCAPTCHA check first (fail-fast before DB)
-            $recaptcha = $this->input->post('g-recaptcha-response', TRUE);
-            if (!$this->_verify_recaptcha($recaptcha)) {
-                $data['errors'][] = 'Verifikasi reCAPTCHA gagal. Silakan centang kotak \'Saya bukan robot\'.';
+            // Native SVG captcha gate (fail-fast before DB) — plan/72.
+            // Single-use: whatever the outcome, the stored challenge is
+            // flushed, so a fresh code is always required on the next POST.
+            if (!$this->_verify_captcha($this->input->post('captcha', TRUE))) {
+                $data['errors'][] = 'Kode keamanan salah atau sudah kedaluwarsa.';
                 $data['values']   = $this->input->post();
-                $this->load->view('auth/login', $data);
+                $this->_render_auth_view('auth/login', $data);
                 return;
             }
 
@@ -323,7 +241,7 @@ class Auth extends CI_Controller {
                     if ((int) $user->is_banned === 1) {
                         $data['errors'][] = 'Akun Anda telah dinonaktifkan. Silakan hubungi admin.';
                         $data['values']   = $this->input->post();
-                        $this->load->view('auth/login', $data);
+                        $this->_render_auth_view('auth/login', $data);
                         return;
                     }
 
@@ -351,7 +269,7 @@ class Auth extends CI_Controller {
         }
 
         $data['values'] = $this->input->post();
-        $this->load->view('auth/login', $data);
+        $this->_render_auth_view('auth/login', $data);
     }
 
     // ─── CHANGE PASSWORD (forced reset flow — 7E3) ────────
@@ -396,6 +314,26 @@ class Auth extends CI_Controller {
 
         $data['values'] = $this->input->post();
         $this->load->view('auth/change_password', $data);
+    }
+
+    // ─── CAPTCHA REFRESH (plan/72) ──────────────────────
+    // AJAX JSON endpoint: rotates the session challenge and returns a fresh
+    // SVG + TTL so the reload button never needs a full page refresh. GET +
+    // read-only (only the caller's own session data rotates) → no CSRF token
+    // required; CI3 validates POST bodies only.
+    public function refresh_captcha() {
+        if (!$this->input->is_ajax_request()) {
+            redirect('login');
+            return;
+        }
+
+        $challenge = $this->_issue_captcha();
+
+        $this->output->set_content_type('application/json');
+        $this->output->set_output(json_encode(array(
+            'svg'        => $challenge['svg'],
+            'expires_in' => self::CAPTCHA_TTL_SECONDS,
+        ), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT));
     }
 
     // ─── LOGOUT ───────────────────────────────────────

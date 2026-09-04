@@ -55,11 +55,13 @@ No foreign currencies (USD, USDT, BTC, etc.) are supported at any layer.
     * **Frontend (Client-Side):** Use `type="tel"` and `inputmode="numeric"` for mobile keyboard optimization. Frontend applies the same stripping/conversion rules in real-time as the user types (on `input` event) so the preview shows normalized format. **No rigid `maxlength` or `minlength` HTML attributes** — the backend regex is the single source of truth for validation.
     * **Applies to:** Registration (`/auth/register`), Login (`/auth/login`), Profile phone update, and Admin user creation.
     * **DB Constraint:** The `users.phone` column remains `VARCHAR 20, UNIQUE, NOT NULL` — stores the normalized `0XXXXXXXXXX` format only.
-* **Bot Protection — Google reCAPTCHA v2:**
-    * The native CI3 GD-based captcha has been **replaced** by Google reCAPTCHA v2.
-    * The registration form loads `https://www.google.com/recaptcha/api.js` and renders the `.g-recaptcha` widget with a valid site key.
-    * Server-side validation: the `g-recaptcha-response` token is POSTed to Google's `siteverify` endpoint. Registration is rejected if the verification call returns `success: false`.
-    * This eliminates OCR-susceptible image captchas while maintaining zero-friction UX for human users.
+* **Bot Protection — Native SVG CAPTCHA (M8 / plan/72):**
+    * Google-hosted CAPTCHA telah **dipurge total** (plan/72): tidak ada lagi dependensi eksternal, whitelisting domain, maupun panggilan cURL verifikasi token ke pihak ketiga — menghilangkan kelas kegagalan transport (errno 77 / CA bundle) dari alur login & registrasi.
+    * Login **dan** Register mewajibkan **Kode Keamanan**: 5 karakter alfanumerik dari alfabet 56 glyph yang **mengecualikan karakter ambigu** (`0, O, o, 1, I, l`).
+    * Kode dirender sebagai **SVG inline transparan** (zero dependensi: tanpa GD/Imagick, tanpa file gambar) dengan rotasi per-karakter ±22°, jitter posisi, garis & titik noise, serta palet netral-tema **indigo/cyan/violet** agar tajam di kartu terang (`bg-white`) maupun gelap (`dark:bg-slate-800`).
+    * Validasi server: pencocokan **case-insensitive** (`strtolower(trim($input)) === strtolower($stored)`), **single-use ketat** — challenge sesi `auth_captcha` langsung di-flush pada SETIAP evaluasi (anti replay), dan **TTL 180 detik (3 menit)**. Gagal/kedaluwarsa menampilkan: *"Kode keamanan salah atau sudah kedaluwarsa."*
+    * Tombol refresh memuat challenge baru via endpoint JSON `auth/refresh_captcha` tanpa me-refresh halaman.
+    * Rate limiting (10B) dan normalisasi nomor telepon (M5) tetap dijalankan pada urutan yang sama seperti sebelum migrasi.
 * **Login:** Menggunakan Nomor Telepon dan Kata Sandi. Session disimpan menggunakan sistem file CI3. Phone undergoes the same backend sanitization before lookup.
 * **Profil:** User dapat mengunggah Avatar (format: JPG/PNG, max: 2MB) dan mengubah nama pengguna (maks 50 karakter).
 
@@ -219,7 +221,7 @@ A DB-driven, AJAX-powered notification system that delivers real-time alerts for
 
 ## 6. Security & OpSec Requirements
 * **CSRF Protection:** Wajib diaktifkan di konfigurasi CI3 (`$config['csrf_protection'] = TRUE;`).
-* **Bot Protection:** Google reCAPTCHA v2 on registration. Server-side token verification against Google's API.
+* **Bot Protection:** Native SVG CAPTCHA on login & registration (M8/plan/72) — 5-char unambiguous alphabet (no `0/O/o/1/I/l`), inline transparent SVG (indigo/cyan/violet, rotation+jitter+noise), case-insensitive match, strict single-use session flush, 180s TTL, AJAX refresh endpoint `auth/refresh_captcha`. No external CAPTCHA service, no CAPTCHA keys.
 * **Rate Limiting / Mutex Lock:** Halaman eksekusi finansial (Tombol Beli Sewa, Tombol Tarik Dana) wajib memiliki *lock* atau *disable state* pada JavaScript dan divalidasi di PHP agar tidak terjadi *Double Spending* jika *user* melakukan klik dua kali dengan cepat.
 * **Phone Sanitization:** Backend regex `/^0[0-9]{9,13}$/` enforced on ALL phone inputs (register, login, profile update, admin user creation). Frontend is helper-only — never the source of truth.
 * **Data Masking:** Rekening bank yang tampil di antarmuka harus disensor sebagian (misal: 1234*****789).

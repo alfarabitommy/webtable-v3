@@ -111,6 +111,11 @@
 - [x] **9B: Analytics & VIP Leaderboard** — Halaman `admin/analytics`: global metrics (`get_global_analytics()`), per-user financial X-ray (`get_user_xray()`), "TOP AFFILIATES — VIP LEADERBOARD" via recursive CTE (`get_leaderboard()`).
 - [x] **9C: CSV Export Streaming** — `Admin::export_csv()` native streaming ke `php://output`, UTF-8 BOM untuk Excel, 3 tipe: `ledger` / `rentals` / `withdrawals`.
 
+### M8: Native SVG CAPTCHA & External CAPTCHA Purge ✅ COMPLETED (plan/72–73)
+- [x] **M8A: CAPTCHA Engine** — `captcha_helper.php` (56-glyph unambiguous alphabet; transparent inline SVG with per-char ±22° rotation + jitter, noise lines/dots, indigo/cyan/violet palette); session lifecycle `auth_captcha` (strict single-use flush, TTL 180s).
+- [x] **M8B: Controller Integration** — Login/Register gates replaced with `_verify_captcha()` ("Kode keamanan salah atau sudah kedaluwarsa."); M5 phone-normalization + rate-limit ordering preserved; fresh challenge per render; AJAX `auth/refresh_captcha` JSON endpoint.
+- [x] **M8C: Views** — `api.js` & `.g-recaptcha` removed; light/dark Tailwind "Kode Keamanan" component + vanilla refresh JS on `login`/`register`.
+
 ---
 
 ## Upcoming Phases
