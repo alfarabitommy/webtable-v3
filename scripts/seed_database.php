@@ -67,8 +67,8 @@ echo "Seed file sections: " . implode(' -> ', array_keys($sections)) . "\n\n";
 
 // ---------------------------------------------------------------- pre-flight
 $errors = [];
-$tables_expected = ['admins','bank_accounts','deposits','gpu_products','otp_logs','rentals','site_settings',
-                    'system_audit_logs','system_settings','transactions','users','user_notifications',
+$tables_expected = ['admins','bank_accounts','deposits','gpu_products','otp_logs','rentals',
+                    'system_audit_logs','system_settings','users','user_notifications',
                     'user_rentals','wallet_ledger','withdrawals'];
 $missing_tables = [];
 foreach ($tables_expected as $t) {
@@ -111,11 +111,7 @@ if ($apply && !$force) {
 // reconciliation plan
 echo "  schema reconciliation plan:\n";
 foreach (reconcile_plan() as $stmt) {
-    $info = parse_alter($stmt);
-    $already = $info['kind'] === 'column'
-        ? column_exists($m, $info['table'], $info['name'])
-        : index_exists($m, $info['table'], $info['name']);
-    echo "    " . ($already ? '[skip ] ' : '[add  ] ') . $stmt . "\n";
+    echo "    " . (reconcile_done($m, parse_alter($stmt)) ? '[skip ] ' : '[add  ] ') . $stmt . "\n";
 }
 
 if ($errors) {
@@ -162,11 +158,7 @@ if ($apply && $force) {
 if ($apply) {
     echo "Applying schema reconciliation (guarded, before data)...\n";
     foreach (reconcile_plan() as $stmt) {
-        $info = parse_alter($stmt);
-        $already = $info['kind'] === 'column'
-            ? column_exists($m, $info['table'], $info['name'])
-            : index_exists($m, $info['table'], $info['name']);
-        if ($already) { echo "  [skip] {$stmt}\n"; continue; }
+        if (reconcile_done($m, parse_alter($stmt))) { echo "  [skip] {$stmt}\n"; continue; }
         try {
             $m->query($stmt);
             echo "  [add ] {$stmt}\n";
@@ -287,10 +279,19 @@ function reconcile_plan()
         "ALTER TABLE `users` ADD COLUMN `is_banned` TINYINT(1) NOT NULL DEFAULT 0",
         "ALTER TABLE `users` ADD COLUMN `must_change_password` TINYINT(1) NOT NULL DEFAULT 0",
         "ALTER TABLE `users` ADD COLUMN `is_level_1_claimed` TINYINT(1) NOT NULL DEFAULT 0",
-        "ALTER TABLE `users` ADD COLUMN `last_wage_claimed_at` TIMESTAMP NULL DEFAULT NULL",
+        "ALTER TABLE `users` ADD COLUMN `last_wage_claimed_at` DATETIME NULL DEFAULT NULL",
         "ALTER TABLE `withdrawals` ADD COLUMN `wd_number` VARCHAR(50) NULL DEFAULT NULL",
         "ALTER TABLE `withdrawals` ADD COLUMN `amount` DECIMAL(15,2) NOT NULL DEFAULT 0.00",
         "ALTER TABLE `withdrawals` ADD UNIQUE KEY `uk_wd_number` (`wd_number`)",
+        // M2 (plan/58 §3 Phase 1): composite unique — mencegah kredit ganda
+        // (WAGE/L1/ROI) per user sambil mengizinkan pasangan debit WD-x +
+        // kredit refund WD-x (decline_withdrawal W6, lihat Admin_model).
+        "ALTER TABLE `wallet_ledger` ADD UNIQUE KEY `uk_wallet_ledger_user_tx_type` (`user_id`, `transaction_id`, `type`)",
+        // C3 (plan/52): safe DEFAULT untuk strict mode — insert baru selalu
+        // menulis gross/fee/net nyata; default hanya safety net legacy.
+        "ALTER TABLE `withdrawals` ALTER COLUMN `gross_amount` SET DEFAULT 0.00",
+        "ALTER TABLE `withdrawals` ALTER COLUMN `fee_amount` SET DEFAULT 0.00",
+        "ALTER TABLE `withdrawals` ALTER COLUMN `net_amount` SET DEFAULT 0.00",
     ];
 }
 
@@ -299,10 +300,41 @@ function parse_alter($stmt)
     if (preg_match('/ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+COLUMN\s+`?(\w+)`?/i', $stmt, $m1)) {
         return ['kind' => 'column', 'table' => $m1[1], 'name' => $m1[2]];
     }
-    if (preg_match('/ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+(?:UNIQUE\s+)?KEY\s+`?(\w+)`?\s*\(`?(\w+)`?\)/i', $stmt, $m2)) {
+    // Composite keys: capture the whole column list — guard (reconcile_done)
+    // only needs table + index name from information_schema.STATISTICS.
+    if (preg_match('/ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+(?:UNIQUE\s+)?KEY\s+`?(\w+)`?\s*\(([^)]+)\)/i', $stmt, $m2)) {
         return ['kind' => 'index', 'table' => $m2[1], 'name' => $m2[2]];
     }
-    return ['kind' => 'unknown', 'table' => '', 'name' => ''];
+    // C3 (plan/52): ALTER COLUMN ... SET DEFAULT — guard by current default value.
+    if (preg_match('/ALTER\s+TABLE\s+`?(\w+)`?\s+ALTER\s+(?:COLUMN\s+)?`?(\w+)`?\s+SET\s+DEFAULT\s+([\d.]+)/i', $stmt, $m3)) {
+        return ['kind' => 'default', 'table' => $m3[1], 'name' => $m3[2], 'value' => $m3[3]];
+    }
+    return ['kind' => 'unknown', 'table' => '', 'name' => '', 'value' => null];
+}
+
+/**
+ * True when the reconcile ALTER is already satisfied on the live DB, so the
+ * runner can skip it idempotently (used by both --verify plan print and --apply).
+ */
+function reconcile_done($m, $info)
+{
+    switch ($info['kind']) {
+        case 'column':  return column_exists($m, $info['table'], $info['name']);
+        case 'index':   return index_exists($m, $info['table'], $info['name']);
+        case 'default': return column_default_is($m, $info['table'], $info['name'], $info['value']);
+        default:        return false;
+    }
+}
+
+function column_default_is($m, $table, $column, $expected)
+{
+    $q = $m->query("SELECT COLUMN_DEFAULT FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA = '" . $m->real_escape_string(SEED_DB) . "'
+                      AND TABLE_NAME   = '" . $m->real_escape_string($table) . "'
+                      AND COLUMN_NAME  = '" . $m->real_escape_string($column) . "'");
+    if ($q->num_rows === 0) return false;
+    $row = $q->fetch_row();
+    return $row[0] !== null && trim((string) $row[0]) === trim((string) $expected);
 }
 
 function column_exists($m, $table, $column)

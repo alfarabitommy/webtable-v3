@@ -12,6 +12,19 @@
             gradient.addColorStop(0, 'rgba(16,185,129,0.20)');
             gradient.addColorStop(1, 'rgba(16,185,129,0.00)');
 
+            /* Phase 30: read theme colors from CSS variables */
+            function themeColors() {
+                const css = getComputedStyle(document.documentElement);
+                return {
+                    grid: css.getPropertyValue('--t-chart-grid').trim() || 'rgba(148,163,184,0.08)',
+                    tick: css.getPropertyValue('--t-chart-tick').trim() || '#94a3b8',
+                    tooltipBg: css.getPropertyValue('--t-tooltip-bg').trim() || '#1e293b',
+                    tooltipTitle: css.getPropertyValue('--t-tooltip-title').trim() || '#e2e8f0'
+                };
+            }
+
+            const colors = themeColors();
+
             const chart = new Chart(ctx, {
                 type: 'line',
                 data: {
@@ -37,8 +50,8 @@
                     plugins: {
                         legend: { display: false },
                         tooltip: {
-                            backgroundColor: '#1e293b',
-                            titleColor: '#e2e8f0',
+                            backgroundColor: colors.tooltipBg,
+                            titleColor: colors.tooltipTitle,
                             bodyColor: '#10b981',
                             borderColor: '#10b981',
                             borderWidth: 1,
@@ -55,20 +68,36 @@
                     },
                     scales: {
                         x: {
-                            grid: { color: 'rgba(148,163,184,0.08)', drawBorder: false },
-                            ticks: { color: '#94a3b8', font: { family: 'JetBrains Mono', size: 10 } }
+                            grid: { color: colors.grid, drawBorder: false },
+                            ticks: { color: colors.tick, font: { family: 'JetBrains Mono', size: 10 } }
                         },
                         y: {
                             beginAtZero: true,
-                            grid: { color: 'rgba(148,163,184,0.08)', drawBorder: false },
+                            grid: { color: colors.grid, drawBorder: false },
                             ticks: {
-                                color: '#94a3b8',
+                                color: colors.tick,
                                 font: { family: 'JetBrains Mono', size: 10 },
                                 callback: function(val) { return 'Rp ' + (val/1000) + 'k'; }
                             }
                         }
                     }
                 }
+            });
+
+            /* Expose for theme re-render */
+            window.revenueChart = chart;
+
+            /* Phase 30: re-render chart when theme toggles */
+            window.addEventListener('admin-theme-change', function() {
+                const c = themeColors();
+                const o = chart.options;
+                o.scales.x.grid.color = c.grid;
+                o.scales.y.grid.color = c.grid;
+                o.scales.x.ticks.color = c.tick;
+                o.scales.y.ticks.color = c.tick;
+                o.plugins.tooltip.backgroundColor = c.tooltipBg;
+                o.plugins.tooltip.titleColor = c.tooltipTitle;
+                chart.update();
             });
 
             /* ── AJAX dropdown ── */
@@ -99,6 +128,25 @@
                 overlay.classList.remove('hidden');
             }
         }
+
+        /* ── Phase 30: Admin Theme Manager ── */
+        function toggleAdminTheme() {
+            const html = document.documentElement;
+            const dark = html.classList.toggle('dark');
+            try { localStorage.setItem('admin_theme', dark ? 'dark' : 'light'); } catch (e) {}
+            const icon = document.getElementById('theme-toggle-icon');
+            if (icon) icon.className = 'fas ' + (dark ? 'fa-sun' : 'fa-moon') + ' text-sm';
+            window.dispatchEvent(new CustomEvent('admin-theme-change', { detail: { dark: dark } }));
+        }
+
+        /* Sync toggle icon with the current theme on load */
+        (function() {
+            const icon = document.getElementById('theme-toggle-icon');
+            if (icon) {
+                const dark = document.documentElement.classList.contains('dark');
+                icon.className = 'fas ' + (dark ? 'fa-sun' : 'fa-moon') + ' text-sm';
+            }
+        })();
     </script>
 </body>
 </html>

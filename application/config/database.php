@@ -75,10 +75,10 @@ $query_builder = TRUE;
 
 $db['default'] = array(
 	'dsn'	=> '',
-	'hostname' => 'localhost',
-	'username' => 'root',
-	'password' => 'root',
-	'database' => 'db_webtable',
+	'hostname' => (string) (getenv('DB_HOSTNAME') ?: 'localhost'),
+	'username' => (string) (getenv('DB_USERNAME') ?: 'root'),
+	'password' => (string) (getenv('DB_PASSWORD') ?: 'root'),
+	'database' => (string) (getenv('DB_DATABASE') ?: 'db_webtable'),
 	'dbdriver' => 'mysqli',
 	'dbprefix' => '',
 	'pconnect' => FALSE,

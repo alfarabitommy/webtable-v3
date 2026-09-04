@@ -10,7 +10,7 @@
 * **Timestamps:** Setiap tabel wajib memiliki kolom `created_at` dan `updated_at` (Tipe: `TIMESTAMP`, Default: `CURRENT_TIMESTAMP` / `CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`).
 * **Soft Deletes:** Jangan gunakan penghapusan fisik pada data finansial dan riwayat sewa. Gunakan status (misal: `is_active = 0`) atau buat kolom `deleted_at`.
 * **Foreign Key Constraints:** Data krusial seperti transaksi dan penarikan WAJIB menggunakan `ON DELETE RESTRICT` terhadap tabel `users` agar data tidak hilang jika user dihapus.
-* **Database Transactions (ACID Compliance):** Semua mutasi finansial — termasuk tetapi tidak terbatas pada Insert ke `transactions`, Insert ke `wallet_ledger`, Update ke `users.balance`, Insert ke `rentals`, Update ke `deposits.status` — WAJIB dibungkus dalam blok `$this->db->trans_start()` dan `$this->db->trans_complete()` (atau `trans_begin()` / `trans_commit()` / `trans_rollback()`). Kegagalan pada salah satu langkah dalam transaksi HARUS memicu rollback penuh untuk menjaga integritas data.
+* **Database Transactions (ACID Compliance):** Semua mutasi finansial — termasuk tetapi tidak terbatas pada Insert ke `wallet_ledger`, Update ke `users.balance`, Insert ke `rentals`, Update ke `deposits.status` — WAJIB dibungkus dalam blok `$this->db->trans_start()` dan `$this->db->trans_complete()` (atau `trans_begin()` / `trans_commit()` / `trans_rollback()`). Kegagalan pada salah satu langkah dalam transaksi HARUS memicu rollback penuh untuk menjaga integritas data.
 
 ---
 
@@ -78,7 +78,7 @@ Tabel staging untuk deposit yang diajukan oleh user. Record bersifat temporary �
 > **Lifecycle:** User creates a deposit → status `pending` → displayed in "Menunggu Pembayaran" section → approved (simulator or gateway) → status `success` → credit entry minted into `wallet_ledger`.
 
 ### Tabel: `wallet_ledger`
-Immutable, append-only ledger yang mencatat setiap pergerakan dana masuk (credit) dan keluar (debit). Saldo user dihitung secara dinamis dari tabel ini.
+Immutable, append-only ledger yang mencatat setiap pergerakan dana masuk (credit) dan keluar (debit). Saldo user dihitung secara dinamis dari tabel ini. **`wallet_ledger` adalah SATU-SATUNYA ledger transaksi yang otoritatif** — tabel `transactions` (double-entry) legacy telah didecommission pada M6 (lihat `plan/68` & `plan/69`); jangan membuat ulang atau menulis ke tabel tersebut.
 
 * `id` (BIGINT, Primary Key, Auto Increment, Unsigned)
 * `user_id` (BIGINT, Unsigned, NOT NULL) - **[Foreign Key -> users.id, ON DELETE RESTRICT]**
@@ -94,18 +94,8 @@ Immutable, append-only ledger yang mencatat setiap pergerakan dana masuk (credit
 
 > **ACID Rule:** Every write to `wallet_ledger` MUST be wrapped in `$this->db->trans_start()` / `$this->db->trans_complete()`. A failed ledger insert MUST rollback all preceding operations in the same transaction (deposit status update, user balance adjustment, etc.).
 
-### Tabel: `transactions`
-Double-Entry Ledger (Buku Besar). Tabel *append-only* (hanya boleh di-insert).
-* `id` (BIGINT, Primary Key, Auto Increment, Unsigned)
-* `user_id` (BIGINT, Unsigned, NOT NULL) - **[Foreign Key -> users.id, ON DELETE RESTRICT]**
-* `type` (ENUM('deposit', 'withdrawal', 'rental_payment', 'daily_revenue', 'commission_bonus', 'refund'), NOT NULL)
-* `amount` (DECIMAL 15,2, NOT NULL) - Bernilai positif (masuk) atau negatif (keluar). Tidak boleh 0.
-* `balance_after` (DECIMAL 15,2, NOT NULL) - *Snapshot* total saldo `users.balance` SETELAH transaksi ini dieksekusi.
-* `description` (VARCHAR 255, NOT NULL) - Keterangan manual (contoh: "Gaji Mingguan Level 2").
-* `reference_type` (VARCHAR 50, NULLABLE) - Menyimpan nama tabel referensi (contoh: 'rentals', 'withdrawals').
-* `reference_id` (BIGINT, Unsigned, NULLABLE) - ID dari tabel referensi tersebut.
-* `created_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP)
-**Index Optimization:** `INDEX (user_id)`, `INDEX (type)`, `INDEX (created_at)`.
+### ~~Tabel: `transactions`~~ — DECOMMISSIONED (M6)
+Tabel double-entry ledger lama. **TIDAK ADA LAGI** — telah dihapus pada M6 pragmatic path (audit: `plan/68_M6_TRANSACTIONS_TABLE_AUDIT_REPORT.md`; eksekusi: `plan/69_M6_DECOMMISSION_TRANSACTIONS_SUMMARY.md`). Aplikasi tidak pernah membaca/menulis tabel ini; seluruh pencatatan finansial memakai `wallet_ledger` (single ledger). Jangan membuat ulang tabel ini.
 
 ### Tabel: `bank_accounts`
 Data rekening yang di-bind oleh user untuk keperluan Withdrawal.

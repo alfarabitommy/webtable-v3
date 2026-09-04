@@ -14,6 +14,9 @@ class Wallet extends MY_Controller {
     public function index() {
         $user_id = $this->session->userdata('user_id');
 
+        // M1 (plan/56 §4.3): dynamic deposit fee config utk breakdown UI.
+        $fin_cfg = $this->Wallet_model->get_financial_config();
+
         $data = [
             'page_title'            => 'Wallet',
             'balance'               => $this->Wallet_model->get_balance($user_id),
@@ -23,7 +26,18 @@ class Wallet extends MY_Controller {
             'has_active_rental'     => $this->Rental_model->has_active_rental($user_id),
             'daily_limit_reached'   => $this->Wallet_model->has_reached_daily_wd_limit($user_id),
             'ledger'                => $this->Wallet_model->get_ledger_history($user_id),
+            // Deposit fee (dynamic, M1).
+            'deposit_fee_enabled'   => (int) $fin_cfg['deposit_fee_enabled'],
+            'deposit_fee_type'      => $fin_cfg['deposit_fee_type'],
+            'deposit_fee_value'     => $fin_cfg['deposit_fee_value'],
         ];
+
+        // Enrich pending deposit invoices with the payable total
+        // (pokok + biaya deposit) for display.
+        foreach ($data['pending'] as $inv) {
+            $inv->deposit_fee   = $this->Wallet_model->calculate_deposit_fee($inv->amount);
+            $inv->total_payable = (float) $inv->amount + $inv->deposit_fee;
+        }
 
         $this->load->view('templates/header', $data);
         $this->load->view('wallet/index', $data);
@@ -35,8 +49,15 @@ class Wallet extends MY_Controller {
         $amount  = preg_replace('/[^0-9]/', '', $this->input->post('amount'));
 
         if ($amount > 0) {
-            $this->Wallet_model->create_deposit($user_id, $amount);
-            $this->session->set_flashdata('success', 'Invoice berhasil dibuat. Silakan selesaikan pembayaran.');
+            // M4 (plan/62 H2): hasil terstruktur {success, invoice_number} —
+            // jangan pernah flash "sukses" saat insert invoice gagal
+            // (P2 audit lama: hasil create_deposit tidak pernah dicek).
+            $result = $this->Wallet_model->create_deposit($user_id, $amount);
+            if ($result['success']) {
+                $this->session->set_flashdata('success', 'Invoice ' . $result['invoice_number'] . ' berhasil dibuat. Silakan selesaikan pembayaran.');
+            } else {
+                $this->session->set_flashdata('error', 'Gagal membuat invoice. Silakan coba lagi.');
+            }
         } else {
             $this->session->set_flashdata('error', 'Nominal tidak valid.');
         }
@@ -45,12 +66,40 @@ class Wallet extends MY_Controller {
     }
 
     public function simulate_payment($invoice_number) {
-        $result = $this->Wallet_model->approve_deposit_simulator($invoice_number);
+        // C1 (plan 38): production hard-gate — fail-closed. Endpoint TIDAK ADA
+        // di production; tidak pernah memproses apapun.
+        if (ENVIRONMENT === 'production') {
+            show_404();
+            return;
+        }
+
+        // C1 (plan 38): POST-only — GET mutation dihapus (policy 10B).
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
+        }
+
+        $user_id = $this->session->userdata('user_id');
+
+        // C1 (plan 38): validasi kepemilikan — invoice harus milik session user.
+        $deposit = $this->Wallet_model->get_deposit_by_invoice($invoice_number);
+        if (!$deposit) {
+            $this->session->set_flashdata('error', 'Invoice tidak ditemukan.');
+            redirect('wallet');
+            return;
+        }
+        if ((int)$deposit->user_id !== (int)$user_id) {
+            log_message('error', 'C1 ownership violation: user ' . $user_id . ' attempted simulate on invoice ' . $invoice_number . ' owned by user ' . $deposit->user_id);
+            show_error('Akses ditolak: invoice milik pengguna lain.', 403);
+            return;
+        }
+
+        $result = $this->Wallet_model->approve_deposit_simulator($invoice_number, $user_id);
 
         if ($result) {
             $this->session->set_flashdata('success', 'Pembayaran berhasil disimulasikan! Dana sudah masuk.');
         } else {
-            $this->session->set_flashdata('error', 'Gagal memproses simulasi.');
+            $this->session->set_flashdata('error', 'Gagal memproses simulasi: invoice sudah diproses atau tidak valid.');
         }
 
         redirect('wallet');
@@ -90,10 +139,29 @@ class Wallet extends MY_Controller {
             return;
         }
 
+        // M1 (plan/56 §3-4.2): status operasional + config dinamis untuk
+        // preview fee real-time & disabled state. TIDAK redirect saat tutup:
+        // halaman tetap dirender dengan notice informatif (server tetap
+        // otoritas — POST/process_withdraw + TX model menolak tegas).
+        $wd_cfg  = $this->Wallet_model->get_financial_config();
+        $wd_op   = $this->Wallet_model->withdrawal_operational_status();
+
         $data = [
-            'page_title' => 'Penarikan Dana',
-            'balance'    => $this->Wallet_model->get_balance($user_id),
-            'bank'       => $bank,
+            'page_title'   => 'Penarikan Dana',
+            'balance'      => $this->Wallet_model->get_balance($user_id),
+            'bank'         => $bank,
+            // Subset config untuk JS preview (json_encode di view).
+            'wd_config'    => [
+                'operational_days' => $wd_cfg['operational_days'],
+                'open_time'        => $wd_cfg['open_time'],
+                'close_time'       => $wd_cfg['close_time'],
+                'fixed_fee'        => (int) $wd_cfg['fixed_fee'],
+                'tiers'            => $wd_cfg['tiers'],
+                'min_amount'       => (int) $wd_cfg['min_amount'],
+                'max_amount'       => (int) $wd_cfg['max_amount'],
+            ],
+            'wd_open'      => $wd_op['open'],
+            'wd_code'      => $wd_op['code'], // 'open' | 'closed_day' | 'closed_time'
         ];
 
         $this->load->view('templates/header', $data);
@@ -148,6 +216,27 @@ class Wallet extends MY_Controller {
         }
 
         $amount = preg_replace('/[^0-9]/', '', $this->input->post('amount'));
+
+        // M1 (plan/56 §3): config dinamis + gerbang operasional (UX mirror —
+        // otoritas finansial tetap di Wallet_model::create_withdrawal TX).
+        $wd_cfg = $this->Wallet_model->get_financial_config();
+        $wd_op  = $this->Wallet_model->withdrawal_operational_status();
+
+        if (!$wd_op['open']) {
+            $message = ($wd_op['code'] === 'closed_day')
+                ? 'Hari ini bukan hari operasional penarikan.'
+                : 'Penarikan hanya dapat diajukan pada pukul ' . $wd_cfg['open_time'] . '–' . $wd_cfg['close_time'] . ' WIB.';
+            $this->session->set_flashdata('error', $message);
+            redirect('wallet/withdraw');
+            return;
+        }
+
+        $min_wd = (int) $wd_cfg['min_amount'];
+        $max_wd = (int) $wd_cfg['max_amount'];
+
+        // Pre-check saldo: HANYA fast UX feedback. Otoritas finansial
+        // anti-race ada di Wallet_model::create_withdrawal (kunci anchor
+        // users + saldo segar di dalam TX) — audit C5, plan/48.
         $user_balance = $this->Wallet_model->get_balance($user_id);
 
         if ($amount <= 0) {
@@ -156,8 +245,14 @@ class Wallet extends MY_Controller {
             return;
         }
 
-        if ($amount < 100000) {
-            $this->session->set_flashdata('error', 'Minimal penarikan adalah Rp 100.000');
+        if ($amount < $min_wd) {
+            $this->session->set_flashdata('error', 'Minimal penarikan adalah Rp ' . number_format($min_wd, 0, ',', '.'));
+            redirect('wallet/withdraw');
+            return;
+        }
+
+        if ($amount > $max_wd) {
+            $this->session->set_flashdata('error', 'Maksimal penarikan adalah Rp ' . number_format($max_wd, 0, ',', '.'));
             redirect('wallet/withdraw');
             return;
         }
@@ -170,22 +265,54 @@ class Wallet extends MY_Controller {
 
         $result = $this->Wallet_model->create_withdrawal($user_id, $amount, $bank->id);
 
-        if ($result) {
+        // C5 (plan/48 §3.5): map hasil terstruktur model → flashdata + redirect.
+        if ($result['success']) {
             $this->session->set_flashdata('success', 'Permintaan penarikan berhasil diajukan');
-        } else {
-            $this->session->set_flashdata('error', 'Gagal memproses penarikan.');
+            redirect('wallet');
+            return;
         }
 
-        redirect('wallet');
+        $this->session->set_flashdata('error', $result['message']);
+        // Kembali ke form untuk kode yang konteksnya halaman penarikan.
+        $form_codes = ['insufficient', 'below_min', 'above_max', 'closed_day', 'closed_time'];
+        redirect(in_array($result['code'], $form_codes, true) ? 'wallet/withdraw' : 'wallet');
     }
 
     public function simulate_wd_approve($wd_number) {
-        $result = $this->Wallet_model->approve_withdrawal_simulator($wd_number);
+        // C7 (plan 42) 4A: production hard-gate — fail-closed. Di production
+        // endpoint ini TIDAK ADA (404) — tidak pernah memproses apapun.
+        if (ENVIRONMENT === 'production') {
+            show_404();
+            return;
+        }
+
+        // C7 4D: POST-only — GET mutation dihapus (policy 10B).
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
+        }
+
+        $user_id = $this->session->userdata('user_id');
+
+        // C7 4C: validasi kepemilikan — WD harus milik session user.
+        $wd = $this->Wallet_model->get_withdrawal_by_wd_number($wd_number);
+        if (!$wd) {
+            $this->session->set_flashdata('error', 'Penarikan tidak ditemukan.');
+            redirect('wallet');
+            return;
+        }
+        if ((int)$wd->user_id !== (int)$user_id) {
+            log_message('error', 'C7 ownership violation: user ' . $user_id . ' attempted simulate_wd_approve on ' . $wd_number . ' owned by user ' . $wd->user_id);
+            show_error('Akses ditolak: penarikan milik pengguna lain.', 403);
+            return;
+        }
+
+        $result = $this->Wallet_model->approve_withdrawal_simulator($wd_number, $user_id);
 
         if ($result) {
             $this->session->set_flashdata('success', 'Simulasi: Penarikan berhasil disetujui.');
         } else {
-            $this->session->set_flashdata('error', 'Gagal memproses simulasi penarikan.');
+            $this->session->set_flashdata('error', 'Gagal memproses simulasi: penarikan sudah diproses atau tidak valid.');
         }
 
         redirect('wallet');

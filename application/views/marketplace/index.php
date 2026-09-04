@@ -2,42 +2,42 @@
 
     <!-- ═══ Page Header ═══ -->
     <div>
-        <h2 class="text-xl font-extrabold text-slate-900 tracking-tight">Katalog Infrastruktur</h2>
-        <p class="text-sm text-slate-500 mt-1">Pilih node sesuai kebutuhan Anda.</p>
+        <h2 class="text-xl font-extrabold u-text tracking-tight">Katalog Infrastruktur</h2>
+        <p class="text-sm u-text-2 mt-1">Pilih node sesuai kebutuhan Anda.</p>
     </div>
 
     <!-- ═══ Flashdata Alerts ═══ -->
     <?php if ($this->session->flashdata('error')): ?>
-    <div class="bg-rose-50 border border-rose-200 text-rose-600 px-4 py-3 rounded-xl mb-4 text-sm font-semibold flex items-center gap-2">
+    <div class="u-flash-error px-4 py-3 rounded-xl mb-4 text-sm font-semibold flex items-center gap-2">
         <i class="fas fa-exclamation-circle"></i> <?= $this->session->flashdata('error'); ?>
     </div>
     <?php endif; ?>
     <?php if ($this->session->flashdata('success')): ?>
-    <div class="bg-emerald-50 border border-emerald-200 text-emerald-600 px-4 py-3 rounded-xl mb-4 text-sm font-semibold flex items-center gap-2">
+    <div class="u-flash-success px-4 py-3 rounded-xl mb-4 text-sm font-semibold flex items-center gap-2">
         <i class="fas fa-check-circle"></i> <?= $this->session->flashdata('success'); ?>
     </div>
     <?php endif; ?>
 
-    <!-- ═══ Product Cards ═══ -->
+    <!-- ═══ Product Cards (Phase 32: .u-card-gpu — neural surface + cyan glow border) ═══ -->
     <?php foreach ($products as $product): ?>
-    <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col">
+    <div class="u-card-gpu rounded-2xl p-4 shadow-sm flex flex-col">
         <img src="https://placehold.co/400x150/f8fafc/94a3b8?text=<?= urlencode($product['name']) ?>" class="rounded-xl object-cover h-28 w-full mb-3" alt="<?= htmlspecialchars($product['name']) ?>">
 
-        <h3 class="text-base font-bold text-slate-900"><?= htmlspecialchars($product['name']) ?></h3>
-        <p class="text-xs text-slate-500 mt-1 leading-relaxed"><?= htmlspecialchars($product['description'] ?? '') ?></p>
+        <h3 class="text-base font-bold u-text"><?= htmlspecialchars($product['name']) ?></h3>
+        <p class="text-xs u-text-2 mt-1 leading-relaxed"><?= htmlspecialchars($product['description'] ?? '') ?></p>
 
         <div class="flex items-center gap-4 mt-3">
             <div>
-                <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Harga Sewa</span>
-                <p class="text-lg font-extrabold text-slate-900">Rp <?= number_format($product['price'], 0, ',', '.') ?></p>
+                <span class="text-[10px] u-muted font-semibold uppercase tracking-wider">Harga Sewa</span>
+                <p class="text-lg font-extrabold u-text">Rp <?= number_format($product['price'], 0, ',', '.') ?></p>
             </div>
             <div class="ml-auto text-right">
-                <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">ROI Harian</span>
+                <span class="text-[10px] u-muted font-semibold uppercase tracking-wider">ROI Harian</span>
                 <p class="text-sm font-bold text-emerald-500">Rp <?= number_format($product['daily_rate'], 0, ',', '.') ?></p>
             </div>
         </div>
 
-        <button class="btn-sewa w-full h-12 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold mt-3 transition-all active:scale-[0.98]"
+        <button class="btn-sewa w-full h-12 u-btn-cyber rounded-xl font-bold mt-3 transition-all active:scale-[0.98]"
                 data-id="<?= $product['id'] ?>"
                 data-name="<?= htmlspecialchars($product['name']) ?>"
                 data-price="<?= $product['price'] ?>">
@@ -48,35 +48,35 @@
 
 </div>
 
-<!-- ═══ Bottom Sheet Modal ═══ -->
+<!-- ═══ Bottom Sheet Modal (Phase 32: .u-modal) ═══ -->
 <div id="transactionModal" class="fixed inset-0 z-[60] hidden">
     <!-- Overlay -->
-    <div id="modalOverlay" class="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity"></div>
+    <div id="modalOverlay" class="absolute inset-0 u-modal-backdrop backdrop-blur-sm transition-opacity"></div>
 
     <!-- Sheet -->
-    <div id="modalSheet" class="absolute bottom-0 w-full max-w-[480px] mx-auto bg-white rounded-t-3xl p-6 pb-12 translate-y-full transition-transform duration-300 ease-out shadow-2xl">
+    <div id="modalSheet" class="absolute bottom-0 w-full max-w-[480px] mx-auto u-modal rounded-t-3xl p-6 pb-12 translate-y-full transition-transform duration-300 ease-out shadow-2xl">
         <!-- Handle -->
-        <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-5"></div>
+        <div class="w-10 h-1 bg-slate-300 dark:bg-slate-600 rounded-full mx-auto mb-5"></div>
 
-        <h3 class="text-lg font-bold text-slate-900 mb-4" id="modalTitle">Detail Transaksi</h3>
+        <h3 class="text-lg font-bold u-text mb-4" id="modalTitle">Detail Transaksi</h3>
 
         <div class="space-y-3 mb-6">
             <div class="flex justify-between items-center">
-                <span class="text-sm text-slate-500">Produk</span>
-                <span class="text-sm font-semibold text-slate-900" id="modalProductName">-</span>
+                <span class="text-sm u-text-2">Produk</span>
+                <span class="text-sm font-semibold u-text" id="modalProductName">-</span>
             </div>
             <div class="flex justify-between items-center">
-                <span class="text-sm text-slate-500">Harga Sewa</span>
-                <span class="text-sm font-bold text-slate-900" id="modalProductPrice">-</span>
+                <span class="text-sm u-text-2">Harga Sewa</span>
+                <span class="text-sm font-bold u-text" id="modalProductPrice">-</span>
             </div>
-            <div class="h-px bg-slate-100"></div>
+            <div class="h-px" style="background-color: var(--u-divide);"></div>
             <div class="flex justify-between items-center">
-                <span class="text-sm text-slate-500">Saldo Anda</span>
+                <span class="text-sm u-text-2">Saldo Anda</span>
                 <span class="text-sm font-semibold" id="modalBalance">-</span>
             </div>
         </div>
 
-        <?php echo form_open('rentals/checkout', ['id' => 'form-checkout', 'class' => 'w-full']); ?>
+        <?php echo form_open('rentals/checkout', ['id' => 'form-checkout', 'class' => 'w-full', 'data-guard-submit' => '1']); ?>
             <input type="hidden" name="product_id" id="modal_product_id" value="">
             <div id="modalActionBtn"></div>
         <?php echo form_close(); ?>
@@ -112,13 +112,13 @@
         productIdInput.value = data.id;
 
         if (userBalance >= data.price) {
-            balanceEl.className = 'text-sm font-semibold text-emerald-600';
+            balanceEl.className = 'text-sm font-semibold text-emerald-600 dark:text-emerald-400';
             actionBtn.innerHTML =
                 '<button type="submit" class="w-full h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold shadow-lg transition-all flex items-center justify-center gap-2">' +
                     '<i class="fas fa-lock"></i> Konfirmasi & Bayar' +
                 '</button>';
         } else {
-            balanceEl.className = 'text-sm font-semibold text-rose-600';
+            balanceEl.className = 'text-sm font-semibold text-rose-600 dark:text-rose-400';
             actionBtn.innerHTML =
                 '<a href="' + baseUrl + 'wallet" class="block w-full h-14 bg-rose-500 hover:bg-rose-600 text-white rounded-2xl font-bold shadow-lg transition-all flex items-center justify-center gap-2">' +
                     '<i class="fas fa-wallet"></i> Saldo Tidak Mencukupi — Isi Saldo' +

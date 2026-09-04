@@ -7,6 +7,9 @@ class Admin extends CI_Controller {
         parent::__construct();
 
         $this->load->database();
+        // M2 (plan/58 §3 Phase 2): pin WIB sesi MySQL sebagai statement DB
+        // pertama pada entry point admin (Admin extends CI_Controller).
+        $this->db->query("SET time_zone = '+07:00'");
         $this->load->library('session');
         $this->load->helper('url');
         $this->load->library('pagination');
@@ -90,41 +93,26 @@ class Admin extends CI_Controller {
     }
 
     public function approve_deposit($deposit_id) {
-        $deposit = $this->db->get_where('deposits', ['id' => $deposit_id])->row();
-        if (!$deposit || $deposit->status !== 'pending') {
-            $this->session->set_flashdata('error', 'Deposit tidak valid atau sudah diproses.');
-            redirect('admin');
+        // M4 (plan/62 S1): POST-only — mutasi status finansial tidak boleh
+        // dipicu via GET (CSRF CI3 hanya melindungi POST-family; fail-closed).
+        if ($this->input->method() !== 'post') {
+            show_404();
             return;
         }
 
-        $this->db->trans_start();
+        // C4 (plan/54): seluruh mutasi uang pindah ke Admin_model (ACID: anchor
+        // lock + transisi kondisional + Wallet_model::credit + audit). Controller
+        // hanya menangani HTTP/flashdata/notifikasi — tanpa $this->db langsung.
+        $this->load->model('Admin_model');
 
-        // 1. Update deposit status
-        $this->db->where('id', $deposit_id)->update('deposits', ['status' => 'success']);
-
-        // 2. Credit wallet ledger
-        $this->db->insert('wallet_ledger', [
-            'user_id'        => $deposit->user_id,
-            'transaction_id' => $deposit->invoice_number,
-            'amount'         => $deposit->amount,
-            'type'           => 'credit',
-            'description'    => 'Top Up via ' . $deposit->invoice_number,
-        ]);
-
-        // 3. Audit log — inside the same ACID transaction (rollback erases it too)
-        $this->load->model('Audit_model');
-        $this->Audit_model->log_admin_action(
-            (int) $this->session->userdata('admin_id'),
-            $deposit->user_id,
-            'approve_deposit',
-            ['invoice_number' => $deposit->invoice_number, 'amount' => $deposit->amount],
-            $this->input->ip_address()
+        $result = $this->Admin_model->approve_deposit(
+            (int) $deposit_id,
+            $this->_audit_ctx(null, 'approve_deposit')
         );
 
-        $this->db->trans_complete();
-
-        if ($this->db->trans_status()) {
-            // 3. Notify user — fire-and-forget after committed TX
+        if ($result['success'] && $result['deposit']) {
+            // Notify user — fire-and-forget after committed TX
+            $deposit = $result['deposit'];
             $this->load->model('Notification_model');
             $this->Notification_model->insert(
                 $deposit->user_id,
@@ -134,39 +122,31 @@ class Admin extends CI_Controller {
             );
             $this->session->set_flashdata('success', 'Deposit #' . $deposit->invoice_number . ' berhasil disetujui.');
         } else {
-            $this->session->set_flashdata('error', 'Gagal memproses deposit.');
+            $this->session->set_flashdata('error', $result['message']);
         }
 
         redirect('admin');
     }
 
     public function approve_withdrawal($wd_id) {
-        $wd = $this->db->get_where('withdrawals', ['id' => $wd_id])->row();
-        if (!$wd || $wd->status !== 'pending') {
-            $this->session->set_flashdata('error', 'Penarikan tidak valid atau sudah diproses.');
-            redirect('admin');
+        // M4 (plan/62 S1): POST-only — mutasi status finansial tidak boleh
+        // dipicu via GET (CSRF CI3 hanya melindungi POST-family; fail-closed).
+        if ($this->input->method() !== 'post') {
+            show_404();
             return;
         }
 
-        $this->db->trans_start();
+        // C4 (plan/54): status flip ACID di Admin_model (transisi kondisional,
+        // anti double-submit M4); tidak ada mutasi uang di sini.
+        $this->load->model('Admin_model');
 
-        // Balance was already deducted on request — just flip status
-        $this->db->where('id', $wd_id)->update('withdrawals', ['status' => 'success']);
-
-        // Audit log — inside the same ACID transaction
-        $this->load->model('Audit_model');
-        $this->Audit_model->log_admin_action(
-            (int) $this->session->userdata('admin_id'),
-            $wd->user_id,
-            'approve_withdrawal',
-            ['wd_number' => $wd->wd_number, 'amount' => $wd->amount],
-            $this->input->ip_address()
+        $result = $this->Admin_model->approve_withdrawal(
+            (int) $wd_id,
+            $this->_audit_ctx(null, 'approve_withdrawal')
         );
 
-        $this->db->trans_complete();
-
-        if ($this->db->trans_status()) {
-            // 2. Notify user
+        if ($result['success'] && $result['withdrawal']) {
+            $wd = $result['withdrawal'];
             $this->load->model('Notification_model');
             $this->Notification_model->insert(
                 $wd->user_id,
@@ -176,59 +156,55 @@ class Admin extends CI_Controller {
             );
             $this->session->set_flashdata('success', 'Penarikan #' . $wd->wd_number . ' berhasil disetujui.');
         } else {
-            $this->session->set_flashdata('error', 'Gagal memproses penarikan.');
+            $this->session->set_flashdata('error', $result['message']);
         }
 
         redirect('admin');
     }
 
     public function decline_withdrawal($wd_id) {
-        $wd = $this->db->get_where('withdrawals', ['id' => $wd_id])->row();
-        if (!$wd || $wd->status !== 'pending') {
-            $this->session->set_flashdata('error', 'Penarikan tidak valid atau sudah diproses.');
-            redirect('admin');
+        // M4 (plan/62 S1): POST-only — mutasi status finansial tidak boleh
+        // dipicu via GET (CSRF CI3 hanya melindungi POST-family; fail-closed).
+        if ($this->input->method() !== 'post') {
+            show_404();
             return;
         }
 
-        $this->db->trans_start();
+        // C4 (plan/54): refund ACID di Admin_model (anchor lock + transisi
+        // kondisional + Wallet_model::credit + audit) — tanpa $this->db langsung.
+        $this->load->model('Admin_model');
 
-        // 1. Update withdrawal status to failed
-        $this->db->where('id', $wd_id)->update('withdrawals', ['status' => 'failed']);
+        // M5/N4: alasan penolakan opsional dari form dashboard — ikut
+        // dipersist (withdrawals.decline_reason), masuk audit & pesan notifikasi.
+        $reason = trim((string) $this->input->post('reason', TRUE));
 
-        // 2. Refund: insert credit transaction into wallet_ledger
-        // Funds were already debited on request — must credit back
-        $this->db->insert('wallet_ledger', [
-            'user_id'        => $wd->user_id,
-            'transaction_id' => $wd->wd_number,
-            'amount'         => $wd->amount,
-            'type'           => 'credit',
-            'description'    => 'Pengembalian Dana: Penarikan Ditolak (' . $wd->wd_number . ')',
-        ]);
-
-        // 3. Audit log — inside the same ACID transaction
-        $this->load->model('Audit_model');
-        $this->Audit_model->log_admin_action(
-            (int) $this->session->userdata('admin_id'),
-            $wd->user_id,
-            'decline_withdrawal',
-            ['wd_number' => $wd->wd_number, 'amount' => $wd->amount, 'refunded' => true],
-            $this->input->ip_address()
+        $result = $this->Admin_model->decline_withdrawal(
+            (int) $wd_id,
+            $this->_audit_ctx(null, 'decline_withdrawal'),
+            ($reason === '') ? null : $reason
         );
 
-        $this->db->trans_complete();
-
-        if ($this->db->trans_status()) {
-            // 3. Notify user
+        if ($result['success'] && $result['withdrawal']) {
+            $wd = $result['withdrawal'];
             $this->load->model('Notification_model');
+            // BUGFIX M5: JANGAN baca alasan dari $wd->decline_reason — objek
+            // $wd adalah snapshot baris SEBELUM update (decline_reason masih
+            // NULL saat di-read), sehingga gate itu selalu false → alasan
+            // hilang dari notifikasi. Bangun pesan dari variabel lokal $reason
+            // (nilai POST ter-santasi yang sama dengan yang dipersist + diaudit).
+            $message = 'Penarikan sebesar Rp ' . number_format($wd->amount, 0, ',', '.') . ' ditolak. Dana telah dikembalikan ke saldo.';
+            if ($reason !== '') {
+                $message .= ' Alasan: ' . $reason;
+            }
             $this->Notification_model->insert(
                 $wd->user_id,
                 'Penarikan Ditolak',
-                'Penarikan sebesar Rp ' . number_format($wd->amount, 0, ',', '.') . ' ditolak. Dana telah dikembalikan ke saldo.',
-                'error'
+                $message,
+                'warning' // M5: 'error' bukan anggota ENUM user_notifications.type → di-koersi '' oleh MySQL (bug senyap)
             );
             $this->session->set_flashdata('success', 'Penarikan #' . $wd->wd_number . ' ditolak & dana dikembalikan.');
         } else {
-            $this->session->set_flashdata('error', 'Gagal menolak penarikan.');
+            $this->session->set_flashdata('error', $result['message']);
         }
 
         redirect('admin');
@@ -294,34 +270,109 @@ class Admin extends CI_Controller {
 
     public function settings() {
         $this->load->model('Admin_model');
+        $this->load->model('Wallet_model');
 
-        if ($this->input->method() === 'post') {
+        // M7 (plan/70): satu endpoint pengaturan — GET merender form terpadu
+        // (kontak + finansial), POST memproses keduanya dalam satu submit.
+        $method = $this->input->method();
+
+        if ($method === 'post') {
+            $errors = [];
+
+            // ── Kontak/support (XSS filter ON, validasi form CI3) ──
             $this->form_validation->set_rules('wa_number', 'Nomor WhatsApp', 'required|numeric');
             $this->form_validation->set_rules('support_email', 'Email Support', 'required|valid_email');
 
-            if ($this->form_validation->run()) {
-                $data = [
-                    'wa_number'     => $this->input->post('wa_number', TRUE),
-                    'support_email' => $this->input->post('support_email', TRUE),
-                ];
+            if (!$this->form_validation->run()) {
+                $errors = array_merge($errors, array_values($this->form_validation->error_array()));
+            }
 
-                if ($this->Admin_model->update_settings($data, $this->_audit_ctx(null, 'admin_update_settings', ['fields' => array_keys($data)]))) {
-                    $this->session->set_flashdata('success', 'Pengaturan berhasil disimpan.');
-                } else {
-                    $this->session->set_flashdata('error', 'Gagal menyimpan pengaturan.');
+            $contact = [
+                'wa_number'     => $this->input->post('wa_number', TRUE),
+                'support_email' => $this->input->post('support_email', TRUE),
+            ];
+
+            // ── Finansial (raw POST → normalizer ketat Wallet_model;
+            //    validasi digit-only/regex/JSON decode sebelum disimpan) ──
+            $raw = [
+                'wd_operational_days' => $this->input->post('wd_operational_days'),
+                'wd_open_time'        => $this->input->post('wd_open_time'),
+                'wd_close_time'       => $this->input->post('wd_close_time'),
+                'wd_fixed_fee'        => $this->input->post('wd_fixed_fee'),
+                'wd_min_amount'       => $this->input->post('wd_min_amount'),
+                'wd_max_amount'       => $this->input->post('wd_max_amount'),
+                'wd_fee_tiers'        => $this->input->post('wd_fee_tiers'),
+                'deposit_fee_enabled' => $this->input->post('deposit_fee_enabled'),
+                'deposit_fee_type'    => $this->input->post('deposit_fee_type'),
+                'deposit_fee_value'   => $this->input->post('deposit_fee_value'),
+            ];
+            $v = $this->Wallet_model->validate_financial_settings($raw);
+            if (!$v['ok']) {
+                $errors = array_merge($errors, $v['errors']);
+            }
+
+            // All-or-nothing: satu error → tidak ada satupun yang disimpan.
+            if (!empty($errors)) {
+                $this->session->set_flashdata('error', 'Validasi gagal: ' . implode(' ', $errors));
+                redirect('admin/settings');
+                return;
+            }
+
+            $final = array_merge($contact, $v['values']);
+
+            // M5/A1: snapshot nilai lama per key SEBELUM persist (audit before→after).
+            $before = [];
+            foreach (array_keys($final) as $key) {
+                $before[$key] = $this->Admin_model->get_setting($key);
+            }
+
+            // Catat hanya key yang benar-benar berubah (before !== after).
+            $changed = [];
+            foreach ($final as $key => $value) {
+                if ((string) ($before[$key] ?? null) !== (string) $value) {
+                    $changed[$key] = $value;
                 }
+            }
+
+            $audit_ctx = $this->_audit_ctx(null, 'admin_update_settings', [
+                'keys'   => array_keys($changed),
+                'before' => array_intersect_key($before, $changed),
+                'after'  => $changed,
+            ]);
+
+            // Persist atomik semua key (kontak + finansial) + audit dalam SATU TX.
+            if ($this->Admin_model->update_system_settings($final, $audit_ctx)) {
+                $this->session->set_flashdata('success', 'Pengaturan berhasil disimpan dan langsung berlaku.');
             } else {
-                $this->session->set_flashdata('error', validation_errors());
+                $this->session->set_flashdata('error', 'Gagal menyimpan pengaturan.');
             }
             redirect('admin/settings');
+            return;
         }
 
-        $settings = $this->Admin_model->get_all_settings();
+        // POST-only gate: selain GET/POST ditolak 404.
+        if ($method !== 'get') {
+            show_404();
+            return;
+        }
+
+        $contact = $this->Admin_model->get_settings_map(['wa_number', 'support_email']);
+        $cfg     = $this->Wallet_model->get_financial_config();
 
         $data = [
-            'page_title'     => 'Pengaturan',
-            'wa_number'       => $settings['wa_number'] ?? '',
-            'support_email'   => $settings['support_email'] ?? '',
+            'page_title'          => 'Pengaturan',
+            'wa_number'           => $contact['wa_number'] ?? '',
+            'support_email'       => $contact['support_email'] ?? '',
+            'days'                => array_map('intval', array_filter(explode(',', $cfg['operational_days']), 'strlen')),
+            'open_time'           => $cfg['open_time'],
+            'close_time'          => $cfg['close_time'],
+            'fixed_fee'           => (int) $cfg['fixed_fee'],
+            'tiers'               => $cfg['tiers'],
+            'min_amount'          => (int) $cfg['min_amount'],
+            'max_amount'          => (int) $cfg['max_amount'],
+            'deposit_fee_enabled' => (int) $cfg['deposit_fee_enabled'],
+            'deposit_fee_type'    => $cfg['deposit_fee_type'],
+            'deposit_fee_value'   => $cfg['deposit_fee_value'],
         ];
 
         $this->load->view('admin/templates/header', $data);
@@ -329,6 +380,16 @@ class Admin extends CI_Controller {
         $this->load->view('admin/templates/topbar', $data);
         $this->load->view('admin/settings', $data);
         $this->load->view('admin/templates/footer');
+    }
+
+    // ===================================================================
+    //  M7 (plan/70): aturan finansial disatukan ke /admin/settings.
+    //  Endpoint lama dipertahankan sebagai redirect shim (backward compat):
+    //  bookmark/URL lama (GET maupun POST) mendarat di halaman terpadu.
+    // ===================================================================
+
+    public function financial_settings() {
+        redirect('admin/settings');
     }
 
     // ===================================================================
@@ -411,13 +472,20 @@ class Admin extends CI_Controller {
 
     public function update_user($id)
     {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
         if ($this->input->method() !== 'post') {
-            redirect('admin/user_detail/' . $id);
+            show_404();
             return;
         }
 
         $this->load->model('Admin_model');
         $id = (int) $id;
+
+        // M5/A1: snapshot profil lama untuk payload audit before→after.
+        $before_user = $this->db->select('username, phone, invite_code, parent_id')
+            ->where('id', $id)
+            ->get('users')
+            ->row();
 
         $this->form_validation->set_rules('username', 'Username', 'trim|max_length[50]');
         $this->form_validation->set_rules('phone', 'Phone', 'required|trim');
@@ -482,11 +550,27 @@ class Admin extends CI_Controller {
         ]);
 
         $this->load->model('Audit_model');
+        $after_parent = ($resolved_upline_id !== null)
+            ? $resolved_upline_id
+            : ($before_user ? $before_user->parent_id : null);
         $this->Audit_model->log_admin_action(
             (int) $this->session->userdata('admin_id'),
             $id,
             'admin_update_user',
-            ['phone' => $phone, 'invite_code' => $invite_code, 'upline_id' => $resolved_upline_id],
+            [
+                'before' => $before_user ? [
+                    'username'    => $before_user->username,
+                    'phone'       => $before_user->phone,
+                    'invite_code' => $before_user->invite_code,
+                    'parent_id'   => $before_user->parent_id,
+                ] : null,
+                'after'  => [
+                    'username'    => $username,
+                    'phone'       => $phone,
+                    'invite_code' => $invite_code,
+                    'parent_id'   => $after_parent,
+                ],
+            ],
             $this->input->ip_address()
         );
         $this->db->trans_complete();
@@ -503,8 +587,9 @@ class Admin extends CI_Controller {
 
     public function toggle_ban($id)
     {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
         if ($this->input->method() !== 'post') {
-            redirect('admin/user_detail/' . $id);
+            show_404();
             return;
         }
         $this->load->model('Admin_model');
@@ -530,14 +615,24 @@ class Admin extends CI_Controller {
             $this->session->set_flashdata('success', 'User berhasil DIBANNED.');
         } else {
             $this->session->set_flashdata('success', 'User berhasil di-UNBAN.');
+            // M5/N3: beri tahu user bahwa akunnya aktif kembali (post-commit —
+            // sesi lama sudah diakhiri saat ban, notifikasi terbaca saat login).
+            $this->load->model('Notification_model');
+            $this->Notification_model->insert(
+                (int) $id,
+                'Akun Diaktifkan Kembali',
+                'Akun Anda telah dibuka blokirnya oleh admin. Silakan login kembali.',
+                'info'
+            );
         }
         redirect('admin/user_detail/' . $id);
     }
 
     public function inject_balance($id)
     {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
         if ($this->input->method() !== 'post') {
-            redirect('admin/user_detail/' . $id);
+            show_404();
             return;
         }
 
@@ -553,9 +648,19 @@ class Admin extends CI_Controller {
             return;
         }
 
-        if ($this->Admin_model->inject_balance($id, $type, $amount, $desc, $this->_audit_ctx($id, 'admin_inject_balance', ['type' => $type, 'amount' => $amount]))) {
+        if ($this->Admin_model->inject_balance($id, $type, $amount, $desc, $this->_audit_ctx($id, 'admin_inject_balance', ['type' => $type, 'amount' => $amount, 'description' => $desc]))) {
             $label = strtoupper($type);
             $this->session->set_flashdata('success', "Balance {$label}: Rp " . number_format($amount, 0, ',', '.') . " berhasil.");
+            // M5/N3: user wajib tahu perubahan saldo sepihak oleh admin (post-commit).
+            $this->load->model('Notification_model');
+            $this->Notification_model->insert(
+                (int) $id,
+                ($type === 'credit') ? 'Saldo Ditambahkan Admin' : 'Saldo Dipotong Admin',
+                'Saldo sebesar Rp ' . number_format($amount, 0, ',', '.') . ' telah '
+                    . (($type === 'credit') ? 'ditambahkan ke' : 'dipotong dari') . ' saldo Anda oleh admin.'
+                    . (($desc !== '' && $desc !== 'Admin Manual Adjustment') ? ' Keterangan: ' . $desc : ''),
+                'info'
+            );
         } else {
             $this->session->set_flashdata('error', 'Gagal inject balance.');
         }
@@ -564,8 +669,9 @@ class Admin extends CI_Controller {
 
     public function inject_rental($id)
     {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
         if ($this->input->method() !== 'post') {
-            redirect('admin/user_detail/' . $id);
+            show_404();
             return;
         }
 
@@ -581,6 +687,14 @@ class Admin extends CI_Controller {
 
         if ($this->Admin_model->inject_rental($id, $product_id, $this->_audit_ctx($id, 'admin_inject_rental', ['product_id' => $product_id]))) {
             $this->session->set_flashdata('success', 'Rental berhasil di-inject (BYPASS balance).');
+            // M5/N3: user wajib tahu kontrak sewa diaktifkan sepihak oleh admin (post-commit).
+            $this->load->model('Notification_model');
+            $this->Notification_model->insert(
+                (int) $id,
+                'Sewa Diaktifkan Admin',
+                'Kontrak sewa (produk #' . $product_id . ') telah diaktifkan untuk akun Anda oleh admin.',
+                'info'
+            );
         } else {
             $this->session->set_flashdata('error', 'Gagal inject rental.');
         }
@@ -589,8 +703,9 @@ class Admin extends CI_Controller {
 
     public function cancel_rental($rental_id)
     {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
         if ($this->input->method() !== 'post') {
-            redirect('admin/users');
+            show_404();
             return;
         }
 
@@ -611,7 +726,14 @@ class Admin extends CI_Controller {
             (int) $this->session->userdata('admin_id'),
             $rental->user_id,
             'admin_cancel_rental',
-            ['rental_id' => $rental_id],
+            [
+                'rental_id'      => (int) $rental_id,
+                'product_id'     => isset($rental->product_id) ? (int) $rental->product_id : null,
+                'purchase_price' => isset($rental->purchase_price) ? (float) $rental->purchase_price : null,
+                'daily_roi'      => isset($rental->daily_roi) ? (float) $rental->daily_roi : null,
+                // Soft-cancel (status → 'cancelled') TANPA refund — snapshot transparan.
+                'refunded'       => false,
+            ],
             $this->input->ip_address()
         );
         $this->db->trans_complete();
@@ -626,10 +748,56 @@ class Admin extends CI_Controller {
         redirect('admin/user_detail/' . $rental->user_id);
     }
 
+    /**
+     * M3 (plan/60): sweep manual sewa kedaluwarsa (opsional, BUKAN cron).
+     * Menutup SEMUA kontrak user_rentals expired (active → completed) via
+     * Rental_model::expire_all_expired() + audit log, POST-only.
+     * Jalur manual pelengkap lazy-evaluation (MY_Controller) & filter
+     * defensif — dipicu tombol di dashboard (Treasury Health).
+     */
+    public function expire_expired_rentals()
+    {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
+        }
+
+        $this->load->model('Admin_model');
+        $this->load->model('Rental_model');
+        $this->load->model('Audit_model');
+
+        // Atomic: global sweep + audit log
+        $this->db->trans_start();
+        $flipped = $this->Rental_model->expire_all_expired();
+        $this->Audit_model->log_admin_action(
+            (int) $this->session->userdata('admin_id'),
+            null, // aksi global — tanpa user target
+            'admin_expire_rentals',
+            ['flipped_count' => $flipped],
+            $this->input->ip_address()
+        );
+        $this->db->trans_complete();
+
+        if (!$this->db->trans_status()) {
+            $this->session->set_flashdata('error', 'Gagal menjalankan sweep sewa kedaluwarsa.');
+            redirect('admin');
+            return;
+        }
+
+        if ($flipped > 0) {
+            $this->session->set_flashdata('success', $flipped . ' kontrak sewa kedaluwarsa telah ditutup (active → completed).');
+        } else {
+            $this->session->set_flashdata('info', 'Sweep selesai: tidak ada kontrak kedaluwarsa yang perlu ditutup.');
+        }
+        redirect('admin');
+    }
+
     public function adjust_time($rental_id)
     {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
         if ($this->input->method() !== 'post') {
-            redirect('admin/users');
+            show_404();
             return;
         }
 
@@ -659,7 +827,17 @@ class Admin extends CI_Controller {
             (int) $this->session->userdata('admin_id'),
             $rental->user_id,
             'admin_adjust_time',
-            ['rental_id' => $rental_id, 'days_processed' => $days_processed],
+            [
+                'rental_id' => (int) $rental_id,
+                'before'    => [
+                    'last_claimed_at' => $rental->last_claimed_at,
+                    'days_processed'  => (int) $rental->days_processed,
+                ],
+                'after'     => [
+                    'last_claimed_at' => $last_claimed_at,
+                    'days_processed'  => (int) $days_processed,
+                ],
+            ],
             $this->input->ip_address()
         );
         $this->db->trans_complete();
@@ -680,14 +858,24 @@ class Admin extends CI_Controller {
 
     public function create_user()
     {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
         if ($this->input->method() !== 'post') {
-            redirect('admin/users');
+            show_404();
             return;
         }
 
         $this->load->model('Admin_model');
 
-        $this->form_validation->set_rules('phone', 'Phone', 'required|trim|is_unique[users.phone]');
+        // M5 (plan/66 §5 → plan/67): normalize FIRST — is_unique[users.phone]
+        // must validate the canonical 08xx form, so 628xx/08xx variants of the
+        // same number are rejected here with a friendly message, not by a raw
+        // uk_phone DB error.
+        $phone         = $this->_normalize_phone($this->input->post('phone', TRUE));
+        $_POST['phone'] = $phone;
+
+        $this->form_validation->set_rules('phone', 'Phone', 'required|trim|is_unique[users.phone]', array(
+            'is_unique' => 'Nomor telepon sudah terdaftar.',
+        ));
         $this->form_validation->set_rules('password', 'Password', 'required|min_length[8]');
 
         if ($this->form_validation->run() === FALSE) {
@@ -696,8 +884,6 @@ class Admin extends CI_Controller {
             return;
         }
 
-        $phone       = $this->_normalize_phone($this->input->post('phone', TRUE));
-        $_POST['phone'] = $phone;
         $password    = $this->input->post('password', TRUE);
         $upline_code = trim($this->input->post('upline_invite_code', TRUE));
 
@@ -718,7 +904,14 @@ class Admin extends CI_Controller {
 
         // Atomic: user insert + audit log (PRD §7.D.1)
         $this->db->trans_start();
-        $user_id = $this->Admin_model->create_user([
+
+        // Defensive (M5): is_unique above closes the sequential path; a
+        // concurrent double-submit can still slip past it. Disable CI3
+        // db_debug for this one insert (db_debug=TRUE renders a raw error page
+        // outside production) and detect a uk_phone duplicate (errno 1062).
+        $prev_debug         = $this->db->db_debug;
+        $this->db->db_debug = FALSE;
+        $user_id            = $this->Admin_model->create_user([
             'phone'       => $phone,
             'password'    => password_hash($password, PASSWORD_DEFAULT),
             'invite_code' => $invite_code,
@@ -728,19 +921,33 @@ class Admin extends CI_Controller {
             'balance'     => 0,
             'created_at'  => date('Y-m-d H:i:s'),
         ]);
+        $db_error           = $this->db->error();
+        $this->db->db_debug = $prev_debug;
+        $is_phone_dupe      = ($user_id === false && (int) $db_error['code'] === 1062
+            && strpos((string) $db_error['message'], 'uk_phone') !== FALSE);
 
-        $this->load->model('Audit_model');
-        $this->Audit_model->log_admin_action(
-            (int) $this->session->userdata('admin_id'),
-            $user_id ?: null,
-            'admin_create_user',
-            ['phone' => $phone, 'created_by' => (int) $this->session->userdata('admin_id')],
-            $this->input->ip_address()
-        );
+        // No audit row for a no-op duplicate (nothing was created).
+        if (!$is_phone_dupe) {
+            $this->load->model('Audit_model');
+            $this->Audit_model->log_admin_action(
+                (int) $this->session->userdata('admin_id'),
+                $user_id ?: null,
+                'admin_create_user',
+                [
+                    'phone'       => $phone,
+                    'invite_code' => $invite_code,
+                    'parent_id'   => $parent_id,
+                    'created_by'  => (int) $this->session->userdata('admin_id'),
+                ],
+                $this->input->ip_address()
+            );
+        }
         $this->db->trans_complete();
 
         if ($user_id && $this->db->trans_status()) {
             $this->session->set_flashdata('success', "Pengguna berhasil dibuat! Invite Code: {$invite_code}");
+        } elseif ($is_phone_dupe) {
+            $this->session->set_flashdata('error', 'Nomor telepon sudah terdaftar.');
         } else {
             $this->session->set_flashdata('error', 'Gagal membuat pengguna.');
         }
@@ -753,8 +960,9 @@ class Admin extends CI_Controller {
 
     public function reset_password($user_id)
     {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
         if ($this->input->method() !== 'post') {
-            redirect('admin/users');
+            show_404();
             return;
         }
 
@@ -981,25 +1189,75 @@ class Admin extends CI_Controller {
         $this->load->model('Admin_model');
         $date = date('Y-m-d');
 
+        // C3 (plan/52): kolom diekspor lewat EXPLICIT column-map per tipe
+        // (order-independent; header dan isi tidak bisa melenceng), bukan
+        // dump mentah result_array(). IDR diekspor sebagai integer polos.
         switch ($type) {
             case 'ledger':
                 $data     = $this->Admin_model->get_all_ledger();
                 $filename = 'wallet_ledger';
-                $headers  = ['ID', 'User ID', 'Amount', 'Type', 'Description', 'Created At'];
+                $headers  = ['ID', 'User ID', 'Amount (IDR)', 'Type', 'Description', 'Created At'];
+                $rows     = [];
+                foreach ($data as $r) {
+                    $rows[] = [
+                        $r['id'], $r['user_id'],
+                        $this->_csv_money($r['amount']),
+                        $r['type'], $r['description'],
+                        $this->_csv_ts($r['created_at']),
+                    ];
+                }
                 break;
 
             case 'rentals':
                 $data     = $this->Admin_model->get_active_rentals();
                 $filename = 'active_rentals';
-                $headers  = ['ID', 'User ID', 'Product Name', 'Purchase Price', 'Daily ROI',
-                             'Days Processed', 'Total Days', 'Status', 'Created At'];
+                $headers  = ['ID', 'User ID', 'Phone', 'Product Name', 'Purchase Price (IDR)',
+                             'Daily ROI (IDR)', 'Days Processed', 'Total Days', 'Status', 'Created At'];
+                $rows     = [];
+                foreach ($data as $r) {
+                    $rows[] = [
+                        $r['id'], $r['user_id'], $r['phone'],
+                        $r['product_name'],
+                        $this->_csv_money($r['purchase_price']),
+                        $this->_csv_money($r['daily_roi']),
+                        $r['days_processed'], $r['total_days'], $r['status'],
+                        $this->_csv_ts($r['created_at']),
+                    ];
+                }
                 break;
 
             case 'withdrawals':
+                $this->load->model('Wallet_model');
                 $data     = $this->Admin_model->get_all_withdrawals();
                 $filename = 'withdrawals';
-                $headers  = ['ID', 'User ID', 'Amount', 'Bank Name', 'Account Number',
-                             'Status', 'Created At'];
+                $headers  = ['ID', 'WD Number', 'User ID', 'Phone',
+                             'Gross (IDR)', 'Fee (IDR)', 'Net (IDR)',
+                             'Bank Name', 'Account Number', 'Account Holder',
+                             'Status', 'Processed At', 'Created At'];
+                $rows     = [];
+                foreach ($data as $r) {
+                    // Legacy fallback: gross_amount 0/NULL -> amount (gross_eff alias).
+                    $gross = (float) $r['gross_eff'];
+                    $fee   = (float) $r['fee_amount'];
+                    $net   = (float) $r['net_amount'];
+
+                    // Read-side recompute: legacy rows tanpa fee/net tersimpan
+                    // (0/NULL) -> hitung ulang dari gross sesuai tier PRD.
+                    if ($gross > 0 && ($fee <= 0 || $net <= 0)) {
+                        $calc = $this->Wallet_model->calculate_withdrawal_fee((int) $gross);
+                        $fee  = $calc['fee'];
+                        $net  = $calc['net'];
+                    }
+
+                    $rows[] = [
+                        $r['id'], $r['wd_number'], $r['user_id'], $r['phone'],
+                        $this->_csv_money($gross), $this->_csv_money($fee), $this->_csv_money($net),
+                        $r['bank_name'], $r['account_number'], $r['account_holder'],
+                        $r['status'],
+                        $this->_csv_ts($r['processed_at']),
+                        $this->_csv_ts($r['created_at']),
+                    ];
+                }
                 break;
         }
 
@@ -1014,15 +1272,30 @@ class Admin extends CI_Controller {
         fwrite($fp, "\xEF\xBB\xBF"); // UTF-8 BOM for Excel compat
         fputcsv($fp, $headers);
 
-        foreach ($data as $row) {
-            if (isset($row['created_at'])) {
-                $row['created_at'] = date('Y-m-d H:i', strtotime($row['created_at']));
-            }
+        foreach ($rows as $row) {
             fputcsv($fp, $row);
         }
 
         fclose($fp);
         exit;
+    }
+
+    /**
+     * IDR ke integer polos untuk CSV (machine-readable; tanpa "Rp", tanpa
+     * pemisah ribuan). Nilai UI number_format hanya untuk tampilan.
+     */
+    private function _csv_money($value)
+    {
+        return (string) (int) round((float) $value);
+    }
+
+    /** Format timestamp DB ke Y-m-d H:i; kosong bila null/00:00. */
+    private function _csv_ts($value)
+    {
+        if (!$value || $value === '0000-00-00 00:00:00' || $value === '0000-00-00') {
+            return '';
+        }
+        return date('Y-m-d H:i', strtotime($value));
     }
 
 }

@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS `users` (
   `level_id` INT NOT NULL DEFAULT 0,
   `is_banned` TINYINT(1) NOT NULL DEFAULT 0,
   `must_change_password` TINYINT(1) NOT NULL DEFAULT 0,
+  `is_level_1_claimed` TINYINT(1) NOT NULL DEFAULT 0,
+  `last_wage_claimed_at` DATETIME NULL DEFAULT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -69,26 +71,6 @@ CREATE TABLE IF NOT EXISTS `rentals` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------
--- Table `transactions`
--- -----------------------------------------------------
-CREATE TABLE IF NOT EXISTS `transactions` (
-  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `user_id` BIGINT UNSIGNED NOT NULL,
-  `type` ENUM('deposit', 'withdrawal', 'rental_payment', 'daily_revenue', 'commission_bonus', 'refund') NOT NULL,
-  `amount` DECIMAL(15,2) NOT NULL,
-  `balance_after` DECIMAL(15,2) NOT NULL,
-  `description` VARCHAR(255) NOT NULL,
-  `reference_type` VARCHAR(50) DEFAULT NULL,
-  `reference_id` BIGINT UNSIGNED DEFAULT NULL,
-  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  INDEX `idx_user_id` (`user_id`),
-  INDEX `idx_type` (`type`),
-  INDEX `idx_created_at` (`created_at`),
-  CONSTRAINT `fk_transactions_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- -----------------------------------------------------
 -- Table `bank_accounts`
 -- -----------------------------------------------------
 CREATE TABLE IF NOT EXISTS `bank_accounts` (
@@ -111,15 +93,19 @@ CREATE TABLE IF NOT EXISTS `withdrawals` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` BIGINT UNSIGNED NOT NULL,
   `bank_account_id` BIGINT UNSIGNED NOT NULL,
-  `gross_amount` DECIMAL(15,2) NOT NULL,
-  `fee_amount` DECIMAL(15,2) NOT NULL,
-  `net_amount` DECIMAL(15,2) NOT NULL,
+  `wd_number` VARCHAR(50) NULL DEFAULT NULL,
+  `amount` DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+  `gross_amount` DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+  `fee_amount` DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+  `net_amount` DECIMAL(15,2) NOT NULL DEFAULT 0.00,
   `status` ENUM('pending', 'processing', 'success', 'failed') NOT NULL DEFAULT 'pending',
   `remark` VARCHAR(255) DEFAULT NULL,
+  `decline_reason` VARCHAR(255) DEFAULT NULL,
   `processed_at` TIMESTAMP NULL DEFAULT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_wd_number` (`wd_number`),
   CONSTRAINT `fk_withdrawals_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `fk_withdrawals_bank` FOREIGN KEY (`bank_account_id`) REFERENCES `bank_accounts` (`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -138,22 +124,6 @@ CREATE TABLE IF NOT EXISTS `otp_logs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------
--- Table `site_settings` (dynamic key-value settings)
--- -----------------------------------------------------
-CREATE TABLE IF NOT EXISTS `site_settings` (
-  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `key_name` VARCHAR(50) NOT NULL,
-  `setting_value` TEXT NOT NULL,
-  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_key_name` (`key_name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-INSERT INTO `site_settings` (`key_name`, `setting_value`) VALUES
-('wa_number', '628000000000'),
-('support_email', 'support@synapse.id');
-
--- -----------------------------------------------------
 -- PHASE B (Langkah 0): production tables + Phase 10 baseline
 -- -----------------------------------------------------
 
@@ -169,6 +139,7 @@ CREATE TABLE IF NOT EXISTS `wallet_ledger` (
   `description` VARCHAR(255) NOT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_wallet_ledger_user_tx_type` (`user_id`, `transaction_id`, `type`),
   INDEX `idx_user_id` (`user_id`),
   INDEX `idx_type` (`type`),
   INDEX `idx_created_at` (`created_at`),
@@ -208,7 +179,11 @@ CREATE TABLE IF NOT EXISTS `user_rentals` (
   `last_claimed_at` TIMESTAMP NULL DEFAULT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  INDEX `idx_user_status` (`user_id`, `status`),
+  -- M3 (plan/60): composite (user_id, status, expired_at) untuk lazy sweep
+  -- per-user + kualifikasi downline; (status, expired_at) untuk sweep
+  -- global/CLI/admin aggregate. Leftmost prefix menggantikan idx_user_status.
+  INDEX `idx_user_status_expired` (`user_id`, `status`, `expired_at`),
+  INDEX `idx_status_expired` (`status`, `expired_at`),
   INDEX `idx_product_id` (`product_id`),
   CONSTRAINT `fk_user_rentals_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `fk_user_rentals_product` FOREIGN KEY (`product_id`) REFERENCES `gpu_products` (`id`) ON DELETE RESTRICT
@@ -257,7 +232,21 @@ CREATE TABLE IF NOT EXISTS `system_settings` (
 
 -- Seed is idempotent: never fails on duplicate key, never overwrites a live value.
 INSERT IGNORE INTO `system_settings` (`key_name`, `key_value`) VALUES
-('is_registration_open', '1');
+('is_registration_open', '1'),
+-- M1 (plan/56): dynamic withdrawal/deposit financial config (PRD §121-125 defaults).
+('wd_operational_days', '1,2,3,4,5,6'),
+('wd_open_time', '07:00'),
+('wd_close_time', '19:00'),
+('wd_fixed_fee', '6500'),
+('wd_fee_tiers', '[[100000,500000,1000],[500000,1000000,750],[1000000,2000000,650],[2000000,5000000,500],[5000000,10000000,400],[10000000,50000001,300]]'),
+('wd_min_amount', '100000'),
+('wd_max_amount', '50000000'),
+('deposit_fee_enabled', '0'),
+('deposit_fee_type', 'flat'),
+('deposit_fee_value', '0'),
+-- M7 (plan/70): contact/support keys migrated from decommissioned `site_settings`.
+('wa_number', '628000000000'),
+('support_email', 'support@synapse.id');
 
 -- -----------------------------------------------------
 -- Table `system_audit_logs` — Phase 10 baseline (ERD §6)

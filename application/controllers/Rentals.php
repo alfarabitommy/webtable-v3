@@ -20,16 +20,17 @@ class Rentals extends MY_Controller {
         $user_id = $this->session->userdata('user_id');
         $rentals = $this->Rental_model->get_active_rentals($user_id);
 
-        // Augment each rental with claimable_days logic
+        // Augmentasi display: matematika klaim dari SATU sumber
+        // (Rental_model::claimable_info) — sama persis dengan mesin klaim
+        // claim_roi (C2/P8, single source of truth).
         foreach ($rentals as &$r) {
-            $ref = !empty($r->last_claimed_at)
-                ? date('Y-m-d', strtotime($r->last_claimed_at))
-                : date('Y-m-d', strtotime($r->created_at));
-            $diff = (int) ((strtotime('today') - strtotime($ref)) / 86400);
-
-            $r->claimable_days = min($diff, 2);
-            $r->remaining_days = max(0, $r->total_days - $r->days_processed);
-            $r->actual_claimable = min($r->claimable_days, $r->remaining_days);
+            $info = $this->Rental_model->claimable_info($r);
+            $r->claimable_days   = $info['claimable_days'];
+            $r->remaining_days   = $info['remaining_days'];
+            $r->actual_claimable = $info['actual_claimable'];
+            $r->is_claimed_today = $info['is_claimed_today'];
+            $r->is_expired       = $info['is_expired'];
+            $r->is_completed     = $info['is_completed'];
         }
         unset($r);
 
@@ -63,45 +64,29 @@ class Rentals extends MY_Controller {
             redirect('marketplace');
         }
 
-        // 3. Check user balance
+        // 3. Pre-check saldo: HANYA fast UX fail. Otoritas finansial
+        //    anti-race (kunci anchor users + saldo segar di dalam TX, reject
+        //    overspend) ada di Rental_model::checkout_rental — audit C5,
+        //    plan/48.
         $user_balance = $this->Wallet_model->get_balance($user_id);
         if ($user_balance < $product['price']) {
             $this->session->set_flashdata('error', 'Sistem: Saldo USC/IDR Anda tidak mencukupi.');
             redirect('marketplace');
         }
 
-        // 4. ACID Transaction: debit wallet + create rental
-        $this->db->trans_start();
+        // 4. C2 refactor: debit wallet + pembuatan kontrak kini SATU
+        //    transaksi ACID terkunci di Rental_model::checkout_rental
+        //    (AGENTS.md — semua akses DB hidup di model, controller tanpa
+        //    query DB). Hasil terstruktur {success, code, message} di-map
+        //    ke flashdata di bawah.
+        $result = $this->Rental_model->checkout_rental($user_id, $product);
 
-        // 4a. Debit wallet_ledger
-        $this->db->insert('wallet_ledger', [
-            'user_id'        => $user_id,
-            'transaction_id' => 'RENT-' . $product_id . '-' . date('YmdHis'),
-            'type'           => 'debit',
-            'amount'         => $product['price'],
-            'description'    => 'Sewa ' . $product['name'],
-        ]);
-
-        // 4b. Create rental record with total_days
-        $this->db->insert('user_rentals', [
-            'user_id'        => $user_id,
-            'product_id'     => $product['id'],
-            'purchase_price' => $product['price'],
-            'daily_roi'      => $product['daily_rate'],
-            'total_days'     => $product['duration_days'],
-            'status'         => 'active',
-            'expired_at'     => date('Y-m-d H:i:s', strtotime('+' . $product['duration_days'] . ' days')),
-        ]);
-
-        $this->db->trans_complete();
-
-        // 5. Evaluate transaction result
-        if ($this->db->trans_status() === FALSE) {
-            $this->session->set_flashdata('error', 'Sistem: Gagal memotong saldo atau membuat kontrak sewa.');
+        if (!$result['success']) {
+            $this->session->set_flashdata('error', $result['message']);
             redirect('marketplace');
         }
 
-        // 6. Success
+        // 5. Success
         $this->session->set_flashdata('success', 'Sewa berhasil diaktifkan! Infrastruktur sedang online.');
         redirect('rentals');
     }
@@ -110,10 +95,13 @@ class Rentals extends MY_Controller {
      * POST /rentals/claim/{id} — ROI claim with 2-day accumulation
      */
     public function claim($rental_id = null) {
-        // POST-only guard (10B hardening): claim memutasi DB (wallet + rental),
-        // tidak boleh dieksekusi via GET. Form view memakai form_open (POST).
-        if (!$this->input->post()) {
-            redirect('rentals');
+        // POST-only (plan/46 fail-closed): claim memutasi DB (wallet + rental),
+        // tidak boleh dieksekusi via GET. Metode selain POST → 404 eksplisit,
+        // BUKAN redirect hening tanpa umpan balik. Form view memakai
+        // form_open (POST) sehingga jalur ini tak tercapai dari UI normal.
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
         }
 
         if (!$rental_id) {
@@ -137,72 +125,26 @@ class Rentals extends MY_Controller {
         }
         $this->Rate_limit_model->hit($rl_key, 900, 5);
 
-        // 1. Fetch Rental Safely
-        $rental = $this->db->get_where('user_rentals', ['id' => $rental_id, 'user_id' => $user_id])->row();
+        // C2 (plan/44): seluruh workflow atomik — row lock SELECT ... FOR
+        // UPDATE, guard lifecycle (status/expired_at/days_processed), kredit
+        // ledger ID deterministik — dienkapsulasi di Rental_model::claim_roi.
+        // Controller hanya memetakan kode hasil → flashdata + redirect.
+        $result = $this->Rental_model->claim_roi($rental_id, $user_id);
 
-        if (!$rental) {
-            $this->session->set_flashdata('error', 'Sistem: Data sewa tidak ditemukan.');
-            redirect('rentals');
-        }
-
-        // 2. T+1 Rule: prevent same-day claims
-        if (date('Y-m-d', strtotime($rental->created_at)) === date('Y-m-d')) {
-            $this->session->set_flashdata('error', 'Klaim pertama baru dapat dilakukan keesokan harinya (H+1) setelah pembelian.');
-            redirect('rentals');
-        }
-
-        // 3. Calculate claimable days (2-day accumulation logic)
-        $reference_date = !empty($rental->last_claimed_at)
-            ? date('Y-m-d', strtotime($rental->last_claimed_at))
-            : date('Y-m-d', strtotime($rental->created_at));
-
-        $day_diff = (int) ((strtotime('today') - strtotime($reference_date)) / 86400);
-
-        // Accumulation cap: max 2 days
-        $claimable_days = min($day_diff, 2);
-
-        // Over-payment protection
-        $remaining_days = $rental->total_days - $rental->days_processed;
-        $actual_claim_days = min($claimable_days, max(0, $remaining_days));
-
-        // Guard: nothing to claim
-        if ($actual_claim_days < 1) {
-            if ($remaining_days <= 0) {
-                $this->session->set_flashdata('error', 'Sistem: Masa kontrak Anda telah habis.');
-            } else {
-                $this->session->set_flashdata('error', 'Sistem: Anda sudah mengklaim penghasilan hari ini.');
-            }
-            redirect('rentals');
-        }
-
-        // 3. ACID Transaction
-        $this->db->trans_start();
-
-        // Update rental: increment days_processed, update last_claimed_at
-        $this->db->where('id', $rental_id);
-        $this->db->where('user_id', $user_id);
-        $this->db->update('user_rentals', [
-            'days_processed'  => $rental->days_processed + $actual_claim_days,
-            'last_claimed_at' => date('Y-m-d H:i:s'),
-        ]);
-
-        // Credit wallet: actual_claim_days × daily_roi
-        $total_payout = $actual_claim_days * $rental->daily_roi;
-        $this->db->insert('wallet_ledger', [
-            'user_id'        => $rental->user_id,
-            'transaction_id' => 'ROI-' . time() . '-' . $rental_id,
-            'type'           => 'credit',
-            'amount'         => $total_payout,
-            'description'    => 'Klaim ROI ' . $actual_claim_days . ' Hari',
-        ]);
-
-        $this->db->trans_complete();
-
-        // 4. Handle Response
-        if ($this->db->trans_status() === FALSE) {
-            $this->session->set_flashdata('error', 'Sistem: Gagal memproses klaim ke database.');
+        if ($result['code'] === 'claimed') {
+            $this->session->set_flashdata('success', $result['message']);
+            // M5/N1: notifikasi ROI cair (parity claim level1/wage) — hanya pada
+            // code 'claimed' (satu-satunya jalur payout sukses C2), sehingga
+            // replay/klaim ganda tidak pernah menghasilkan notifikasi dobel.
+            $this->Notification_model->insert(
+                $user_id,
+                'ROI Harian Cair',
+                'ROI sebesar Rp ' . number_format((float) $result['amount'], 0, ',', '.')
+                    . ' telah masuk ke saldo (kontrak #' . (int) $rental_id . ').',
+                'commission'
+            );
         } else {
-            $this->session->set_flashdata('success', 'Berhasil! Rp ' . number_format($total_payout, 0, ',', '.') . ' telah ditambahkan ke dompet (' . $actual_claim_days . ' hari klaim).');
+            $this->session->set_flashdata('error', $result['message']);
         }
 
         redirect('rentals');

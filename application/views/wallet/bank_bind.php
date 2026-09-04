@@ -1,22 +1,22 @@
 <div class="p-4 space-y-6">
     <!-- Header -->
     <div class="flex items-center gap-3 mb-6">
-        <a href="<?= base_url('wallet'); ?>" class="w-8 h-8 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-500 shadow-sm active:scale-90 transition-all">
+        <a href="<?= base_url('wallet'); ?>" class="w-8 h-8 u-btn-ghost rounded-full flex items-center justify-center shadow-sm active:scale-90 transition-all">
             <i class="fas fa-arrow-left text-xs"></i>
         </a>
-        <h2 class="text-xl font-extrabold text-slate-900 tracking-tight"><?= $page_title ?></h2>
+        <h2 class="text-xl font-extrabold u-text tracking-tight"><?= $page_title ?></h2>
     </div>
 
     <!-- Flash Messages -->
     <?php if ($this->session->flashdata('success')): ?>
-        <div class="bg-emerald-100 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl text-xs font-bold flex items-center gap-3 shadow-sm">
+        <div class="u-flash-success px-4 py-3 rounded-xl text-xs font-bold flex items-center gap-3 shadow-sm">
             <i class="fas fa-check-circle"></i>
             <?= $this->session->flashdata('success'); ?>
         </div>
     <?php endif; ?>
 
     <?php if ($this->session->flashdata('error')): ?>
-        <div class="bg-rose-100 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-xs font-bold flex items-center gap-3 shadow-sm">
+        <div class="u-flash-error px-4 py-3 rounded-xl text-xs font-bold flex items-center gap-3 shadow-sm">
             <i class="fas fa-exclamation-circle"></i>
             <?= $this->session->flashdata('error'); ?>
         </div>
@@ -24,7 +24,7 @@
 
     <?php if ($existing_bank): ?>
     <!-- ===== STATE B: BANK BOUND (READ-ONLY CARD) ===== -->
-    <div class="bg-slate-900 text-white p-6 rounded-2xl shadow-xl relative overflow-hidden">
+    <div class="u-card-fin text-white p-6 rounded-2xl shadow-xl relative overflow-hidden">
         <div class="absolute inset-0 opacity-5" style="background-image: repeating-linear-gradient(45deg, #fff 0, #fff 1px, transparent 1px, transparent 20px);"></div>
         <div class="relative z-10 space-y-6">
             <div class="flex items-center justify-between">
@@ -66,26 +66,26 @@
     </div>
 
     <!-- Security Warning -->
-    <div class="bg-rose-50 border border-rose-200 rounded-xl p-4 flex gap-3 items-start">
-        <div class="bg-rose-100 w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5">
-            <i class="fas fa-lock text-rose-500 text-xs"></i>
+    <div class="bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 rounded-xl p-4 flex gap-3 items-start">
+        <div class="bg-rose-100 dark:bg-rose-500/10 w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+            <i class="fas fa-lock text-rose-500 dark:text-rose-400 text-xs"></i>
         </div>
         <div>
-            <h4 class="text-rose-700 text-xs font-extrabold mb-1">Data Rekening Dikunci</h4>
-            <p class="text-rose-600 text-[11px] leading-relaxed">Data rekening telah dikunci demi keamanan. Hubungi Customer Service untuk perubahan.</p>
+            <h4 class="text-rose-700 dark:text-rose-300 text-xs font-extrabold mb-1">Data Rekening Dikunci</h4>
+            <p class="text-rose-600 dark:text-rose-400 text-[11px] leading-relaxed">Data rekening telah dikunci demi keamanan. Hubungi Customer Service untuk perubahan.</p>
         </div>
     </div>
 
     <?php else: ?>
     <!-- ===== STATE A: NO BANK (BIND FORM) ===== -->
-    <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="u-card rounded-2xl p-6 shadow-sm">
         <div class="flex items-center gap-3 mb-6">
-            <div class="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center">
+            <div class="w-10 h-10 bg-indigo-50 dark:bg-indigo-500/10 rounded-xl flex items-center justify-center">
                 <i class="fas fa-university text-indigo-500 text-sm"></i>
             </div>
             <div>
-                <h3 class="text-sm font-extrabold text-slate-900">Ikat Rekening Bank</h3>
-                <p class="text-[10px] text-slate-500">Data hanya bisa dikirim satu kali</p>
+                <h3 class="text-sm font-extrabold u-text">Ikat Rekening Bank</h3>
+                <p class="text-[10px] u-text-2">Data hanya bisa dikirim satu kali</p>
             </div>
         </div>
 
@@ -93,8 +93,8 @@
 
             <!-- Bank Name -->
             <div>
-                <label class="text-[10px] uppercase tracking-widest text-slate-400 font-bold block mb-1.5">Nama Bank</label>
-                <select name="bank_name" class="w-full h-12 px-4 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all" required>
+                <label class="text-[10px] uppercase tracking-widest u-muted font-bold block mb-1.5">Nama Bank</label>
+                <select name="bank_name" class="u-select w-full h-12 px-4 rounded-xl text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all" required>
                     <option value="">Pilih Bank</option>
                     <option value="Bank Central Asia (BCA)" <?= set_select('bank_name', 'Bank Central Asia (BCA)'); ?>>Bank Central Asia (BCA)</option>
                     <option value="Bank Mandiri" <?= set_select('bank_name', 'Bank Mandiri'); ?>>Bank Mandiri</option>
@@ -115,26 +115,26 @@
 
             <!-- Account Number -->
             <div>
-                <label class="text-[10px] uppercase tracking-widest text-slate-400 font-bold block mb-1.5">Nomor Rekening</label>
-                <input type="text" name="account_number" value="<?= set_value('account_number'); ?>" placeholder="Masukkan nomor rekening" class="w-full h-12 px-4 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 font-mono tracking-wider focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all" required inputmode="numeric">
+                <label class="text-[10px] uppercase tracking-widest u-muted font-bold block mb-1.5">Nomor Rekening</label>
+                <input type="text" name="account_number" value="<?= set_value('account_number'); ?>" placeholder="Masukkan nomor rekening" class="u-input w-full h-12 px-4 rounded-xl text-sm font-mono tracking-wider focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all" required inputmode="numeric">
                 <?= form_error('account_number', '<p class="text-xs text-rose-500 mt-1">', '</p>'); ?>
             </div>
 
             <!-- Account Holder -->
             <div>
-                <label class="text-[10px] uppercase tracking-widest text-slate-400 font-bold block mb-1.5">Nama Pemilik Rekening</label>
-                <input type="text" name="account_holder" value="<?= set_value('account_holder'); ?>" placeholder="Sesuai nama di rekening bank" class="w-full h-12 px-4 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all capitalize" required>
+                <label class="text-[10px] uppercase tracking-widest u-muted font-bold block mb-1.5">Nama Pemilik Rekening</label>
+                <input type="text" name="account_holder" value="<?= set_value('account_holder'); ?>" placeholder="Sesuai nama di rekening bank" class="u-input w-full h-12 px-4 rounded-xl text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all capitalize" required>
                 <?= form_error('account_holder', '<p class="text-xs text-rose-500 mt-1">', '</p>'); ?>
             </div>
 
             <!-- Security Notice -->
-            <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 flex gap-3 items-start mt-4">
-                <i class="fas fa-exclamation-triangle text-amber-500 text-xs mt-0.5"></i>
-                <p class="text-amber-700 text-[11px] leading-relaxed">Perhatian: Data rekening hanya bisa dikirim <strong>sekali</strong> dan tidak dapat diubah setelah dikirim demi keamanan akun Anda.</p>
+            <div class="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl p-3 flex gap-3 items-start mt-4">
+                <i class="fas fa-exclamation-triangle text-amber-500 dark:text-amber-400 text-xs mt-0.5"></i>
+                <p class="text-amber-700 dark:text-amber-300 text-[11px] leading-relaxed">Perhatian: Data rekening hanya bisa dikirim <strong>sekali</strong> dan tidak dapat diubah setelah dikirim demi keamanan akun Anda.</p>
             </div>
 
             <!-- Submit Button -->
-            <button type="submit" class="w-full h-14 bg-slate-900 hover:bg-indigo-600 text-white rounded-xl text-sm font-extrabold shadow-lg transition-all active:scale-95 mt-6">
+            <button type="submit" class="u-btn-dark w-full h-14 rounded-xl text-sm font-extrabold shadow-lg transition-all active:scale-95 mt-6">
                 <i class="fas fa-link mr-2"></i> Ikat Rekening
             </button>
 

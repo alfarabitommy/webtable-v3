@@ -52,8 +52,36 @@
  *     production
  *
  * NOTE: If you change these, also change the error_reporting() code below
+ *
+ * FAIL-CLOSED (Phase 10D WS-4a): default adalah 'production'. Server yang
+ * lupa mengeset CI_ENV TIDAK akan menampilkan error ke browser, melainkan
+ * menyembunyikannya (display_errors=0). Untuk development lokal wajib
+ * eksplisit:
+ *     CI_ENV=development php -S localhost:8080
+ * (atau SetEnv CI_ENV "development" di blok VirtualHost Apache lokal,
+ * bukan di file yang ikut ter-deploy ke production).
  */
-	define('ENVIRONMENT', isset($_SERVER['CI_ENV']) ? $_SERVER['CI_ENV'] : 'development');
+	// Plan 34 + Plan 40: CI_ENV dicek dari $_SERVER (Apache SetEnv / nginx
+	// fastcgi_param) maupun getenv() (FPM clear_env / CLI export) sebelum
+	// fallback fail-closed ke 'production'. Server yang lupa mengeset CI_ENV
+	// TETAP production (display_errors=0). Untuk development lokal wajib
+	// eksplisit: CI_ENV=development (Apache SetEnv / env FPM / export CLI).
+	
+	$ci_env = '';
+	if (isset($_SERVER['CI_ENV']) && $_SERVER['CI_ENV'] !== '') {
+		$ci_env = $_SERVER['CI_ENV'];
+	} elseif (($env_ci_env = getenv('CI_ENV')) !== false && $env_ci_env !== '') {
+		$ci_env = $env_ci_env;
+	}
+	define('ENVIRONMENT', $ci_env !== '' ? $ci_env : 'production');
+
+	// $ci_env = '';
+	// if (isset($_SERVER['CI_ENV']) && $_SERVER['CI_ENV'] !== '') {
+	// 	$ci_env = $_SERVER['CI_ENV'];
+	// } elseif (($env_ci_env = getenv('CI_ENV')) !== false && $env_ci_env !== '') {
+	// 	$ci_env = $env_ci_env;
+	// }
+	// define('ENVIRONMENT', 'production');
 
 /*
  *---------------------------------------------------------------

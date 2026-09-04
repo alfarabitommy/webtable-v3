@@ -5,6 +5,11 @@ class Admin_auth extends CI_Controller {
 
     public function __construct() {
         parent::__construct();
+
+        // M2 (plan/58 §3 Phase 2): pin WIB sesi MySQL (Admin_auth extends
+        // CI_Controller — entry point /control-panel, tidak via MY_Controller).
+        $this->db->query("SET time_zone = '+07:00'");
+
         $this->load->model('Rate_limit_model');
         $this->load->helper('ratelimit');
     }

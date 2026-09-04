@@ -21,13 +21,22 @@ ALTER TABLE `users` ADD COLUMN `must_change_password` TINYINT(1) NOT NULL DEFAUL
 -- [RECONCILE]
 ALTER TABLE `users` ADD COLUMN `is_level_1_claimed` TINYINT(1) NOT NULL DEFAULT 0;
 -- [RECONCILE]
-ALTER TABLE `users` ADD COLUMN `last_wage_claimed_at` TIMESTAMP NULL DEFAULT NULL;
+ALTER TABLE `users` ADD COLUMN `last_wage_claimed_at` DATETIME NULL DEFAULT NULL;
 -- [RECONCILE]
 ALTER TABLE `withdrawals` ADD COLUMN `wd_number` VARCHAR(50) NULL DEFAULT NULL;
 -- [RECONCILE]
 ALTER TABLE `withdrawals` ADD COLUMN `amount` DECIMAL(15,2) NOT NULL DEFAULT 0.00;
 -- [RECONCILE]
 ALTER TABLE `withdrawals` ADD UNIQUE KEY `uk_wd_number` (`wd_number`);
+-- [RECONCILE]
+ALTER TABLE `wallet_ledger` ADD UNIQUE KEY `uk_wallet_ledger_user_tx_type` (`user_id`, `transaction_id`, `type`);
+-- [RECONCILE] C3 (plan/52): safe DEFAULT untuk strict mode — model selalu
+-- menulis nilai nyata (gross/fee/net) saat insert baru.
+ALTER TABLE `withdrawals` ALTER COLUMN `gross_amount` SET DEFAULT 0.00;
+-- [RECONCILE]
+ALTER TABLE `withdrawals` ALTER COLUMN `fee_amount` SET DEFAULT 0.00;
+-- [RECONCILE]
+ALTER TABLE `withdrawals` ALTER COLUMN `net_amount` SET DEFAULT 0.00;
 
 -- ============ SECTION: admins ============
 INSERT INTO `admins` (`id`, `username`, `password`, `created_at`) VALUES
@@ -134,14 +143,14 @@ ON DUPLICATE KEY UPDATE `user_id` = VALUES(`user_id`), `invoice_number` = VALUES
 
 -- ============ SECTION: withdrawals ============
 -- 4 rows covering pending / processing / success / failed. Fee tiers per PRD:
---   5jt -> 5% + 6.500 (fee 256.500, net 4.743.500)
+--   5jt -> 4% + 6.500 (fee 206.500, net 4.793.500)   [half-open tier, plan/52]
 --   3jt -> 5% + 6.500 (fee 156.500, net 2.843.500)
 --   1jt -> 6.5% + 6.500 (fee 71.500, net 928.500)
 --   500k -> 7.5% + 6.500 (fee 44.000, net 456.000)
 INSERT INTO `withdrawals`
 (`id`, `user_id`, `bank_account_id`, `wd_number`, `amount`, `gross_amount`, `fee_amount`, `net_amount`,
  `status`, `remark`, `processed_at`, `created_at`) VALUES
-(1, 1,  1, CONCAT('WD-', DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 15 DAY), '%Y%m%d%H%i%s'), '-1'), 5000000.00, 5000000.00, 256500.00, 4743500.00, 'success',    NULL, DATE_SUB(NOW(), INTERVAL 14 DAY), DATE_SUB(NOW(), INTERVAL 15 DAY)),
+(1, 1,  1, CONCAT('WD-', DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 15 DAY), '%Y%m%d%H%i%s'), '-1'), 5000000.00, 5000000.00, 206500.00, 4793500.00, 'success',    NULL, DATE_SUB(NOW(), INTERVAL 14 DAY), DATE_SUB(NOW(), INTERVAL 15 DAY)),
 (2, 3,  3, CONCAT('WD-', DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 1 DAY), '%Y%m%d%H%i%s'), '-3'),  3000000.00, 3000000.00, 156500.00, 2843500.00, 'pending',    NULL, NULL,                                DATE_SUB(NOW(), INTERVAL 1 DAY)),
 (3, 5,  5, CONCAT('WD-', DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 28 DAY), '%Y%m%d%H%i%s'), '-5'), 1000000.00, 1000000.00, 71500.00,  928500.00,  'failed',     'Rekening tidak valid', DATE_SUB(NOW(), INTERVAL 27 DAY), DATE_SUB(NOW(), INTERVAL 28 DAY)),
 (4, 7,  7, CONCAT('WD-', DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 2 DAY), '%Y%m%d%H%i%s'), '-7'),  500000.00,  500000.00,  44000.00,  456000.00,  'processing', NULL, NULL,                                DATE_SUB(NOW(), INTERVAL 2 DAY))
@@ -248,6 +257,21 @@ INSERT INTO `system_audit_logs` (`admin_id`, `user_id`, `action`, `details`, `ip
 
 -- ============ SECTION: system_settings ============
 -- Idempotent, never overwrites a live value.
-INSERT IGNORE INTO `system_settings` (`key_name`, `key_value`) VALUES ('is_registration_open', '1');
+INSERT IGNORE INTO `system_settings` (`key_name`, `key_value`) VALUES
+('is_registration_open', '1'),
+-- M1 (plan/56): dynamic withdrawal/deposit financial config (PRD §121-125 defaults).
+('wd_operational_days', '1,2,3,4,5,6'),
+('wd_open_time', '07:00'),
+('wd_close_time', '19:00'),
+('wd_fixed_fee', '6500'),
+('wd_fee_tiers', '[[100000,500000,1000],[500000,1000000,750],[1000000,2000000,650],[2000000,5000000,500],[5000000,10000000,400],[10000000,50000001,300]]'),
+('wd_min_amount', '100000'),
+('wd_max_amount', '50000000'),
+('deposit_fee_enabled', '0'),
+('deposit_fee_type', 'flat'),
+('deposit_fee_value', '0'),
+-- M7 (plan/70): contact/support keys migrated from decommissioned `site_settings`.
+('wa_number', '628000000000'),
+('support_email', 'support@synapse.id');
 
 -- ============ SEED COMPLETE ============

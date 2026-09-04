@@ -6,6 +6,16 @@ class MY_Controller extends CI_Controller {
     public function __construct() {
         parent::__construct();
 
+        // M2 (plan/58 §3 Phase 2): unconditional WIB session pin as the FIRST
+        // DB statement of every authenticated user request. CI3 connects
+        // lazily (conn_id = FALSE until the first query), so a guarded
+        // SET in a model constructor never fires on a fresh connection —
+        // this query() forces the connection and applies
+        // SET time_zone = '+07:00' before any model load or query,
+        // keeping TIMESTAMP read-backs (created_at, last_wage_claimed_at,
+        // rate-limit windows) WIB-consistent with the PHP clock.
+        $this->db->query("SET time_zone = '+07:00'");
+
         $controller = $this->router->fetch_class();
 
         if ($controller !== 'auth' && empty($this->session->userdata('user_id'))) {
@@ -33,6 +43,15 @@ class MY_Controller extends CI_Controller {
             if ($row && $must_change_passwd === 1) {
                 redirect('auth/change-password');
             }
+
+            // M3 (plan/60): lazy expiry per-request — tutup kontrak sewa
+            // expired milik user (active → completed) SETELAH session valid
+            // + timezone init, SEBELUM baca saldo/notifikasi/bisnis apa pun
+            // (gate penarikan, daftar sewa, klaim). Satu UPDATE ber-index
+            // (idx_user_status_expired), autocommit tanpa TX → overhead
+            // sub-milidetik; idempotent & race-safe vs claim_roi (C2).
+            $this->load->model('Rental_model');
+            $this->Rental_model->expire_user_rentals($this->session->userdata('user_id'));
 
             $this->load->model('Wallet_model');
             $balance = $this->Wallet_model->get_balance($this->session->userdata('user_id'));

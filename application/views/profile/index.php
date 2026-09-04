@@ -15,16 +15,16 @@
     <?php endif; ?>
 
     <!-- ===== IDENTITY CARD ===== -->
-    <div class="bg-white rounded-2xl p-6 shadow-sm text-center space-y-4">
+    <div class="u-card rounded-2xl p-6 shadow-sm text-center space-y-4">
         <!-- Avatar -->
         <div class="relative inline-block">
             <?php if (!empty($user->avatar_url)): ?>
                 <img src="<?= base_url('uploads/avatars/' . $user->avatar_url) ?>"
-                     class="w-24 h-24 rounded-full object-cover border-4 border-indigo-100 mx-auto shadow-md"
+                     class="w-24 h-24 rounded-full object-cover border-4 border-indigo-100 dark:border-indigo-500/30 mx-auto shadow-md"
                      alt="Avatar">
             <?php else: ?>
-                <div class="w-24 h-24 rounded-full bg-slate-100 border-4 border-indigo-100 mx-auto shadow-md flex items-center justify-center">
-                    <i class="fas fa-user text-3xl text-slate-300"></i>
+                <div class="w-24 h-24 rounded-full bg-slate-100 dark:bg-slate-800 border-4 border-indigo-100 dark:border-indigo-500/30 mx-auto shadow-md flex items-center justify-center">
+                    <i class="fas fa-user text-3xl text-slate-300 dark:text-slate-600"></i>
                 </div>
             <?php endif; ?>
             <!-- Edit Avatar FAB -->
@@ -36,13 +36,13 @@
 
         <!-- Name + Phone -->
         <div>
-            <h2 class="text-xl font-extrabold text-slate-900"><?= htmlspecialchars($user->username ?? 'User') ?></h2>
-            <p class="text-sm text-slate-500 font-mono mt-1"><?= htmlspecialchars($user->phone) ?></p>
+            <h2 class="text-xl font-extrabold u-text"><?= htmlspecialchars($user->username ?? 'User') ?></h2>
+            <p class="text-sm u-text-2 font-mono mt-1"><?= htmlspecialchars($user->phone) ?></p>
         </div>
 
         <!-- Level Badge -->
         <div class="flex justify-center">
-            <span class="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full border border-indigo-100">
+            <span class="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 px-3 py-1 rounded-full border border-indigo-100 dark:border-indigo-500/20">
                 <i class="fas fa-crown text-indigo-400"></i>
                 Level <?= $user->level_id ?? 0 ?>
             </span>
@@ -50,10 +50,10 @@
     </div>
 
     <!-- ===== REFERRAL CENTER ===== -->
-    <div class="bg-white rounded-2xl p-5 shadow-sm space-y-3">
-        <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Kode Referral</h3>
+    <div class="u-card rounded-2xl p-5 shadow-sm space-y-3">
+        <h3 class="text-[10px] font-bold u-muted uppercase tracking-widest">Kode Referral</h3>
         <div class="flex items-center gap-3">
-            <div class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+            <div class="flex-1 u-card-inset rounded-xl px-4 py-3">
                 <span id="referral-code" class="font-mono text-sm font-bold text-indigo-600 tracking-wider">
                     <?= htmlspecialchars($user->invite_code ?? 'N/A') ?>
                 </span>
@@ -68,79 +68,94 @@
     </div>
 
     <!-- ===== THE HUB — Menu List ===== -->
-    <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
-        <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-5 pt-4 pb-2">Menu Akun</h3>
+    <div class="u-card rounded-2xl shadow-sm overflow-hidden">
+        <h3 class="text-[10px] font-bold u-muted uppercase tracking-widest px-5 pt-4 pb-2">Menu Akun</h3>
 
         <!-- 1. Dompet & Riwayat Transaksi -->
         <a href="<?= site_url('wallet') ?>"
-           class="flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition border-b border-slate-50 active:scale-[0.98]">
+           class="flex items-center justify-between px-5 py-4 u-row-hover transition border-b border-slate-50 dark:border-slate-800 active:scale-[0.98]">
             <div class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <div class="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
                     <i class="fas fa-wallet text-sm"></i>
                 </div>
-                <span class="text-sm font-medium text-slate-700">Dompet & Riwayat Transaksi</span>
+                <span class="text-sm font-medium u-text">Dompet & Riwayat Transaksi</span>
             </div>
-            <i class="fas fa-chevron-right text-[10px] text-slate-300"></i>
+            <i class="fas fa-chevron-right text-[10px] u-muted"></i>
         </a>
 
         <!-- 2. Tarik Dana & Rekening Bank -->
         <a href="<?= site_url('wallet/bind_bank') ?>"
-           class="flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition border-b border-slate-50 active:scale-[0.98]">
+           class="flex items-center justify-between px-5 py-4 u-row-hover transition border-b border-slate-50 dark:border-slate-800 active:scale-[0.98]">
             <div class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <div class="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
                     <i class="fas fa-university text-sm"></i>
                 </div>
-                <span class="text-sm font-medium text-slate-700">Tarik Dana & Rekening Bank</span>
+                <span class="text-sm font-medium u-text">Tarik Dana & Rekening Bank</span>
             </div>
-            <i class="fas fa-chevron-right text-[10px] text-slate-300"></i>
+            <i class="fas fa-chevron-right text-[10px] u-muted"></i>
         </a>
 
         <!-- 3. Edit Profil (Bottom Sheet) -->
         <button type="button" id="btn-edit-profile-hub"
-                class="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition border-b border-slate-50 active:scale-[0.98] text-left">
+                class="w-full flex items-center justify-between px-5 py-4 u-row-hover transition border-b border-slate-50 dark:border-slate-800 active:scale-[0.98] text-left">
             <div class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center">
+                <div class="w-9 h-9 rounded-xl bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center">
                     <i class="fas fa-pen text-sm"></i>
                 </div>
-                <span class="text-sm font-medium text-slate-700">Edit Profil</span>
+                <span class="text-sm font-medium u-text">Edit Profil</span>
             </div>
-            <i class="fas fa-chevron-right text-[10px] text-slate-300"></i>
+            <i class="fas fa-chevron-right text-[10px] u-muted"></i>
         </button>
 
-        <!-- 4. Keamanan & Sandi -->
-        <a href="<?= site_url('profile/change-password') ?>"
-           class="flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition border-b border-slate-50 active:scale-[0.98]">
+        <!-- 4. Tema Tampilan (Phase 32: Theme Manager) -->
+        <button type="button" id="btn-theme-hub" onclick="toggleUserTheme()"
+                class="w-full flex items-center justify-between px-5 py-4 u-row-hover transition border-b border-slate-50 dark:border-slate-800 active:scale-[0.98] text-left">
             <div class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                <div class="w-9 h-9 rounded-xl bg-cyan-50 dark:bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center">
+                    <i id="theme-hub-icon" class="fas fa-moon text-sm"></i>
+                </div>
+                <span class="text-sm font-medium u-text">Tema Tampilan</span>
+            </div>
+            <span class="flex items-center gap-2">
+                <span id="theme-mode-label" class="text-[10px] font-bold u-muted uppercase tracking-wider">Gelap</span>
+                <i class="fas fa-chevron-right text-[10px] u-muted"></i>
+            </span>
+        </button>
+
+        <!-- 5. Keamanan & Sandi -->
+        <a href="<?= site_url('profile/change-password') ?>"
+           class="flex items-center justify-between px-5 py-4 u-row-hover transition border-b border-slate-50 dark:border-slate-800 active:scale-[0.98]">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
                     <i class="fas fa-lock text-sm"></i>
                 </div>
-                <span class="text-sm font-medium text-slate-700">Keamanan & Sandi</span>
+                <span class="text-sm font-medium u-text">Keamanan & Sandi</span>
             </div>
-            <i class="fas fa-chevron-right text-[10px] text-slate-300"></i>
+            <i class="fas fa-chevron-right text-[10px] u-muted"></i>
         </a>
 
-        <!-- 5. Bantuan & FAQ -->
+        <!-- 6. Bantuan & FAQ -->
         <a href="<?= site_url('help') ?>"
-           class="flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition border-b border-slate-50 active:scale-[0.98]">
+           class="flex items-center justify-between px-5 py-4 u-row-hover transition border-b border-slate-50 dark:border-slate-800 active:scale-[0.98]">
             <div class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center">
+                <div class="w-9 h-9 rounded-xl bg-cyan-50 dark:bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center">
                     <i class="fas fa-life-ring text-sm"></i>
                 </div>
-                <span class="text-sm font-medium text-slate-700">Bantuan & FAQ</span>
+                <span class="text-sm font-medium u-text">Bantuan & FAQ</span>
             </div>
-            <i class="fas fa-chevron-right text-[10px] text-slate-300"></i>
+            <i class="fas fa-chevron-right text-[10px] u-muted"></i>
         </a>
 
-        <!-- 6. Keluar (Logout) -->
+        <!-- 7. Keluar (Logout) -->
         <a href="<?= site_url('auth/logout') ?>"
-           class="flex items-center justify-between px-5 py-4 hover:bg-rose-50 transition active:scale-[0.98]">
+           class="flex items-center justify-between px-5 py-4 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition active:scale-[0.98]">
             <div class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                <div class="w-9 h-9 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center">
                     <i class="fas fa-sign-out-alt text-sm"></i>
                 </div>
-                <span class="text-sm font-medium text-rose-600">Keluar</span>
+                <span class="text-sm font-medium text-rose-600 dark:text-rose-400">Keluar</span>
             </div>
-            <i class="fas fa-chevron-right text-[10px] text-rose-300"></i>
+            <i class="fas fa-chevron-right text-[10px] text-rose-300 dark:text-rose-400/60"></i>
         </a>
     </div>
 
@@ -152,20 +167,20 @@
     <div id="ep-backdrop" class="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"></div>
 
     <!-- Sheet -->
-    <div id="ep-sheet" class="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl transform translate-y-full transition-transform duration-300 ease-out max-h-[85vh] overflow-y-auto">
+    <div id="ep-sheet" class="absolute bottom-0 left-0 right-0 u-modal rounded-t-3xl shadow-2xl transform translate-y-full transition-transform duration-300 ease-out max-h-[85vh] overflow-y-auto">
 
         <!-- Handle -->
         <div class="flex justify-center pt-3 pb-1">
-            <div class="w-10 h-1 bg-slate-300 rounded-full"></div>
+            <div class="w-10 h-1 bg-slate-300 dark:bg-slate-600 rounded-full"></div>
         </div>
 
         <!-- Header -->
-        <div class="px-5 pb-4 flex items-center justify-between border-b border-slate-100">
-            <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+        <div class="px-5 pb-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
+            <h3 class="text-base font-bold u-text flex items-center gap-2">
                 <i class="fas fa-user-edit text-indigo-500"></i> Edit Profil
             </h3>
-            <button type="button" id="btn-close-ep" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition">
-                <i class="fas fa-times text-slate-500 text-xs"></i>
+            <button type="button" id="btn-close-ep" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center transition">
+                <i class="fas fa-times u-text-2 text-xs"></i>
             </button>
         </div>
 
@@ -178,15 +193,15 @@
                 <div class="relative">
                     <img id="avatarPreview"
                          src="<?= !empty($user->avatar_url) ? base_url('uploads/avatars/' . $user->avatar_url) : '' ?>"
-                         class="w-20 h-20 rounded-full object-cover border-2 border-slate-200 <?= empty($user->avatar_url) ? 'hidden' : '' ?>"
+                         class="w-20 h-20 rounded-full object-cover border-2 border-slate-200 dark:border-slate-600 <?= empty($user->avatar_url) ? 'hidden' : '' ?>"
                          alt="Preview">
                     <div id="avatarPlaceholder"
-                         class="w-20 h-20 rounded-full bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center <?= !empty($user->avatar_url) ? 'hidden' : '' ?>">
-                        <i class="fas fa-camera text-slate-400 text-xl"></i>
+                         class="w-20 h-20 rounded-full bg-slate-100 dark:bg-slate-800 border-2 border-dashed border-slate-300 dark:border-slate-600 flex items-center justify-center <?= !empty($user->avatar_url) ? 'hidden' : '' ?>">
+                        <i class="fas fa-camera u-muted text-xl"></i>
                     </div>
                 </div>
                 <label for="avatarInput"
-                       class="text-xs font-bold text-indigo-600 cursor-pointer hover:text-indigo-700 transition">
+                       class="text-xs font-bold text-indigo-600 dark:text-indigo-400 cursor-pointer hover:text-indigo-700 dark:hover:text-indigo-300 transition">
                     <i class="fas fa-camera mr-1"></i> Pilih Foto
                 </label>
                 <input type="file" name="avatar" id="avatarInput" accept="image/png,image/jpeg,image/gif" class="hidden">
@@ -201,21 +216,21 @@
 
             <!-- Username -->
             <div>
-                <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nama</label>
+                <label class="block text-xs font-bold u-text-2 mb-1.5 uppercase tracking-wide">Nama</label>
                 <input type="text" name="username" required maxlength="50"
                        value="<?= htmlspecialchars($user->username ?? '') ?>"
                        placeholder="Masukkan nama"
-                       class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                <p class="mt-1 text-[10px] text-slate-400">Maks. 50 karakter</p>
+                       class="u-input w-full rounded-xl py-3 px-4 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                <p class="mt-1 text-[10px] u-muted">Maks. 50 karakter</p>
             </div>
 
             <!-- Phone (Read-only) -->
             <div>
-                <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nomor Telepon</label>
+                <label class="block text-xs font-bold u-text-2 mb-1.5 uppercase tracking-wide">Nomor Telepon</label>
                 <input type="text" readonly
                        value="<?= htmlspecialchars($user->phone) ?>"
-                       class="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-sm font-medium text-slate-400 cursor-not-allowed">
-                <p class="mt-1 text-[10px] text-slate-400">Tidak dapat diubah</p>
+                       class="w-full bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl py-3 px-4 text-sm font-medium text-slate-400 dark:text-slate-500 cursor-not-allowed">
+                <p class="mt-1 text-[10px] u-muted">Tidak dapat diubah</p>
             </div>
 
             <!-- Submit -->

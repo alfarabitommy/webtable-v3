@@ -1,19 +1,19 @@
-<!-- ═══ Help / Bantuan — Phase 8B ═══ -->
+<!-- ═══ Help / Bantuan — Phase 8B (Phase 32: theme tokens) ═══ -->
 <div class="p-4 space-y-6">
 
     <!-- ═══ Header ═══ -->
     <div>
-        <h2 class="text-lg font-extrabold text-slate-900">Bantuan & FAQ</h2>
-        <p class="text-xs text-slate-500 mt-1">Temukan jawaban atas pertanyaan umum seputar Synapse.</p>
+        <h2 class="text-lg font-extrabold u-text">Bantuan & FAQ</h2>
+        <p class="text-xs u-text-2 mt-1">Temukan jawaban atas pertanyaan umum seputar Synapse.</p>
     </div>
 
     <!-- ═══ Contact CTA ═══ -->
-    <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <h3 class="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
+    <div class="u-card rounded-2xl p-5 shadow-sm">
+        <h3 class="text-sm font-bold u-text mb-3 flex items-center gap-2">
             <i class="fas fa-headset text-indigo-500"></i>
             Hubungi Support
         </h3>
-        <p class="text-xs text-slate-500 mb-4">Belum menemukan jawaban? Tim kami siap membantu Anda.</p>
+        <p class="text-xs u-text-2 mb-4">Belum menemukan jawaban? Tim kami siap membantu Anda.</p>
         <div class="grid grid-cols-2 gap-3">
             <!-- WhatsApp Button -->
             <a href="https://wa.me/<?= urlencode($wa_number) ?>?text=Halo%20Synapse%2C%20saya%20butuh%20bantuan..."
@@ -34,34 +34,34 @@
 
     <!-- ═══ FAQ Accordion ═══ -->
     <div class="space-y-3" id="faq-container">
-        <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+        <h3 class="text-sm font-bold u-text flex items-center gap-2">
             <i class="fas fa-question-circle text-indigo-500"></i>
             Pertanyaan Umum
         </h3>
 
         <!-- FAQ Item 1 -->
-        <div class="faq-item bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="faq-item u-card rounded-2xl shadow-sm overflow-hidden">
             <button onclick="toggleFaq(this)"
                     class="w-full flex items-center justify-between p-4 text-left gap-3">
-                <span class="text-sm font-semibold text-slate-800">Apa itu Synapse?</span>
-                <i class="fas fa-chevron-down text-slate-400 text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
+                <span class="text-sm font-semibold u-text">Apa itu Synapse?</span>
+                <i class="fas fa-chevron-down u-muted text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
             </button>
             <div class="faq-answer max-h-0 overflow-hidden transition-all duration-300 ease-in-out">
-                <div class="px-4 pb-4 text-xs text-slate-600 leading-relaxed">
+                <div class="px-4 pb-4 text-xs u-text-2 leading-relaxed">
                     Synapse adalah platform digital penyewaan GPU (Graphics Processing Unit) untuk komputasi AI dan mining. Pengguna bisa menyewa node GPU secara online, menerima pendapatan harian (ROI), dan menarik dana kapan saja selama jam operasional.
                 </div>
             </div>
         </div>
 
         <!-- FAQ Item 2 -->
-        <div class="faq-item bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="faq-item u-card rounded-2xl shadow-sm overflow-hidden">
             <button onclick="toggleFaq(this)"
                     class="w-full flex items-center justify-between p-4 text-left gap-3">
-                <span class="text-sm font-semibold text-slate-800">Bagaimana cara menyewa?</span>
-                <i class="fas fa-chevron-down text-slate-400 text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
+                <span class="text-sm font-semibold u-text">Bagaimana cara menyewa?</span>
+                <i class="fas fa-chevron-down u-muted text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
             </button>
             <div class="faq-answer max-h-0 overflow-hidden transition-all duration-300 ease-in-out">
-                <div class="px-4 pb-4 text-xs text-slate-600 leading-relaxed">
+                <div class="px-4 pb-4 text-xs u-text-2 leading-relaxed">
                     <ol class="list-decimal list-inside space-y-1">
                         <li>Buka menu <strong>Marketplace</strong> dari navigasi bawah.</li>
                         <li>Pilih paket GPU yang ingin disewa.</li>
@@ -73,14 +73,14 @@
         </div>
 
         <!-- FAQ Item 3 -->
-        <div class="faq-item bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="faq-item u-card rounded-2xl shadow-sm overflow-hidden">
             <button onclick="toggleFaq(this)"
                     class="w-full flex items-center justify-between p-4 text-left gap-3">
-                <span class="text-sm font-semibold text-slate-800">Bagaimana cara withdraw (penarikan)?</span>
-                <i class="fas fa-chevron-down text-slate-400 text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
+                <span class="text-sm font-semibold u-text">Bagaimana cara withdraw (penarikan)?</span>
+                <i class="fas fa-chevron-down u-muted text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
             </button>
             <div class="faq-answer max-h-0 overflow-hidden transition-all duration-300 ease-in-out">
-                <div class="px-4 pb-4 text-xs text-slate-600 leading-relaxed">
+                <div class="px-4 pb-4 text-xs u-text-2 leading-relaxed">
                     <ul class="list-disc list-inside space-y-1">
                         <li>Masuk ke menu <strong>Wallet</strong> → <strong>Penarikan</strong>.</li>
                         <li>Pilih rekening bank yang sudah terikat.</li>
@@ -93,28 +93,28 @@
         </div>
 
         <!-- FAQ Item 4 -->
-        <div class="faq-item bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="faq-item u-card rounded-2xl shadow-sm overflow-hidden">
             <button onclick="toggleFaq(this)"
                     class="w-full flex items-center justify-between p-4 text-left gap-3">
-                <span class="text-sm font-semibold text-slate-800">Apa itu referral?</span>
-                <i class="fas fa-chevron-down text-slate-400 text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
+                <span class="text-sm font-semibold u-text">Apa itu referral?</span>
+                <i class="fas fa-chevron-down u-muted text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
             </button>
             <div class="faq-answer max-h-0 overflow-hidden transition-all duration-300 ease-in-out">
-                <div class="px-4 pb-4 text-xs text-slate-600 leading-relaxed">
+                <div class="px-4 pb-4 text-xs u-text-2 leading-relaxed">
                     Setiap pengguna memiliki <strong>Kode Undangan</strong> unik. Bagikan kode tersebut ke teman atau keluarga. Ketika mereka mendaftar menggunakan kode Anda, mereka menjadi downline (Level 1 / Agen B). Anda akan menerima bonus komisi dari aktivitas transaksi downline. Lihat detail lengkapnya di menu <strong>Tim &amp; Afiliasi</strong>.
                 </div>
             </div>
         </div>
 
         <!-- FAQ Item 5 — NEW: Security Rule -->
-        <div class="faq-item bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="faq-item u-card rounded-2xl shadow-sm overflow-hidden">
             <button onclick="toggleFaq(this)"
                     class="w-full flex items-center justify-between p-4 text-left gap-3">
-                <span class="text-sm font-semibold text-slate-800">Mengapa saya tidak bisa melakukan penarikan dana?</span>
-                <i class="fas fa-chevron-down text-slate-400 text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
+                <span class="text-sm font-semibold u-text">Mengapa saya tidak bisa melakukan penarikan dana?</span>
+                <i class="fas fa-chevron-down u-muted text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
             </button>
             <div class="faq-answer max-h-0 overflow-hidden transition-all duration-300 ease-in-out">
-                <div class="px-4 pb-4 text-xs text-slate-600 leading-relaxed">
+                <div class="px-4 pb-4 text-xs u-text-2 leading-relaxed">
                     Ada beberapa syarat yang harus dipenuhi sebelum bisa melakukan penarikan:
                     <ul class="list-disc list-inside space-y-1 mt-2">
                         <li><strong>Rekening Bank wajib diikat terlebih dahulu</strong> — Buka menu Profil → Rekening Bank untuk mengikat nomor rekening Anda.</li>
@@ -128,14 +128,14 @@
         </div>
 
         <!-- FAQ Item 6 -->
-        <div class="faq-item bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="faq-item u-card rounded-2xl shadow-sm overflow-hidden">
             <button onclick="toggleFaq(this)"
                     class="w-full flex items-center justify-between p-4 text-left gap-3">
-                <span class="text-sm font-semibold text-slate-800">Bagaimana cara isi saldo (top up)?</span>
-                <i class="fas fa-chevron-down text-slate-400 text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
+                <span class="text-sm font-semibold u-text">Bagaimana cara isi saldo (top up)?</span>
+                <i class="fas fa-chevron-down u-muted text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
             </button>
             <div class="faq-answer max-h-0 overflow-hidden transition-all duration-300 ease-in-out">
-                <div class="px-4 pb-4 text-xs text-slate-600 leading-relaxed">
+                <div class="px-4 pb-4 text-xs u-text-2 leading-relaxed">
                     <ol class="list-decimal list-inside space-y-1">
                         <li>Buka menu <strong>Wallet</strong>.</li>
                         <li>Klik tombol <strong>"Top Up"</strong>.</li>
@@ -150,7 +150,7 @@
 
     <!-- ═══ Footer Note ═══ -->
     <div class="text-center pb-4">
-        <p class="text-[10px] text-slate-400">Synapse Support · v1.0</p>
+        <p class="text-[10px] u-muted">Synapse Support · v1.0</p>
     </div>
 
 </div>

@@ -23,7 +23,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 | a PHP script and you can easily do that on your own.
 |
 */
-$config['base_url'] = 'http://synapse.test/';
+$config['base_url'] = (string) (getenv('APP_BASE_URL') ?: 'http://synapse.test/');
 
 /*
 |--------------------------------------------------------------------------
@@ -225,7 +225,7 @@ $config['allow_get_array'] = TRUE;
 | your log files will fill up very fast.
 |
 */
-$config['log_threshold'] = 0;
+$config['log_threshold'] = (ENVIRONMENT === 'production') ? 1 : 4;
 
 /*
 |--------------------------------------------------------------------------
@@ -326,7 +326,7 @@ $config['cache_query_string'] = FALSE;
 | https://codeigniter.com/userguide3/libraries/encryption.html
 |
 */
-$config['encryption_key'] = '';
+$config['encryption_key'] = (string) getenv('ENCRYPTION_KEY');
 
 /*
 |--------------------------------------------------------------------------
@@ -411,7 +411,9 @@ $config['sess_regenerate_destroy'] = TRUE;
 $config['cookie_prefix']	= '';
 $config['cookie_domain']	= '';
 $config['cookie_path']		= '/';
-$config['cookie_secure']	= (ENVIRONMENT === 'production') ? TRUE : FALSE;
+// Plan 40: cookie_secure kini transport-aware dan dihitung di blok
+// "Cookie Secure — Transport-Aware" di bawah blok proxy_ips (end of file),
+// agar bisa memakai $config['proxy_ips'] untuk gating X-Forwarded-Proto.
 $config['cookie_httponly'] 	= TRUE;
 $config['cookie_samesite'] 	= 'Lax';
 
@@ -530,3 +532,110 @@ $config['rewrite_short_tags'] = FALSE;
 | Array:		array('10.0.1.200', '192.168.5.0/24')
 */
 $config['proxy_ips'] = '';
+$_trusted_proxies = getenv('TRUSTED_PROXIES');
+if ($_trusted_proxies !== false && trim((string) $_trusted_proxies) !== '') {
+    $config['proxy_ips'] = array_map('trim', explode(',', (string) $_trusted_proxies));
+}
+unset($_trusted_proxies);
+
+/*
+|--------------------------------------------------------------------------
+| Cookie Secure — Transport-Aware (Plan 40)
+|--------------------------------------------------------------------------
+| cookie_secure mengikuti TRANSPORT AKTUAL, bukan konstanta ENVIRONMENT:
+|
+|   - HTTP polos (dev lokal)            -> FALSE
+|   - HTTPS asli (Apache mod_ssl)       -> $_SERVER['HTTPS'] = on  -> TRUE
+|   - TLS di-terminate proxy (nginx/LB) -> X-Forwarded-Proto: https,
+|     HANYA dipercaya bila REMOTE_ADDR ada di whitelist TRUSTED_PROXIES
+|     (mencegah spoofing header dari klien publik). Pencocokan mendukung
+|     IP persis maupun CIDR subnet (IPv4/IPv6), meniru system/core/Input.php.
+|   - Override eksplisit deployment     -> COOKIE_SECURE=true|false
+|
+| Sebelumnya: (ENVIRONMENT === 'production') ? TRUE : FALSE. Di host HTTP
+| polos yang dipaksa production, browser menolak cookie session (ci_session)
+| dan CSRF (synapse_csrf_cookie) ber-flag Secure -> session drop + loop
+| login (lihat plan/40_PRODUCTION_LOGIN_SESSION_FIX_PLAN.md).
+|
+| Catatan: is_https() (Common.php) TIDAK melakukan gating proxy_ips, jadi
+| deteksi dilakukan manual di sini. Blok ini sengaja diletakkan SETELAH
+| proxy_ips agar $config['proxy_ips'] sudah terisi.
+*/
+$_cookie_secure_override = strtolower((string) getenv('COOKIE_SECURE'));
+if ($_cookie_secure_override === 'true') {
+    $config['cookie_secure'] = TRUE;
+} elseif ($_cookie_secure_override === 'false') {
+    $config['cookie_secure'] = FALSE;
+} else {
+    $_request_is_https = (! empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off');
+    $_xff_proto = isset($_SERVER['HTTP_X_FORWARDED_PROTO'])
+        ? strtolower((string) $_SERVER['HTTP_X_FORWARDED_PROTO']) : '';
+    $_remote_addr = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : '';
+
+    $_is_trusted_proxy = FALSE;
+    if ($_remote_addr !== '') {
+        foreach ((array) $config['proxy_ips'] as $_proxy) {
+            $_proxy = trim((string) $_proxy);
+            if ($_proxy === '') {
+                continue;
+            }
+
+            if (strpos($_proxy, '/') === FALSE) {
+                // IP persis (bukan subnet)
+                if ($_proxy === $_remote_addr) {
+                    $_is_trusted_proxy = TRUE;
+                    break;
+                }
+                continue;
+            }
+
+            // CIDR subnet — konversi ke biner lalu bandingkan bit prefix
+            list($_net, $_mask) = array_pad(explode('/', $_proxy, 2), 2, '');
+            if (! is_numeric($_mask) || (int) $_mask < 0) {
+                continue;
+            }
+            $_mask = (int) $_mask;
+
+            $_ip_bytes  = inet_pton($_remote_addr);
+            $_net_bytes = inet_pton($_net);
+            if ($_ip_bytes === FALSE || $_net_bytes === FALSE || strlen($_ip_bytes) !== strlen($_net_bytes)) {
+                continue;
+            }
+            $_bits = strlen($_ip_bytes) * 8;
+            if ($_mask > $_bits) {
+                continue;
+            }
+
+            $_full  = intdiv($_mask, 8);
+            $_rest  = $_mask % 8;
+            $_match = substr($_ip_bytes, 0, $_full) === substr($_net_bytes, 0, $_full);
+            if ($_match && $_rest > 0) {
+                $_mask_byte = (0xFF << (8 - $_rest)) & 0xFF;
+                $_match = (ord($_ip_bytes[$_full]) & $_mask_byte) === (ord($_net_bytes[$_full]) & $_mask_byte);
+            }
+            if ($_match) {
+                $_is_trusted_proxy = TRUE;
+                break;
+            }
+        }
+    }
+
+    $config['cookie_secure'] = $_request_is_https || ($_is_trusted_proxy && $_xff_proto === 'https');
+}
+unset(
+    $_cookie_secure_override,
+    $_request_is_https,
+    $_xff_proto,
+    $_remote_addr,
+    $_is_trusted_proxy,
+    $_proxy,
+    $_net,
+    $_mask,
+    $_ip_bytes,
+    $_net_bytes,
+    $_bits,
+    $_full,
+    $_rest,
+    $_match,
+    $_mask_byte
+);

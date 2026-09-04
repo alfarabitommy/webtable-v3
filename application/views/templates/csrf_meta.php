@@ -45,5 +45,51 @@
         }
         return fetch(url, options);
     };
+
+    /* ===== M4 (plan/62): DOUBLE-CLICK / DOUBLE-SUBMIT GUARD (Vanilla JS) =====
+       Otomatis aktif untuk <form data-guard-submit="1">:
+       - Submit PERTAMA TIDAK di-preventDefault — POST native + redirect +
+         flashdata tetap berjalan utuh (pola guard claim-form plan/46).
+       - Saat submit pertama: flag data-submitting="1", semua tombol submit
+         di-disable, tombol pertama menampilkan spinner "Memproses…".
+       - Submit kedua+ diblokir (preventDefault) lewat flag data-submitting.
+       Catatan:
+       - Bukan pengganti otoritas server (CAS `WHERE status='pending'` +
+         `affected_rows()===1` di model) — hanya mencegah klik ganda dan
+         POST kedua yang membawa token CSRF basi (csrf_regenerate=true).
+       - Dipasang bubble-phase di document: inline onsubmit (mis. confirm()
+         di dashboard admin) berjalan lebih dulu; jika user batal, event
+         berhenti sebelum guard menandai form.
+       - Bisa dipanggil manual via window.guardFormSubmit(form). */
+    window.guardFormSubmit = function (form) {
+        if (!form || form.getAttribute('data-submitting') === '1') { return; }
+        form.setAttribute('data-submitting', '1');
+        var btns = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+        for (var i = 0; i < btns.length; i++) {
+            var b = btns[i];
+            b.disabled = true;
+            b.classList.add('opacity-60', 'cursor-not-allowed');
+            if (i === 0) {
+                if (b.tagName === 'BUTTON') {
+                    b.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Memproses...';
+                } else {
+                    b.value = 'Memproses...';
+                }
+            }
+        }
+    };
+
+    document.addEventListener('submit', function (e) {
+        var t = e.target;
+        var form = (t && t.tagName === 'FORM') ? t
+                 : (t && t.closest ? t.closest('form') : null);
+        if (!form || !form.hasAttribute('data-guard-submit')) { return; }
+        if (form.getAttribute('data-submitting') === '1') {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
+        window.guardFormSubmit(form);
+    });
 })();
 </script>
