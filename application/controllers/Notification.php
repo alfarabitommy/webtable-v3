@@ -43,17 +43,4 @@ class Notification extends MY_Controller {
         $this->Notification_model->mark_read($user_id);
         api_success(['unread_count' => 0], '', 200, ['unread_count' => 0]);
     }
-
-    /**
-     * AJAX POST /notification/mark_read_single/{id}
-     */
-    public function mark_read_single($id) {
-        $user_id = $this->session->userdata('user_id');
-        if (!$user_id) {
-            api_error('Sesi habis. Silakan login ulang.', 401, [], 'unauthenticated', ['error' => 'Unauthorized']);
-        }
-
-        $this->Notification_model->mark_single_read((int) $id, $user_id);
-        api_success(null, '', 200);
-    }
 }

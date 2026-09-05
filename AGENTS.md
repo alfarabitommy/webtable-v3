@@ -12,7 +12,7 @@
 - Lint every new/modified PHP file (roadmap rule): `php -l <file>`
 - No app test suite. Verify flows via browser/`curl` (HTTP 200 / 302 expected).
 - Local dev: `php -S localhost:8080` from project root (pretty URLs need the rewrite config; default config expects `synapse.test`).
-- DB credentials in `application/config/database.php`; schema seed in `database.sql` (`users`, `gpu_products`, `rentals`, `bank_accounts`, `withdrawals`, `otp_logs`, `site_settings` — code also uses `wallet_ledger`, `deposits`, `admins`, `user_rentals`, `user_notifications`, `system_settings`, `system_audit_logs`, `rate_limits`).
+- DB credentials in `application/config/database.php` (env-driven via `DB_HOSTNAME`/`DB_USERNAME`/`DB_PASSWORD`/`DB_DATABASE`, no committed secrets); schema seed in `database.sql` — canonical DDL inventory: `users`, `gpu_products`, `bank_accounts`, `withdrawals`, `wallet_ledger`, `deposits`, `user_rentals`, `admins`, `user_notifications`, `system_settings`, `system_audit_logs`, `rate_limits`. Retention-only legacy tables annotated `DEPRECATED (M10)` in the DDL: `rentals` (live = `user_rentals`), `otp_logs` (no OTP flow). `site_settings` and double-entry `transactions` are removed from canonical schema (M7/M6; see plan/68–69, plan/70–71).
 
 ## Architecture
 - `application/core/MY_Controller.php` — base for user controllers: guards `user_id` session (redirect `login`), injects `global_balance`, `global_unread_count`, `global_notifications` into all views.

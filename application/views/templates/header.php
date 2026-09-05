@@ -381,7 +381,7 @@
 
         // Auto mark-read on open if unread
         if (notifUnreadCount > 0) {
-            csrfFetch('<?= base_url('user/read_notifications') ?>', {
+            csrfFetch('<?= base_url('notification/mark_all_read') ?>', {
                 method: 'POST'
             })
             .then(r => r.json())
@@ -412,7 +412,7 @@
     }
 
     function markAllRead() {
-        csrfFetch('<?= base_url('user/read_notifications') ?>', {
+        csrfFetch('<?= base_url('notification/mark_all_read') ?>', {
             method: 'POST'
         })
         .then(r => r.json())

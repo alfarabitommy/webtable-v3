@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS `gpu_products` (
 -- -----------------------------------------------------
 -- Table `rentals`
 -- -----------------------------------------------------
+-- DEPRECATED (M10, plan/78): legacy table — no code path reads or writes it;
+-- the live table is `user_rentals`. Retention-only; do not use in new code.
 CREATE TABLE IF NOT EXISTS `rentals` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` BIGINT UNSIGNED NOT NULL,
@@ -113,6 +115,8 @@ CREATE TABLE IF NOT EXISTS `withdrawals` (
 -- -----------------------------------------------------
 -- Table `otp_logs`
 -- -----------------------------------------------------
+-- DEPRECATED (M10, plan/78): legacy table — no code path reads or writes it;
+-- no OTP flow exists (auth uses native session CAPTCHA). Retention-only.
 CREATE TABLE IF NOT EXISTS `otp_logs` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `phone` VARCHAR(20) NOT NULL,

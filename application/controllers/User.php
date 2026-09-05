@@ -10,12 +10,14 @@ class User extends MY_Controller {
     }
 
     /**
-     * AJAX endpoint — mark all notifications as read
+     * Legacy alias — mark all notifications as read
      * POST /user/read_notifications
      *
-     * M9/P7 (plan/76 Batch A): envelope {success, message, data:{unread_count}}
-     * + key legacy root `unread_count`; unauthenticated -> HTTP 401 JSON.
-     * Konsumen (templates/header.php:384/:415) hanya membaca `success`.
+     * M10 (plan/78): canonical endpoint is Notification::mark_all_read
+     * (POST notification/mark_all_read). This thin alias forwards to the same
+     * Notification_model->mark_read() + api_success() envelope and is retained
+     * for backward compatibility (route application/config/routes.php:45).
+     * Konsumen (templates/header.php) hanya membaca `success`.
      */
     public function read_notifications() {
         if (!$this->session->userdata('user_id')) {
