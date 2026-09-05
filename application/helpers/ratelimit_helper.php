@@ -8,6 +8,13 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 //  seluruh endpoint yang di-instrumentasi (Auth, Admin_auth, Rentals,
 //  Wallet). rate_limit_json_response() mengakhiri request (exit) dengan
 //  HTTP 429 + payload JSON, dipakai saat $this->input->is_ajax_request().
+//
+//  M9/P7 (plan/76 Batch 0): payload 429 didelegasikan ke api_error()
+//  (helpers/api_helper.php) — satu choke-point JSON. Body mempertahankan
+//  SEMUA key legacy root {success, error, message, retry_after} + status
+//  429 + Content-Type: application/json; envelope menambah key additive
+//  {errors, data, code} (paritas semantik; urutan key JSON tidak relevan
+//  bagi konsumen — semua parse via JSON.parse/r.json()).
 // ===================================================================
 
 /**
@@ -29,13 +36,21 @@ function rate_limit_message($remaining_seconds) {
  * @param array $throttle Hasil Rate_limit_model::check()
  */
 function rate_limit_json_response($throttle) {
-    set_status_header(429);
-    header('Content-Type: application/json');
-    echo json_encode([
-        'success'     => false,
-        'error'       => 'too_many_attempts',
-        'message'     => rate_limit_message($throttle['remaining_seconds']),
-        'retry_after' => (int) $throttle['remaining_seconds'],
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
+    if ( ! function_exists('api_error') && file_exists(APPPATH . 'helpers/api_helper.php')) {
+        require_once APPPATH . 'helpers/api_helper.php';
+    }
+
+    $message = rate_limit_message($throttle['remaining_seconds']);
+
+    api_error(
+        $message,
+        429,
+        [],
+        'too_many_attempts',
+        [
+            'error'       => 'too_many_attempts',
+            'message'     => $message,
+            'retry_after' => (int) $throttle['remaining_seconds'],
+        ]
+    );
 }

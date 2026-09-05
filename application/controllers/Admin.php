@@ -13,6 +13,9 @@ class Admin extends CI_Controller {
         $this->load->library('session');
         $this->load->helper('url');
         $this->load->library('pagination');
+        // M9/P7 (plan/76 Batch D): choke-point JSON helper (Admin extends
+        // CI_Controller — helper, bukan method MY_Controller).
+        $this->load->helper('api');
 
         if (!$this->session->userdata('admin_id')) {
             redirect('control-panel');
@@ -1018,8 +1021,9 @@ class Admin extends CI_Controller {
 
     public function toggle_registration() {
         if ($this->input->method() !== 'post') {
-            $this->output->set_status_header(405)->set_output(json_encode(['success' => false, 'error' => 'Method not allowed']));
-            return;
+            // M9/P7 (plan/76 Batch D): 405 kini membawa Content-Type JSON
+            // (dulu body JSON tanpa header) + legacy `error` alias.
+            api_error('Method not allowed', 405, [], 'method_not_allowed', ['error' => 'Method not allowed']);
         }
 
         $this->load->model('Admin_model');
@@ -1041,16 +1045,19 @@ class Admin extends CI_Controller {
         $this->db->trans_complete();
 
         $success = $this->db->trans_status();
+        $is_open = ($new_value === '1');
 
-        $this->output
-            ->set_content_type('application/json')
-            ->set_output(json_encode([
-                'success' => $success,
-                'is_open' => ($new_value === '1'),
-                'message' => !$success
-                    ? 'Gagal mengubah pengaturan pendaftaran.'
-                    : (($new_value === '1') ? 'Pendaftaran dibuka' : 'Pendaftaran ditutup')
-            ]));
+        if ($success) {
+            $message = $is_open ? 'Pendaftaran dibuka' : 'Pendaftaran ditutup';
+            // Envelope + legacy root {is_open, message} (dibaca dashboard.php).
+            api_success(['is_open' => $is_open], $message, 200, ['is_open' => $is_open, 'message' => $message]);
+        }
+
+        // Gagal transaksi: HTTP 500 + legacy {is_open, message} + alias
+        // `error` — dashboard.php membaca data.error (bug "Unknown error"
+        // plan/76 §4.4 kini tertutup).
+        $message = 'Gagal mengubah pengaturan pendaftaran.';
+        api_error($message, 500, [], 'toggle_failed', ['is_open' => $is_open, 'message' => $message, 'error' => $message]);
     }
 
     // ===================================================================
@@ -1061,9 +1068,15 @@ class Admin extends CI_Controller {
         $this->load->model('Admin_model');
         $days = max(1, min(90, intval($this->input->get('days', TRUE) ?: 7)));
         $chart = $this->Admin_model->get_revenue_chart_data($days);
-        $this->output
-            ->set_content_type('application/json')
-            ->set_output(json_encode($chart));
+
+        // M9/P7 (plan/76 Batch D): endpoint data-native — payload key `data`
+        // (deret revenue) BERBENTURAN dengan key envelope `data`, sehingga
+        // nesting penuh {data:{labels,data}} mustahil tanpa merusak konsumen
+        // (footer.php chart: json.data = deret revenue, json.labels).
+        // Solusi zero-regression: root TETAP {labels, data} (legacy) + additif
+        // {success:true, message:''} — konsumen tidak berubah (deviasi
+        // terdokumentasi di plan/77 §3).
+        api_success(null, '', 200, ['labels' => $chart['labels'], 'data' => $chart['data']]);
     }
 
     // ===================================================================
@@ -1100,16 +1113,14 @@ class Admin extends CI_Controller {
         $xray = $this->Admin_model->get_user_xray($user_id);
 
         if (!$xray) {
-            $this->output
-                ->set_content_type('application/json')
-                ->set_status_header(404)
-                ->set_output(json_encode(['success' => false, 'error' => 'User not found']));
-            return;
+            // M9/P7 (plan/76 Batch D): 404 envelope + legacy `error` alias
+            // (analytics.php openXray() membaca json.error).
+            api_error('User not found', 404, [], 'not_found', ['error' => 'User not found']);
         }
 
-        $this->output
-            ->set_content_type('application/json')
-            ->set_output(json_encode(['success' => true, 'data' => $xray]));
+        // Envelope {success:true, data: xray} — bentuk `data` tidak berubah
+        // (analytics.php membaca json.data.user / total_credit / dst).
+        api_success($xray, '', 200);
     }
 
 

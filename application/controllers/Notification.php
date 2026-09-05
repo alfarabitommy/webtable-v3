@@ -5,6 +5,8 @@ class Notification extends MY_Controller {
 
     public function __construct() {
         parent::__construct();
+        // M9/P7 (plan/76): choke-point JSON helper — envelope terstandar.
+        $this->load->helper('api');
     }
 
     /**
@@ -26,35 +28,32 @@ class Notification extends MY_Controller {
 
     /**
      * AJAX POST /notification/mark_all_read
+     *
+     * M9/P7 (plan/76 Batch A): envelope {success, message, data:{unread_count}}
+     * + key legacy root `unread_count`; unauthenticated -> HTTP 401 JSON
+     * (dulu 200 {success:false,error}). Konsumen (notification/index.php,
+     * templates/header.php) hanya membaca `success` — tanpa perubahan view.
      */
     public function mark_all_read() {
-        header('Content-Type: application/json');
-
         $user_id = $this->session->userdata('user_id');
         if (!$user_id) {
-            echo json_encode(['success' => false, 'error' => 'Unauthorized']);
-            exit;
+            api_error('Sesi habis. Silakan login ulang.', 401, [], 'unauthenticated', ['error' => 'Unauthorized']);
         }
 
         $this->Notification_model->mark_read($user_id);
-        echo json_encode(['success' => true, 'unread_count' => 0]);
-        exit;
+        api_success(['unread_count' => 0], '', 200, ['unread_count' => 0]);
     }
 
     /**
      * AJAX POST /notification/mark_read_single/{id}
      */
     public function mark_read_single($id) {
-        header('Content-Type: application/json');
-
         $user_id = $this->session->userdata('user_id');
         if (!$user_id) {
-            echo json_encode(['success' => false, 'error' => 'Unauthorized']);
-            exit;
+            api_error('Sesi habis. Silakan login ulang.', 401, [], 'unauthenticated', ['error' => 'Unauthorized']);
         }
 
         $this->Notification_model->mark_single_read((int) $id, $user_id);
-        echo json_encode(['success' => true]);
-        exit;
+        api_success(null, '', 200);
     }
 }

@@ -14,6 +14,8 @@ class Auth extends CI_Controller {
         $this->load->model('User_model');
         $this->load->model('Rate_limit_model');
         $this->load->helper('ratelimit');
+        // M9/P7 (plan/76 Batch C): choke-point JSON helper.
+        $this->load->helper('api');
     }
 
     // ─── PHONE NORMALIZER ──────────────────────────────
@@ -329,11 +331,23 @@ class Auth extends CI_Controller {
 
         $challenge = $this->_issue_captcha();
 
-        $this->output->set_content_type('application/json');
-        $this->output->set_output(json_encode(array(
-            'svg'        => $challenge['svg'],
-            'expires_in' => self::CAPTCHA_TTL_SECONDS,
-        ), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT));
+        // M9/P7 (plan/76 Batch C): envelope {success, message,
+        // data:{svg, expires_in}} + key legacy root `svg`/`expires_in`
+        // (dibaca auth/login.php & auth/register.php). HTTP TETAP 200 —
+        // konsumen mengecek res.ok (fallback reload). Enkoder choke-point
+        // memakai flag JSON_HEX_* (parity encoding lama di endpoint ini).
+        api_success(
+            [
+                'svg'        => $challenge['svg'],
+                'expires_in' => self::CAPTCHA_TTL_SECONDS,
+            ],
+            '',
+            200,
+            [
+                'svg'        => $challenge['svg'],
+                'expires_in' => self::CAPTCHA_TTL_SECONDS,
+            ]
+        );
     }
 
     // ─── LOGOUT ───────────────────────────────────────
