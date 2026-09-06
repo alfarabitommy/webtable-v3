@@ -58,29 +58,66 @@
     <?php else: ?>
 
     <?php foreach ($products as $product): ?>
-    <div class="u-card-gpu rounded-2xl p-4 shadow-sm flex flex-col">
-        <img src="https://placehold.co/400x150/f8fafc/94a3b8?text=<?= urlencode($product['name']) ?>" class="rounded-xl object-cover h-28 w-full mb-3" alt="<?= htmlspecialchars($product['name']) ?>">
+    <?php
+        // plan/83 — tiga state kartu: A available / B locked / C quota reached.
+        $is_locked   = !empty($product['is_locked']);
+        $is_exhausted = !empty($product['is_quota_exhausted']);
+    ?>
+    <div class="u-card-gpu rounded-2xl p-4 shadow-sm flex flex-col <?= $is_locked ? 'opacity-60 saturate-50' : ($is_exhausted ? 'opacity-75' : '') ?>">
+        <div class="relative">
+            <img src="https://placehold.co/400x150/f8fafc/94a3b8?text=<?= urlencode($product['name']) ?>" class="rounded-xl object-cover h-28 w-full mb-3" alt="<?= htmlspecialchars($product['name']) ?>">
+            <?php if ($is_locked): ?>
+            <span class="absolute top-2 left-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/90 text-white text-[10px] font-bold shadow-lg">
+                <i class="fas fa-lock text-[9px]"></i> Terkunci
+            </span>
+            <?php endif; ?>
+        </div>
 
         <h3 class="text-base font-bold u-text"><?= htmlspecialchars($product['name']) ?></h3>
-        <p class="text-xs u-text-2 mt-1 leading-relaxed"><?= htmlspecialchars($product['description'] ?? '') ?></p>
+
+        <!-- Quota badge (plan/83): selalu tampil — Maks./Tersisa atau Tanpa Batas -->
+        <span class="mt-1.5 inline-flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full w-fit <?= $product['can_rent'] ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-slate-500/10 u-muted' ?>">
+            <i class="fas fa-gauge-high text-[9px]"></i>
+            <?php if (!empty($product['is_unlimited'])): ?>
+                Batas Sewa: Tanpa Batas
+            <?php else: ?>
+                Batas Sewa: Maks. <?= (int) $product['quota_max'] ?> (Tersisa: <?= (int) $product['quota_remaining'] ?>)
+            <?php endif; ?>
+        </span>
 
         <div class="flex items-center gap-4 mt-3">
             <div>
                 <span class="text-[10px] u-muted font-semibold uppercase tracking-wider">Harga Sewa</span>
-                <p class="text-lg font-extrabold u-text">Rp <?= number_format($product['price'], 0, ',', '.') ?></p>
+                <p class="text-lg font-extrabold u-text">Rp <?= number_format((int) $product['price'], 0, ',', '.') ?></p>
             </div>
             <div class="ml-auto text-right">
                 <span class="text-[10px] u-muted font-semibold uppercase tracking-wider">ROI Harian</span>
-                <p class="text-sm font-bold text-emerald-500">Rp <?= number_format($product['daily_rate'], 0, ',', '.') ?></p>
+                <p class="text-sm font-bold text-emerald-500">Rp <?= number_format((int) $product['daily_rate'], 0, ',', '.') ?></p>
             </div>
         </div>
 
-        <button class="btn-sewa w-full h-12 u-btn-cyber rounded-xl font-bold mt-3 transition-all active:scale-[0.98]"
-                data-id="<?= $product['id'] ?>"
-                data-name="<?= htmlspecialchars($product['name']) ?>"
-                data-price="<?= $product['price'] ?>">
-            Sewa Sekarang
-        </button>
+        <?php if ($product['can_rent']): ?>
+            <!-- State A — Available: satu-satunya tombol .btn-sewa (binding JS modal) -->
+            <button class="btn-sewa w-full h-12 u-btn-cyber rounded-xl font-bold mt-3 transition-all active:scale-[0.98]"
+                    data-id="<?= (int) $product['id'] ?>"
+                    data-name="<?= htmlspecialchars($product['name']) ?>"
+                    data-price="<?= (int) $product['price'] ?>">
+                Sewa Sekarang
+            </button>
+        <?php elseif ($is_locked): ?>
+            <!-- State B — Locked 🔒: prasyarat belum pernah disewa -->
+            <button type="button" disabled
+                    class="w-full h-12 u-btn-ghost rounded-xl font-bold mt-3 cursor-not-allowed opacity-90 inline-flex items-center justify-center gap-2">
+                <i class="fas fa-lock text-amber-500 dark:text-amber-400"></i>
+                Terkunci — Sewa <?= htmlspecialchars($product['prerequisite_name']) ?> dahulu
+            </button>
+        <?php else: ?>
+            <!-- State C — Quota reached: kuota lifetime habis -->
+            <button type="button" disabled
+                    class="w-full h-12 u-btn-ghost rounded-xl font-bold mt-3 cursor-not-allowed opacity-80 inline-flex items-center justify-center gap-2">
+                <i class="fas fa-ban"></i> Batas Maksimal Tercapai
+            </button>
+        <?php endif; ?>
     </div>
     <?php endforeach; ?>
 

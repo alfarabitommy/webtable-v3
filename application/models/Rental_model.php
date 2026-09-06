@@ -52,21 +52,30 @@ class Rental_model extends CI_Model {
     }
 
     /**
-     * C5 (plan/48): ACID checkout anti-overspend — debit wallet_ledger +
-     * buat user_rentals dalam SATU transaksi terkunci.
+     * C5 (plan/48) + plan/83: ACID checkout anti-overspend + GATING ENGINE —
+     * debit wallet_ledger + buat user_rentals dalam SATU transaksi terkunci.
      *   1. trans_begin() eksplisit + try/catch (gaya claim_roi, plan/44).
      *   2. lock_and_get_balance() (Wallet_model) — kunci anchor users + saldo
      *      segar otoritatif sebagai statement pertama (serialisasi semua
      *      debit per-user: checkout vs penarikan vs checkout lain).
-     *   3. Penolakan overspend STRICT: fresh_balance < price → rollback +
+     *   3. plan/83 GATE 0 — snapshot produk SEGAR dari DB setelah lock wait
+     *      (menutup TOCTOU fetch controller): baris wajib ada & is_active=1,
+     *      price/roi/duration/gating diambil dari snapshot (bukan argumen).
+     *   4. plan/83 GATE 1 & GATE 2 — asersi prasyarat & kuota dalam TX
+     *      terkunci (read view dibuat SETELAH lock wait → bebas race
+     *      double-checkout melewati kuota; rejection TIDAK pernah menyentuh
+     *      wallet_ledger — immutability Z1).
+     *   5. Penolakan overspend STRICT: fresh_balance < price → rollback +
      *      code 'insufficient' (audit C5; pre-check controller hanya UX).
-     *   4. Insert debit wallet_ledger + user_rentals (active) → commit.
+     *   6. Insert debit wallet_ledger + user_rentals (active) → commit.
      *
      * @param int   $user_id
-     * @param array $product Produk dari Product_model::get_product()
-     *                       (id, name, price, daily_rate, duration_days)
+     * @param array $product Produk dari Product_model::get_product() — hanya
+     *                       dipakai untuk id & UX fast-fail; nilai finansial
+     *                       & gating otoritatif diambil ulang di GATE 0.
      * @return array{success:bool, code:string, message:string, rental_id:int|null}
-     *   code: 'ok' | 'insufficient' | 'error'
+     *   code: 'ok' | 'product_unavailable' | 'locked' | 'quota_exceeded'
+     *         | 'insufficient' | 'error'
      */
     public function checkout_rental($user_id, $product) {
         $this->db->trans_begin();
@@ -80,19 +89,80 @@ class Rental_model extends CI_Model {
                 return ['success' => false, 'code' => 'error', 'message' => 'Sistem: Gagal memotong saldo atau membuat kontrak sewa.', 'rental_id' => null];
             }
 
-            // 2. Penolakan overspend STRICT di dalam TX terkunci.
-            //    (M8: fresh_balance int & harga produk di-(int) kan.)
+            // 2. GATE 0 (plan/83) — snapshot produk SEGAR + nama prasyarat
+            //    (current read SETELAH lock wait). Baris hilang / non-aktif →
+            //    tolak: produk non-aktif tidak boleh dibeli via POST tamper.
+            $product = $this->db->query(
+                "SELECT p.id, p.name, p.price, p.daily_rate, p.duration_days,
+                        p.is_active, p.max_per_user, p.unlock_prerequisite_id,
+                        pr.name AS prerequisite_name
+                   FROM gpu_products p
+                   LEFT JOIN gpu_products pr ON pr.id = p.unlock_prerequisite_id
+                  WHERE p.id = ?",
+                [(int) $product['id']]
+            )->row_array();
+
+            if (!$product || (int) $product['is_active'] !== 1) {
+                $this->db->trans_rollback();
+                return ['success' => false, 'code' => 'product_unavailable', 'message' => 'Sistem: Produk tidak ditemukan di database.', 'rental_id' => null];
+            }
+
+            // 3. GATE 1 & GATE 2 (plan/83) — hitung SATU pasang COUNT dalam
+            //    TX terkunci: kepemilikan produk ini & kepemilikan prasyarat.
+            //    Predikat D1: status IN ('active','completed'); 'cancelled'
+            //    tidak memenuhi prasyarat & tidak memakan kuota.
+            $prereq_id = ($product['unlock_prerequisite_id'] !== null)
+                ? (int) $product['unlock_prerequisite_id']
+                : (int) $product['id']; // tanpa prasyarat → count sendiri tak dipakai
+            $gates = $this->db->query(
+                "SELECT
+                    (SELECT COUNT(*) FROM user_rentals ur
+                      WHERE ur.user_id = ? AND ur.product_id = ?
+                        AND ur.status IN ('active','completed')) AS own_count,
+                    (SELECT COUNT(*) FROM user_rentals ur2
+                      WHERE ur2.user_id = ? AND ur2.product_id = ?
+                        AND ur2.status IN ('active','completed')) AS prereq_count",
+                [$user_id, (int) $product['id'], $user_id, $prereq_id]
+            )->row();
+
+            if (!$gates) {
+                $this->db->trans_rollback();
+                log_message('error', 'Rental_model::checkout_rental — gate count gagal (user=' . (int) $user_id . ', product=' . (int) $product['id'] . ')');
+                return ['success' => false, 'code' => 'error', 'message' => 'Sistem: Gagal memproses sewa. Coba lagi.', 'rental_id' => null];
+            }
+
+            // GATE 1 — paket terkunci sampai prasyarat pernah disewa ≥1x.
+            if ($product['unlock_prerequisite_id'] !== null
+                && (int) $gates->prereq_count < 1) {
+                $this->db->trans_rollback();
+                return ['success' => false, 'code' => 'locked',
+                    'message' => 'Sistem: Paket ini masih terkunci. Sewa '
+                        . $product['prerequisite_name'] . ' dahulu untuk membukanya.',
+                    'rental_id' => null];
+            }
+
+            // GATE 2 — kuota lifetime (0 = tanpa batas).
+            $max = (int) $product['max_per_user'];
+            if ($max > 0 && (int) $gates->own_count >= $max) {
+                $this->db->trans_rollback();
+                return ['success' => false, 'code' => 'quota_exceeded',
+                    'message' => 'Sistem: Batas maksimal sewa paket ini telah tercapai (Maks. ' . $max . ').',
+                    'rental_id' => null];
+            }
+
+            // 4. Penolakan overspend STRICT di dalam TX terkunci.
+            //    (M8: fresh_balance int & harga snapshot di-(int) kan.)
             if ($fresh_balance < (int) $product['price']) {
                 $this->db->trans_rollback();
                 return ['success' => false, 'code' => 'insufficient', 'message' => 'Sistem: Saldo USC/IDR Anda tidak mencukupi.', 'rental_id' => null];
             }
 
-            // 3. Debit via ledger ingestion helper (ledger + cache atomik C4/W3);
+            // 5. Debit via ledger ingestion helper (ledger + cache atomik C4/W3);
             //    kegagalan → rollback seluruh TX (tidak ada kontrak tanpa debit).
             $debited = $this->Wallet_model->debit(
                 $user_id,
                 (int) $product['price'],
-                'RENT-' . $product['id'] . '-' . date('YmdHis'),
+                'RENT-' . (int) $product['id'] . '-' . date('YmdHis'),
                 'Sewa ' . $product['name']
             );
 
@@ -101,16 +171,16 @@ class Rental_model extends CI_Model {
                 return ['success' => false, 'code' => 'error', 'message' => 'Sistem: Gagal memotong saldo atau membuat kontrak sewa.', 'rental_id' => null];
             }
 
-            // 4. Buat kontrak sewa (dengan expired_at = now + duration_days)
+            // 6. Buat kontrak sewa (dengan expired_at = now + duration_days)
             //    M8: snapshot harga & ROI harian disimpan sebagai integer IDR.
             $this->db->insert('user_rentals', [
                 'user_id'        => $user_id,
-                'product_id'     => $product['id'],
+                'product_id'     => (int) $product['id'],
                 'purchase_price' => (int) $product['price'],
                 'daily_roi'      => (int) $product['daily_rate'],
-                'total_days'     => $product['duration_days'],
+                'total_days'     => (int) $product['duration_days'],
                 'status'         => 'active',
-                'expired_at'     => date('Y-m-d H:i:s', strtotime('+' . $product['duration_days'] . ' days')),
+                'expired_at'     => date('Y-m-d H:i:s', strtotime('+' . (int) $product['duration_days'] . ' days')),
             ]);
             $rental_id = $this->db->insert_id();
 

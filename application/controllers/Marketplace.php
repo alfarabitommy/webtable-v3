@@ -10,11 +10,13 @@ class Marketplace extends MY_Controller {
     }
 
     public function index() {
-        // Single source of truth: Product_model handles DB + mock fallback
-        $products = $this->Product_model->get_all_active_products();
+        // plan/83: katalog ter-personalisasi — produk aktif + telemetri gating
+        // & kuota per user (prasyarat/limit). Otoritas gate tetap di
+        // Rental_model::checkout_rental (TX terkunci); data ini hanya display.
+        $user_id = $this->session->userdata('user_id');
+        $products = $this->Product_model->get_catalog_for_user($user_id);
 
         // User wallet balance (real from DB)
-        $user_id = $this->session->userdata('user_id');
         $user_balance = $user_id ? $this->Wallet_model->get_balance($user_id) : 0;
 
         $data = [

@@ -42,10 +42,18 @@ CREATE TABLE IF NOT EXISTS `gpu_products` (
   `daily_rate` DECIMAL(15,2) NOT NULL,
   `duration_days` INT UNSIGNED NOT NULL,
   `is_refundable` TINYINT(1) NOT NULL DEFAULT 0,
+  -- plan/83: gating & per-user purchase limits engine.
+  -- 0 = unlimited; N >= 1 = lifetime rental cap per user.
+  `max_per_user` INT UNSIGNED NOT NULL DEFAULT 0,
+  -- plan/83: paket terkunci sampai paket prasyarat disewa >= 1x
+  -- (user_rentals status active/completed). Self-referencing FK.
+  `unlock_prerequisite_id` INT UNSIGNED NULL DEFAULT NULL,
   `is_active` TINYINT(1) NOT NULL DEFAULT 1,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  INDEX `idx_unlock_prerequisite` (`unlock_prerequisite_id`),
+  CONSTRAINT `fk_gpu_products_unlock_prereq` FOREIGN KEY (`unlock_prerequisite_id`) REFERENCES `gpu_products` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------
@@ -290,22 +298,26 @@ CREATE TABLE IF NOT EXISTS `rate_limits` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------
--- Seed `gpu_products` (plan/82): DB canonical — Product_model tidak lagi
+-- Seed `gpu_products` (plan/82 + plan/83): DB canonical — Product_model tidak lagi
 -- memakai fallback mock. 8 paket komersial final (id 1-8 eksplisit agar
 -- referensi `user_rentals.product_id` lama tetap valid; nilai adalah lineup
 -- resmi Rp 150.000 s.d. Rp 10.000.000, semuanya integer IDR).
+-- plan/83: kolom gating & limits engine ditambahkan — `max_per_user` (0 =
+-- tanpa batas) dan `unlock_prerequisite_id` (rantai progresif 4→5→6→7→8;
+-- paket prasyarat harus pernah disewa ≥1x, status active/completed).
 -- Idempotent-uppsert: ON DUPLICATE KEY UPDATE menyegarkan baris id 1-4 bila
--- sudah ada (migrasi lineup) dan menyisipkan id 5-8 pada instalasi bersih.
+-- sudah ada (migrasi lineup), menyisipkan id 5-8 pada instalasi bersih, dan
+-- mengunci nilai gating/limits kanonik pada setiap re-run.
 -- -----------------------------------------------------
-INSERT INTO `gpu_products` (`id`, `name`, `type`, `price`, `daily_rate`, `duration_days`, `is_refundable`, `is_active`) VALUES
-(1, 'RTX 3060 Starter', 'short_term', 150000.00, 7500.00, 25, 0, 1),
-(2, 'RTX 4060 Lite', 'short_term', 300000.00, 13500.00, 30, 0, 1),
-(3, 'RTX 4070 Basic', 'short_term', 600000.00, 28000.00, 30, 0, 1),
-(4, 'RTX 4080 Prime', 'short_term', 1200000.00, 57600.00, 35, 0, 1),
-(5, 'RTX 4090 Pro', 'long_term', 2500000.00, 125000.00, 40, 0, 1),
-(6, 'A100 Cloud Cluster', 'long_term', 4500000.00, 234000.00, 45, 0, 1),
-(7, 'H100 Tensor Node', 'long_term', 7000000.00, 378000.00, 50, 0, 1),
-(8, 'H200 Sovereign', 'long_term', 10000000.00, 560000.00, 60, 0, 1)
+INSERT INTO `gpu_products` (`id`, `name`, `type`, `price`, `daily_rate`, `duration_days`, `is_refundable`, `max_per_user`, `unlock_prerequisite_id`, `is_active`) VALUES
+(1, 'RTX 3060 Starter', 'short_term', 150000.00, 7500.00, 25, 0, 1, NULL, 1),
+(2, 'RTX 4060 Lite', 'short_term', 300000.00, 13500.00, 30, 0, 2, NULL, 1),
+(3, 'RTX 4070 Basic', 'short_term', 600000.00, 28000.00, 30, 0, 3, NULL, 1),
+(4, 'RTX 4080 Prime', 'short_term', 1200000.00, 57600.00, 35, 0, 5, NULL, 1),
+(5, 'RTX 4090 Pro', 'long_term', 2500000.00, 125000.00, 40, 0, 5, 4, 1),
+(6, 'A100 Cloud Cluster', 'long_term', 4500000.00, 234000.00, 45, 0, 5, 5, 1),
+(7, 'H100 Tensor Node', 'long_term', 7000000.00, 378000.00, 50, 0, 0, 6, 1),
+(8, 'H200 Sovereign', 'long_term', 10000000.00, 560000.00, 60, 0, 0, 7, 1)
 ON DUPLICATE KEY UPDATE 
   `name` = VALUES(`name`),
   `type` = VALUES(`type`),
@@ -313,6 +325,8 @@ ON DUPLICATE KEY UPDATE
   `daily_rate` = VALUES(`daily_rate`),
   `duration_days` = VALUES(`duration_days`),
   `is_refundable` = VALUES(`is_refundable`),
+  `max_per_user` = VALUES(`max_per_user`),
+  `unlock_prerequisite_id` = VALUES(`unlock_prerequisite_id`),
   `is_active` = VALUES(`is_active`);
 
 SET FOREIGN_KEY_CHECKS = 1;
