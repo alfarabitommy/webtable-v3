@@ -290,17 +290,29 @@ CREATE TABLE IF NOT EXISTS `rate_limits` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------
--- Seed `gpu_products` (P4, plan/80): DB canonical — Product_model tidak lagi
--- memakai fallback mock. 4 paket standar UAT (id 1-4 eksplisit agar referensi
--- `user_rentals.product_id` lama tetap valid; nilai mengikuti katalog mock lama
--- sehingga UI marketplace identik sebelum/sesudah refactor).
--- Idempotent: INSERT IGNORE tidak menggagalkan import saat baris sudah ada.
+-- Seed `gpu_products` (plan/82): DB canonical — Product_model tidak lagi
+-- memakai fallback mock. 8 paket komersial final (id 1-8 eksplisit agar
+-- referensi `user_rentals.product_id` lama tetap valid; nilai adalah lineup
+-- resmi Rp 150.000 s.d. Rp 10.000.000, semuanya integer IDR).
+-- Idempotent-uppsert: ON DUPLICATE KEY UPDATE menyegarkan baris id 1-4 bila
+-- sudah ada (migrasi lineup) dan menyisipkan id 5-8 pada instalasi bersih.
 -- -----------------------------------------------------
-INSERT IGNORE INTO `gpu_products`
-(`id`, `name`, `type`, `price`, `daily_rate`, `duration_days`, `is_refundable`, `is_active`) VALUES
-(1, 'NVIDIA RTX 4090 Node',   'short_term', 1500000, 45000,  30, 0, 1),
-(2, 'AMD MI300X Cluster',     'long_term',  3500000, 120000, 90, 0, 1),
-(3, 'Cloud VPS Enterprise',   'short_term', 750000,  22000,  30, 0, 1),
-(4, 'AI Inference Pod',       'long_term',  2000000, 65000,  60, 0, 1);
+INSERT INTO `gpu_products` (`id`, `name`, `type`, `price`, `daily_rate`, `duration_days`, `is_refundable`, `is_active`) VALUES
+(1, 'RTX 3060 Starter', 'short_term', 150000.00, 7500.00, 25, 0, 1),
+(2, 'RTX 4060 Lite', 'short_term', 300000.00, 13500.00, 30, 0, 1),
+(3, 'RTX 4070 Basic', 'short_term', 600000.00, 28000.00, 30, 0, 1),
+(4, 'RTX 4080 Prime', 'short_term', 1200000.00, 57600.00, 35, 0, 1),
+(5, 'RTX 4090 Pro', 'long_term', 2500000.00, 125000.00, 40, 0, 1),
+(6, 'A100 Cloud Cluster', 'long_term', 4500000.00, 234000.00, 45, 0, 1),
+(7, 'H100 Tensor Node', 'long_term', 7000000.00, 378000.00, 50, 0, 1),
+(8, 'H200 Sovereign', 'long_term', 10000000.00, 560000.00, 60, 0, 1)
+ON DUPLICATE KEY UPDATE 
+  `name` = VALUES(`name`),
+  `type` = VALUES(`type`),
+  `price` = VALUES(`price`),
+  `daily_rate` = VALUES(`daily_rate`),
+  `duration_days` = VALUES(`duration_days`),
+  `is_refundable` = VALUES(`is_refundable`),
+  `is_active` = VALUES(`is_active`);
 
 SET FOREIGN_KEY_CHECKS = 1;
