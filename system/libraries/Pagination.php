@@ -523,7 +523,10 @@ class CI_Pagination {
 		}
 
 		// If something isn't quite right, back to the default base page.
-		if ( ! ctype_digit($this->cur_page) OR ($this->use_page_numbers && (int) $this->cur_page === 0))
+		// (string) cast: PHP 8.1+ deprecation on ctype_digit(null) when a
+		// page_query_string segment is absent; NULL → '' → falls back to
+		// $base_page — behavior identical, deprecation-free (plan/80 follow-up).
+		if ( ! ctype_digit((string) $this->cur_page) OR ($this->use_page_numbers && (int) $this->cur_page === 0))
 		{
 			$this->cur_page = $base_page;
 		}

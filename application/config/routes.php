@@ -43,3 +43,6 @@ $route['help'] = 'help/index';
 
 // Phase 9: Notifications (AJAX)
 $route['user/read_notifications'] = 'user/read_notifications';
+
+// P3 (plan/80): notification history page — pretty URL parity (team/profile/help)
+$route['notification'] = 'notification/index';

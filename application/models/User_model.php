@@ -97,6 +97,14 @@ class User_model extends CI_Model {
     // ============================================================
 
     /**
+     * Level 1 one-time bonus (PRD v5: Rp 80.000 — 3 downline B aktif
+     * + omset B ≥ Rp 330.000). Single source of truth (P5, plan/80):
+     * semua kredit, pesan sukses, notifikasi, dan tampilan view memakai
+     * konstanta ini — perubahan tier otomatis tercermin di notifikasi.
+     */
+    const LEVEL1_BONUS = 80000;
+
+    /**
      * Wage tier thresholds (active downline count breakpoints)
      */
     const WAGE_TIERS = [
@@ -255,10 +263,10 @@ class User_model extends CI_Model {
     }
 
     /**
-     * Claim Level 1 bonus (one-time Rp 80.000)
+     * Claim Level 1 bonus (one-time — User_model::LEVEL1_BONUS)
      * ACID transaction with double-claim guard
      * @param int $user_id
-     * @return array ['success' => bool, 'message' => string]
+     * @return array ['success' => bool, 'amount' => int, 'message' => string]
      */
     public function claim_level1($user_id) {
         // C4 (plan/54) W8: kredit via Wallet_model::credit() (ledger + cache
@@ -301,11 +309,12 @@ class User_model extends CI_Model {
             }
 
             // 4. Kredit ledger + cache atomik (helper C4; TANPA update manual
-            //    users.balance — sudah ditangani helper).
+            //    users.balance — sudah ditangani helper). Jumlah dari
+            //    LEVEL1_BONUS (single source of truth — P5, plan/80).
             $tx_id = 'L1-' . $user_id . '-' . date('YmdHis');
             $credited = $this->Wallet_model->credit(
                 (int) $user_id,
-                80000,
+                self::LEVEL1_BONUS,
                 $tx_id,
                 'Bonus Level 1 — 3 Agen Aktif + Omset ≥330rb'
             );
@@ -317,7 +326,11 @@ class User_model extends CI_Model {
 
             $this->db->trans_commit();
 
-            return ['success' => true, 'message' => 'Bonus Level 1 Rp 80.000 berhasil diklaim!'];
+            return [
+                'success' => true,
+                'amount'  => (int) self::LEVEL1_BONUS,
+                'message' => 'Bonus Level 1 Rp ' . number_format(self::LEVEL1_BONUS, 0, ',', '.') . ' berhasil diklaim!',
+            ];
 
         } catch (Throwable $e) {
             if ($this->db->trans_status() !== false) {

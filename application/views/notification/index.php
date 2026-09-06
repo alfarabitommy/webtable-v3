@@ -118,6 +118,11 @@
             <?php endforeach; ?>
         <?php endif; ?>
     </div>
+
+    <!-- Pagination (P3 plan/80) — tampil hanya saat lebih dari satu halaman -->
+    <?php if ($total > $per_page): ?>
+        <?= $pagination ?>
+    <?php endif; ?>
 </div>
 
 <script>

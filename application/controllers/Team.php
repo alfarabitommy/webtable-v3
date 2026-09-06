@@ -50,6 +50,9 @@ class Team extends MY_Controller {
             'l2_active'  => $l2_active,
             'ref_url'    => base_url('register?ref=' . $user->invite_code),
             'claim_data' => $claim_data,
+            // P5 (plan/80): single source of truth untuk tampilan bonus L1.
+            'l1_bonus'     => User_model::LEVEL1_BONUS,
+            'l1_bonus_fmt' => number_format(User_model::LEVEL1_BONUS, 0, ',', '.'),
         ];
 
         $this->load->view('templates/header', $data);
@@ -88,11 +91,13 @@ class Team extends MY_Controller {
         // users.balance yang basi (parity dengan claim_wage).
         $result['new_balance'] = $this->Wallet_model->get_balance($user_id);
 
-        // Notify user
+        // Notify user — jumlah dinamis dari $result['amount'] (P5, plan/80):
+        // parity gaya claim_wage, tier berubah → notifikasi ikut berubah.
         $this->Notification_model->insert(
             $user_id,
             'Bonus Level 1 Cair',
-            'Selamat! Bonus Level 1 sebesar Rp 80.000 telah masuk ke saldo.',
+            'Selamat! Bonus Level 1 sebesar Rp ' . number_format((int) $result['amount'], 0, ',', '.')
+                . ' telah masuk ke saldo.',
             'commission'
         );
 

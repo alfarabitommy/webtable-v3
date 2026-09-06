@@ -18,7 +18,45 @@
     </div>
     <?php endif; ?>
 
-    <!-- ═══ Product Cards (Phase 32: .u-card-gpu — neural surface + cyan glow border) ═══ -->
+    <!-- ═══ Product Cards (Phase 32: .u-card-gpu — neural surface + cyan glow border) ═══
+         P4 (plan/80): DB canonical — zero/all-inactive products renders an
+         empty-state card (inline SVG, theme-adaptive). -->
+    <?php if (empty($products)): ?>
+
+        <!-- ═══ Empty State ═══ -->
+        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-6 py-10 text-center shadow-sm">
+            <svg viewBox="0 0 120 100" fill="none" class="w-28 h-24 mx-auto" aria-hidden="true">
+                <!-- GPU server tower -->
+                <rect x="16" y="10" width="52" height="80" rx="9" stroke="currentColor" stroke-width="4"
+                      class="text-slate-300 dark:text-slate-600"/>
+                <rect x="26" y="24" width="32" height="8" rx="4" fill="currentColor" opacity="0.85"
+                      class="text-indigo-400 dark:text-indigo-500"/>
+                <rect x="26" y="42" width="32" height="8" rx="4" fill="currentColor" opacity="0.55"
+                      class="text-indigo-400 dark:text-indigo-500"/>
+                <rect x="26" y="60" width="18" height="8" rx="4" fill="currentColor" opacity="0.3"
+                      class="text-indigo-400 dark:text-indigo-500"/>
+                <!-- Maintenance LED (amber) -->
+                <circle cx="52" cy="76" r="3.5" fill="#f59e0b"/>
+                <circle cx="52" cy="76" r="7.5" stroke="#f59e0b" stroke-opacity="0.35" stroke-width="2"/>
+                <!-- Wrench (pemeliharaan) -->
+                <g class="text-indigo-500 dark:text-indigo-400" stroke="currentColor" stroke-width="4.5"
+                   fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M78 44a9 9 0 1 0 9.2 15.5L103 76l-7 7-13.8-16.5A9 9 0 0 0 78 44z"/>
+                </g>
+            </svg>
+            <h3 class="text-base font-bold u-text mt-4">Belum Ada Paket Tersedia</h3>
+            <p class="text-xs u-text-2 leading-relaxed mt-2 max-w-[260px] mx-auto">
+                Saat ini seluruh unit komputasi sedang penuh atau dalam pemeliharaan.
+                Silakan cek kembali secara berkala.
+            </p>
+            <a href="<?= base_url('marketplace') ?>"
+               class="u-btn-ghost inline-flex items-center gap-2 text-[11px] font-semibold px-4 py-2 rounded-lg mt-5 transition-all active:scale-95">
+                <i class="fas fa-rotate-right text-[10px]"></i> Muat Ulang
+            </a>
+        </div>
+
+    <?php else: ?>
+
     <?php foreach ($products as $product): ?>
     <div class="u-card-gpu rounded-2xl p-4 shadow-sm flex flex-col">
         <img src="https://placehold.co/400x150/f8fafc/94a3b8?text=<?= urlencode($product['name']) ?>" class="rounded-xl object-cover h-28 w-full mb-3" alt="<?= htmlspecialchars($product['name']) ?>">
@@ -45,6 +83,8 @@
         </button>
     </div>
     <?php endforeach; ?>
+
+    <?php endif; ?>
 
 </div>
 

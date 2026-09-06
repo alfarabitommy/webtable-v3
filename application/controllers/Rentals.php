@@ -57,7 +57,7 @@ class Rentals extends MY_Controller {
             redirect('marketplace');
         }
 
-        // 2. Fetch product via model (DB first, mock fallback)
+        // 2. Fetch product via model (DB canonical — P4, plan/80: no mock fallback)
         $product = $this->Product_model->get_product($product_id);
         if (!$product) {
             $this->session->set_flashdata('error', 'Sistem: Produk tidak ditemukan di database.');

@@ -289,4 +289,18 @@ CREATE TABLE IF NOT EXISTS `rate_limits` (
   INDEX `idx_last_attempt_at` (`last_attempt_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- -----------------------------------------------------
+-- Seed `gpu_products` (P4, plan/80): DB canonical — Product_model tidak lagi
+-- memakai fallback mock. 4 paket standar UAT (id 1-4 eksplisit agar referensi
+-- `user_rentals.product_id` lama tetap valid; nilai mengikuti katalog mock lama
+-- sehingga UI marketplace identik sebelum/sesudah refactor).
+-- Idempotent: INSERT IGNORE tidak menggagalkan import saat baris sudah ada.
+-- -----------------------------------------------------
+INSERT IGNORE INTO `gpu_products`
+(`id`, `name`, `type`, `price`, `daily_rate`, `duration_days`, `is_refundable`, `is_active`) VALUES
+(1, 'NVIDIA RTX 4090 Node',   'short_term', 1500000, 45000,  30, 0, 1),
+(2, 'AMD MI300X Cluster',     'long_term',  3500000, 120000, 90, 0, 1),
+(3, 'Cloud VPS Enterprise',   'short_term', 750000,  22000,  30, 0, 1),
+(4, 'AI Inference Pod',       'long_term',  2000000, 65000,  60, 0, 1);
+
 SET FOREIGN_KEY_CHECKS = 1;

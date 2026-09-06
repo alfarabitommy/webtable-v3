@@ -28,13 +28,26 @@ class Notification_model extends CI_Model {
     }
 
     /**
-     * Get all notifications for full history page
+     * Total notifications for a user (pagination count — P3, plan/80)
      */
-    public function get_by_user($user_id, $limit = 100) {
+    public function count_by_user($user_id) {
+        return (int) $this->db
+            ->where('user_id', $user_id)
+            ->count_all_results($this->table);
+    }
+
+    /**
+     * Get notifications for full history page (paginated — P3, plan/80)
+     * @param int $user_id
+     * @param int $limit  items per page (default 15)
+     * @param int $offset zero-based row offset (page * limit)
+     */
+    public function get_by_user($user_id, $limit = 15, $offset = 0) {
         return $this->db
             ->where('user_id', $user_id)
             ->order_by('created_at', 'DESC')
-            ->get($this->table, $limit)
+            ->limit($limit, $offset)
+            ->get($this->table)
             ->result_array();
     }
 

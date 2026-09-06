@@ -35,7 +35,7 @@
             <span class="text-base">🎯</span>
             <h3 class="text-xs font-extrabold text-white uppercase tracking-wider">Misi Level 1</h3>
         </div>
-        <span class="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20">Rp 80.000</span>
+        <span class="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20">Rp <?= $l1_bonus_fmt ?></span>
     </div>
     <p class="text-[10px] text-slate-400 mb-3">Klaim sekali seumur hidup</p>
 
@@ -69,7 +69,7 @@
             </div>
         <?php elseif ($m_agent >= 3 && $m_turnover >= 330000): ?>
             <button id="btn-claim-l1" onclick="claimLevel1()" class="w-full bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold py-3 px-4 rounded-xl transition-all active:scale-[0.97] shadow-lg shadow-indigo-500/20">
-                <i class="fas fa-gift mr-1"></i>Klaim Bonus Rp 80.000
+                <i class="fas fa-gift mr-1"></i>Klaim Bonus Rp <?= $l1_bonus_fmt ?>
             </button>
         <?php else: ?>
             <button disabled class="w-full bg-slate-700 text-slate-400 text-xs font-bold py-3 px-4 rounded-xl cursor-not-allowed border border-slate-600">
@@ -278,7 +278,7 @@
             <!-- Level 1 -->
             <div class="bg-indigo-50 dark:bg-indigo-500/10 rounded-xl p-4 border border-indigo-100 dark:border-indigo-500/20">
                 <h4 class="text-xs font-bold text-indigo-700 dark:text-indigo-300 mb-2"><i class="fas fa-gift mr-1"></i> Bonus Level 1 — Satu Kali</h4>
-                <p class="text-[11px] u-text-2 leading-relaxed mb-2">Dapatkan <b>Rp 80.000</b> (sekali seumur hidup) jika:</p>
+                <p class="text-[11px] u-text-2 leading-relaxed mb-2">Dapatkan <b>Rp <?= $l1_bonus_fmt ?></b> (sekali seumur hidup) jika:</p>
                 <ul class="text-[11px] u-text-2 space-y-1 ml-3 list-disc">
                     <li>Minimal <b>3 downline langsung (B)</b> berstatus aktif</li>
                     <li>Total omset downline B aktif ≥ <b>Rp 330.000</b></li>
@@ -307,6 +307,8 @@
 <!-- QRCode.js CDN -->
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script>
+// P5 (plan/80): label tombol klaim L1 dinamis dari User_model::LEVEL1_BONUS.
+const L1_CLAIM_LABEL = <?= json_encode('Klaim Bonus Level 1 (Rp ' . $l1_bonus_fmt . ')') ?>;
 // Generate QR
 new QRCode(document.getElementById("qrcode"), {
     text: "<?= $ref_url ?>",
@@ -383,13 +385,13 @@ function claimLevel1() {
             showToast(d.message || 'Bonus berhasil diklaim!', 'success');
         } else {
             btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-gift mr-1"></i>Klaim Bonus Level 1 (Rp 80.000)';
+            btn.innerHTML = '<i class="fas fa-gift mr-1"></i>' + L1_CLAIM_LABEL;
             showToast(d.message || 'Gagal klaim', 'error');
         }
     })
     .catch(function() {
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-gift mr-1"></i>Klaim Bonus Level 1 (Rp 80.000)';
+        btn.innerHTML = '<i class="fas fa-gift mr-1"></i>' + L1_CLAIM_LABEL;
         showToast('Terjadi kesalahan jaringan', 'error');
     });
 }
