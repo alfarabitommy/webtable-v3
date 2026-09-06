@@ -7,6 +7,37 @@
 
 > **Headline:** The platform has strong hygiene (CSRF, rate limits, reCAPTCHA fail-closed, audit logging, security headers, bound-param SQL, dual-auth separation), but **the money layer has 4 critical race/double-spend-class vulnerabilities, 1 broken withdrawal schema path, and a dual-ledger drift**, plus meaningful PRD drift in the affiliate/wage engine and zero cron automation.
 
+> ## ✅ REMEDIATION STATUS — ALL FINDINGS CLOSED & VERIFIED (24/24)
+>
+> **This audit report is a historical snapshot.** Every finding logged below — Critical **C1–C7**, Major **M1–M10**, and the Minor/Polish **P-series** — has since been **completely remediated, tested, verified, and pushed to the repository**. See the **Resolution Index (§0)** for per-finding closure receipts, `plan/66_AUDIT_GAP_ANALYSIS_SUMMARY.md` (final closure) for the gap ledger, and the definitive master report `plan/82_FINAL_SYSTEM_STABILIZATION_AND_AUDIT_CLOSURE.md` for the full 24-point verification matrix and operational handoff.
+
+---
+
+## 0. RESOLUTION INDEX (post-audit closure — all findings remediated)
+
+| ID | Finding (abbrev.) | Severity | Closure receipts (blueprint → summary) | Status |
+|---|---|---|---|---|
+| C1 | Deposit simulator double-credit | 🔴 Critical | plan/38–39; prod hard-gate `Wallet.php:77` | ✅ CLOSED |
+| C2 | ROI claim lost-update race | 🔴 Critical | plan/44–47; `claim_roi()` `FOR UPDATE` | ✅ CLOSED |
+| C3 | Withdrawal insert violates schema; CSV columns | 🔴 Critical | plan/52–53 | ✅ CLOSED |
+| C4 | Dual-balance drift + dead double-entry code | 🔴 Critical | plan/54–55; `Ledger_model` deleted | ✅ CLOSED |
+| C5 | Balance check outside TX — overspend | 🔴 Critical | plan/48–49; `lock_and_get_balance()` | ✅ CLOSED |
+| C6 | Weekly wage claim TOCTOU | 🔴 Critical | plan/50–51 | ✅ CLOSED |
+| C7 | User self-approval of withdrawals | 🔴 Critical | plan/42–43; prod hard-gate `Wallet.php:294` | ✅ CLOSED |
+| M1 | PRD withdrawal rules missing | 🟠 Medium | plan/56–57; `system_settings` config | ✅ RESOLVED |
+| M2 | Wage engine drift | 🟠 Medium | plan/58–59 (decision documented) | ✅ RESOLVED |
+| M3 | No rental expiry / ROI cron | 🟠 Medium | plan/60–61; lazy per-request expiry | ✅ RESOLVED |
+| M4 | Admin approve/decline double-submit | 🟠 Medium | plan/62–63 | ✅ RESOLVED |
+| M5 | Phone normalization vs `is_unique` | 🟠 Medium | plan/67 | ✅ RESOLVED |
+| M6 | `transactions` ledger not implemented | 🟠 Medium | plan/68–69 (decommission; single ledger) | ✅ RESOLVED |
+| M7 | Two settings stores | 🟠 Medium | plan/70–71 (`site_settings` → `system_settings`) | ✅ RESOLVED |
+| M8 | Money type discipline | 🟠 Medium | plan/74–75 (integer-IDR choke point) | ✅ RESOLVED |
+| M9 | Inconsistent API error envelope | 🟠 Medium | plan/76–77 (`api_helper.php`) | ✅ RESOLVED |
+| M10 | Unused/orphaned schema & code | 🟠 Medium | plan/78–79 (+ secret hygiene 28–29, 72–73) | ✅ RESOLVED |
+| P1–P8 | Minor / polish (see §4 below) | 🟡 Minor | P1/P2/P6/P8 absorbed into C/M rounds; P3–P5 → plan/80–81; P7 → plan/76–77 (P-series reconciled to P1–P7 in plan/82) | ✅ CLOSED |
+
+**Verification note:** every row above is corroborated by its summary's verification receipts (`php -l`, grep audits, curl smoke where a live DB was available), current code anchors in `application/`, and the canonical schema in `database.sql`. Details: `plan/66` §2–§3 and `plan/82` §2.
+
 ---
 
 ## 1. EXECUTIVE SUMMARY
