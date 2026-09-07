@@ -149,7 +149,30 @@
     </button>
 </div>
 
-<!-- ===== LAYER 1: SHARE CENTER ===== -->
+<!-- ===== LAYER 1: SHARE CENTER (Plan 89 — gating referral) ===== -->
+<?php if (!empty($referral_locked)): ?>
+<!-- Condition A (lifetime_rentals == 0): kode/link/QR DISEMBUNYIKAN — locked state -->
+<section class="mx-4 mt-3 u-card rounded-2xl p-5 shadow-sm">
+    <div class="flex items-center gap-2 mb-1">
+        <i class="fas fa-lock text-indigo-500"></i>
+        <h2 class="text-sm font-bold u-text uppercase tracking-wide">Pusat Berbagi</h2>
+    </div>
+    <div class="text-center py-5">
+        <div class="w-14 h-14 mx-auto mb-3 rounded-2xl u-card-inset flex items-center justify-center">
+            <i class="fas fa-gift u-muted text-xl"></i>
+        </div>
+        <p class="text-sm u-text font-bold mb-1">Kode Undangan Terkunci</p>
+        <p class="text-xs u-muted leading-relaxed max-w-[280px] mx-auto mb-4">
+            Sewa minimal 1 paket GPU untuk membuka kode undangan dan mulai menghasilkan komisi tim.
+        </p>
+        <a href="<?= base_url('marketplace') ?>"
+           class="inline-flex items-center gap-2 bg-indigo-500 hover:bg-indigo-600 active:scale-95 text-white text-xs font-bold px-5 py-3 rounded-xl transition-all">
+            <i class="fas fa-microchip mr-1"></i>Lihat Paket GPU
+        </a>
+    </div>
+</section>
+<?php else: ?>
+<!-- Condition B/C (lifetime_rentals >= 1): kode & link PERMANEN terlihat -->
 <section class="mx-4 mt-3 u-card rounded-2xl p-5 shadow-sm">
     <div class="flex items-center gap-2 mb-1">
         <i class="fas fa-share-alt text-indigo-500"></i>
@@ -174,6 +197,203 @@
         <p class="text-[10px] u-muted mt-2">Scan QR untuk mendaftar</p>
     </div>
 </section>
+<?php endif; ?>
+
+<!-- ===== LAYER 1B: MEMBER REBATE GUIDE (Plan 89 — 3-Tier Purchase Rebate) ===== -->
+<section class="mx-4 mt-3 u-card-gpu rounded-2xl p-5 shadow-sm">
+    <div class="flex items-center gap-2 mb-1">
+        <i class="fas fa-network-wired text-cyan-500"></i>
+        <h2 class="text-sm font-bold u-text uppercase tracking-wide">Komisi Rebate 3-Tier</h2>
+        <?php if (empty($rebate_enabled)): ?>
+            <span class="ml-auto text-[9px] font-bold text-slate-400 bg-slate-500/10 border border-slate-600 px-2 py-0.5 rounded-full">Nonaktif</span>
+        <?php endif; ?>
+    </div>
+    <p class="text-xs u-muted mb-4">
+        Komisi instan dari setiap pembelian paket GPU oleh jaringan Anda — otomatis masuk ke saldo dompet.
+    </p>
+
+    <div class="space-y-2">
+        <div class="u-card-inset rounded-xl p-3 flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 min-w-0">
+                <span class="shrink-0 w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-xs font-extrabold">L1</span>
+                <div class="min-w-0">
+                    <p class="text-xs u-text font-bold">Downline Langsung</p>
+                    <p class="text-[10px] u-muted truncate">Anak — referral langsung Anda</p>
+                </div>
+            </div>
+            <span class="shrink-0 text-sm font-extrabold text-indigo-600 dark:text-indigo-400"><?= (int) $rebate_l1_percent ?>%</span>
+        </div>
+        <div class="u-card-inset rounded-xl p-3 flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 min-w-0">
+                <span class="shrink-0 w-8 h-8 rounded-lg bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center text-xs font-extrabold">L2</span>
+                <div class="min-w-0">
+                    <p class="text-xs u-text font-bold">Level 2</p>
+                    <p class="text-[10px] u-muted truncate">Cucu — dari downline langsung Anda</p>
+                </div>
+            </div>
+            <span class="shrink-0 text-sm font-extrabold text-cyan-600 dark:text-cyan-400"><?= (int) $rebate_l2_percent ?>%</span>
+        </div>
+        <div class="u-card-inset rounded-xl p-3 flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 min-w-0">
+                <span class="shrink-0 w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xs font-extrabold">L3</span>
+                <div class="min-w-0">
+                    <p class="text-xs u-text font-bold">Level 3</p>
+                    <p class="text-[10px] u-muted truncate">Cicit — 3 level di bawah Anda</p>
+                </div>
+            </div>
+            <span class="shrink-0 text-sm font-extrabold text-emerald-600 dark:text-emerald-400"><?= (int) $rebate_l3_percent ?>%</span>
+        </div>
+    </div>
+
+    <div class="mt-3 rounded-xl p-3 border border-amber-200 dark:border-amber-500/20 bg-amber-50 dark:bg-amber-500/10">
+        <p class="text-[11px] u-text-2 leading-relaxed">
+            <i class="fas fa-exclamation-triangle text-amber-500 mr-1"></i>
+            <b>Syarat kelayakan:</b> upline harus memiliki <b>minimal 1 kontrak sewa aktif</b> pada saat
+            downline membeli paket. Bila tidak aktif, komisi tier tersebut <b>hangus</b> — tidak dilimpahkan
+            ke level di atasnya.
+        </p>
+    </div>
+</section>
+
+<?php if (!empty($is_promoter) && $promoter_summary !== null): ?>
+<?php
+    // Plan 91 — Hub Program Promotor (Omzet Burn / Redeemable Quota).
+    $p_sum  = $promoter_summary;
+    $p_avail = (int) ($p_sum['available'] ?? 0);
+    $promo_reason_label = [
+        'ok'             => 'Klaim Reward',
+        'omzet_kurang'   => 'Omzet Belum Cukup',
+        'kuota_penuh'    => 'Kuota Reward Penuh',
+        'produk_nonaktif'=> 'Produk Nonaktif',
+        'rasio_invalid'  => 'Sedang Tidak Tersedia',
+        'produk_hilang'  => 'Tidak Tersedia',
+    ];
+?>
+<!-- ===== PROGRAM PROMOTOR (Plan 91) ===== -->
+<section id="promoter-hub" class="mx-4 mt-3 u-card rounded-2xl p-5 shadow-sm border border-indigo-500/20">
+    <div class="flex items-center gap-2 mb-1">
+        <i class="fas fa-star text-amber-400"></i>
+        <h2 class="text-sm font-bold u-text uppercase tracking-wide">Program Promotor</h2>
+        <span class="ml-auto text-[9px] font-bold text-amber-500 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full">Reward GPU</span>
+    </div>
+    <p class="text-[10px] u-muted mb-4">Tukarkan omzet downline langsung (L1) dengan kontrak GPU zero-cost — ROI harian penuh, disetujui admin.</p>
+
+    <!-- Statistik omzet L1 -->
+    <div class="grid grid-cols-2 gap-2 mb-4">
+        <div class="u-card-inset rounded-xl p-3">
+            <p class="text-[10px] u-muted font-semibold uppercase tracking-wide">Omzet L1 Total</p>
+            <p class="text-base font-extrabold u-text mt-1">Rp <?= number_format((int) ($p_sum['total_l1'] ?? 0), 0, ',', '.') ?></p>
+        </div>
+        <div class="u-card-inset rounded-xl p-3">
+            <p class="text-[10px] u-muted font-semibold uppercase tracking-wide">Terpakai (Burn)</p>
+            <p class="text-base font-extrabold u-text mt-1">Rp <?= number_format((int) ($p_sum['burned'] ?? 0), 0, ',', '.') ?></p>
+        </div>
+        <div class="u-card-inset rounded-xl p-3">
+            <p class="text-[10px] u-muted font-semibold uppercase tracking-wide">Terkunci (Pending)</p>
+            <p class="text-base font-extrabold u-text mt-1">Rp <?= number_format((int) ($p_sum['locked'] ?? 0), 0, ',', '.') ?></p>
+        </div>
+        <div class="bg-emerald-50 dark:bg-emerald-500/10 rounded-xl p-3 border border-emerald-100 dark:border-emerald-500/20">
+            <p class="text-[10px] text-emerald-500 dark:text-emerald-400 font-semibold uppercase tracking-wide">Tersedia</p>
+            <p class="text-base font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">Rp <?= number_format($p_avail, 0, ',', '.') ?></p>
+        </div>
+    </div>
+
+    <!-- Kartu tier reward -->
+    <?php if (!empty($promoter_tiers)): ?>
+    <div class="space-y-3 mb-4">
+        <?php foreach ($promoter_tiers as $t):
+            $cost   = (int) ($t['omzet_cost'] ?? 0);
+            $pct    = $cost > 0 ? min(100, round(($p_avail / $cost) * 100)) : 0;
+            $price  = (int) ($t['price'] ?? 0);
+            $pname  = htmlspecialchars((string) ($t['product_name'] ?? 'Produk Reward'), ENT_QUOTES, 'UTF-8');
+        ?>
+        <div class="u-card-inset rounded-xl p-4">
+            <div class="flex items-start justify-between gap-2 mb-2">
+                <div class="min-w-0">
+                    <p class="text-xs u-text font-extrabold truncate"><?= $pname ?></p>
+                    <p class="text-[10px] u-muted mt-0.5">Nilai reward <span class="font-bold text-emerald-600 dark:text-emerald-400">Rp <?= number_format($price, 0, ',', '.') ?></span></p>
+                </div>
+                <span class="shrink-0 text-[10px] font-extrabold text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-lg">Rp <?= number_format($cost, 0, ',', '.') ?></span>
+            </div>
+            <div class="flex items-center justify-between mb-1">
+                <span class="text-[9px] u-muted font-semibold uppercase tracking-wide">Progress omzet tersedia</span>
+                <span class="text-[10px] u-text-2 font-mono"><?= number_format($p_avail, 0, ',', '.') ?> / <?= number_format($cost, 0, ',', '.') ?></span>
+            </div>
+            <div class="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden mb-3">
+                <div class="h-full rounded-full <?= $pct >= 100 ? 'bg-emerald-500' : 'bg-indigo-500' ?>" style="width: <?= $pct ?>%"></div>
+            </div>
+
+            <?php if (!empty($t['can_claim'])): ?>
+                <button type="button" data-pid="<?= (int) $t['product_id'] ?>" data-name="<?= $pname ?>"
+                        onclick="openPromoterClaim(this)"
+                        class="w-full bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold py-2.5 px-4 rounded-xl transition-all active:scale-[0.97]">
+                    <i class="fas fa-gift mr-1"></i>Klaim Reward — Rp <?= number_format($price, 0, ',', '.') ?>
+                </button>
+            <?php else: ?>
+                <button type="button" disabled
+                        class="w-full bg-slate-700 text-slate-400 text-xs font-bold py-2.5 px-4 rounded-xl cursor-not-allowed border border-slate-600">
+                    <i class="fas fa-lock mr-1"></i><?= htmlspecialchars((string) ($promo_reason_label[$t['reason'] ?? 'produk_hilang'] ?? 'Tidak Tersedia'), ENT_QUOTES, 'UTF-8') ?>
+                </button>
+            <?php endif; ?>
+        </div>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+
+    <!-- Riwayat klaim -->
+    <div>
+        <p class="text-[10px] u-muted uppercase font-semibold tracking-wide mb-2">Riwayat Klaim</p>
+        <?php if (empty($promoter_history)): ?>
+            <p class="text-[11px] u-muted py-3 text-center rounded-xl u-card-inset">Belum ada klaim reward.</p>
+        <?php else: ?>
+            <div class="max-h-56 overflow-y-auto space-y-2">
+                <?php foreach ($promoter_history as $h): ?>
+                    <div class="u-card-inset rounded-xl px-3 py-2 flex items-center justify-between gap-2">
+                        <div class="min-w-0">
+                            <p class="text-xs u-text font-semibold truncate"><?= htmlspecialchars((string) ($h->product_name ?? 'Reward'), ENT_QUOTES, 'UTF-8') ?></p>
+                            <p class="text-[10px] u-muted">Rp <?= number_format((int) $h->omzet_cost, 0, ',', '.') ?> · <?= date('d M Y H:i', strtotime($h->created_at)) ?></p>
+                            <?php if ($h->status === 'rejected' && !empty($h->admin_notes)): ?>
+                                <p class="text-[9px] text-amber-600 dark:text-amber-400 mt-0.5 truncate">Alasan: <?= htmlspecialchars($h->admin_notes, ENT_QUOTES, 'UTF-8') ?></p>
+                            <?php endif; ?>
+                        </div>
+                        <span class="shrink-0 text-[9px] font-bold px-2 py-1 rounded-full <?= $h->status === 'approved' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : ($h->status === 'rejected' ? 'bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400') ?>">
+                            <?= strtoupper($h->status) ?>
+                        </span>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+    </div>
+</section>
+
+<!-- ═══ MODAL KLAIM REWARD PROMOTOR — Bottom Sheet ═══ -->
+<div id="promoterClaimModal" class="fixed inset-0 z-[60] hidden">
+    <div class="absolute inset-0 bg-black/50" onclick="closePromoterClaim()"></div>
+    <div class="absolute bottom-0 left-0 right-0 u-modal rounded-t-3xl max-h-[80vh] overflow-y-auto transform translate-y-full transition-transform duration-300" id="promoterClaimSheet">
+        <div class="sticky top-0 u-modal px-5 pt-5 pb-3 border-b border-slate-100 dark:border-slate-800 rounded-t-3xl">
+            <div class="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full mx-auto mb-3"></div>
+            <h3 class="text-sm font-bold u-text flex items-center gap-2"><i class="fas fa-gift text-indigo-500"></i> Klaim Reward Promotor</h3>
+        </div>
+        <div class="px-5 py-4 space-y-4">
+            <div class="bg-slate-50 dark:bg-slate-800/60 rounded-xl p-4 border border-slate-100 dark:border-slate-700">
+                <p class="text-xs u-text font-bold mb-1" id="promoClaimProduct">—</p>
+                <p class="text-[11px] u-text-2 leading-relaxed">
+                    Klaim akan membakar omzet L1 sesuai tier dan masuk antrean <b>persetujuan admin</b>.
+                    Saat disetujui, kontrak GPU zero-cost aktif otomatis — klaim ROI harian dimulai H+1.
+                </p>
+            </div>
+            <button id="btn-claim-promoter" onclick="claimPromoter()"
+                    class="w-full bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold py-3 px-4 rounded-xl transition-all active:scale-[0.97] shadow-lg shadow-indigo-500/20">
+                <i class="fas fa-paper-plane mr-1"></i>Ajukan Klaim
+            </button>
+            <button onclick="closePromoterClaim()"
+                    class="w-full py-2.5 u-btn-ghost rounded-xl text-xs font-bold u-text-2 transition-colors">
+                Batal
+            </button>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- ===== LAYER 2: GAMIFICATION ===== -->
 <section class="mx-4 mt-3 u-card rounded-2xl p-5 shadow-sm">
@@ -309,15 +529,19 @@
 <script>
 // P5 (plan/80): label tombol klaim L1 dinamis dari User_model::LEVEL1_BONUS.
 const L1_CLAIM_LABEL = <?= json_encode('Klaim Bonus Level 1 (Rp ' . $l1_bonus_fmt . ')') ?>;
-// Generate QR
-new QRCode(document.getElementById("qrcode"), {
-    text: "<?= $ref_url ?>",
-    width: 160,
-    height: 160,
-    colorDark: "#1e293b",
-    colorLight: "#ffffff",
-    correctLevel: QRCode.CorrectLevel.M
-});
+// Generate QR — hanya saat Share Center terbuka (Condition B/C). Pada
+// Condition A (locked) elemen #qrcode TIDAK dirender → guard anti-null.
+var qrTarget = document.getElementById('qrcode');
+if (qrTarget) {
+    new QRCode(qrTarget, {
+        text: "<?= $ref_url ?>",
+        width: 160,
+        height: 160,
+        colorDark: "#1e293b",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M
+    });
+}
 
 // Copy to clipboard
 function copyRef() {
@@ -444,5 +668,51 @@ function showToast(msg, type) {
     document.body.appendChild(c);
     setTimeout(function() { c.style.opacity = '0'; c.style.transition = 'opacity 0.3s'; }, 2500);
     setTimeout(function() { document.body.removeChild(c); }, 3000);
+}
+
+// ═══ Plan 91 — Klaim Reward Promotor ═══
+var promoPid = null;
+function openPromoterClaim(btn) {
+    promoPid = btn.getAttribute('data-pid');
+    document.getElementById('promoClaimProduct').textContent = btn.getAttribute('data-name');
+    var m = document.getElementById('promoterClaimModal');
+    var s = document.getElementById('promoterClaimSheet');
+    if (!m || !s) return;
+    m.classList.remove('hidden');
+    setTimeout(function() { s.classList.remove('translate-y-full'); s.classList.add('translate-y-0'); }, 10);
+}
+function closePromoterClaim() {
+    var m = document.getElementById('promoterClaimModal');
+    var s = document.getElementById('promoterClaimSheet');
+    if (!m || !s) return;
+    s.classList.remove('translate-y-0');
+    s.classList.add('translate-y-full');
+    setTimeout(function() { m.classList.add('hidden'); }, 300);
+}
+function claimPromoter() {
+    var btn = document.getElementById('btn-claim-promoter');
+    if (!btn || btn.disabled || !promoPid) return;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Memproses...';
+    var fd = new FormData();
+    fd.append('product_id', promoPid);
+    csrfFetch('<?= site_url("promoter/claim") ?>', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.success) {
+            closePromoterClaim();
+            showToast(d.message || 'Klaim diajukan!', 'success');
+            setTimeout(function() { window.location.reload(); }, 900);
+        } else {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-paper-plane mr-1"></i>Ajukan Klaim';
+            showToast(d.message || 'Gagal mengajukan klaim', 'error');
+        }
+    })
+    .catch(function() {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-paper-plane mr-1"></i>Ajukan Klaim';
+        showToast('Terjadi kesalahan jaringan', 'error');
+    });
 }
 </script>

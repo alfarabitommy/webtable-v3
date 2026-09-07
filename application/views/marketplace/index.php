@@ -59,23 +59,17 @@
 
     <?php foreach ($products as $product): ?>
     <?php
-        // plan/83 — tiga state kartu: A available / B locked / C quota reached.
-        $is_locked   = !empty($product['is_locked']);
+        // plan/87 — dua state kartu: A available / B quota reached.
+        // Prasyarat & state "locked" DICOMMISSIONED (gating 100% via admin
+        // is_active); produk non-aktif tidak pernah sampai ke view ini.
         $is_exhausted = !empty($product['is_quota_exhausted']);
     ?>
-    <div class="u-card-gpu rounded-2xl p-4 shadow-sm flex flex-col <?= $is_locked ? 'opacity-60 saturate-50' : ($is_exhausted ? 'opacity-75' : '') ?>">
-        <div class="relative">
-            <img src="https://placehold.co/400x150/f8fafc/94a3b8?text=<?= urlencode($product['name']) ?>" class="rounded-xl object-cover h-28 w-full mb-3" alt="<?= htmlspecialchars($product['name']) ?>">
-            <?php if ($is_locked): ?>
-            <span class="absolute top-2 left-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/90 text-white text-[10px] font-bold shadow-lg">
-                <i class="fas fa-lock text-[9px]"></i> Terkunci
-            </span>
-            <?php endif; ?>
-        </div>
+    <div class="u-card-gpu rounded-2xl p-4 shadow-sm flex flex-col <?= $is_exhausted ? 'opacity-75' : '' ?>">
+        <img src="https://placehold.co/400x150/f8fafc/94a3b8?text=<?= urlencode($product['name']) ?>" class="rounded-xl object-cover h-28 w-full mb-3" alt="<?= htmlspecialchars($product['name']) ?>">
 
         <h3 class="text-base font-bold u-text"><?= htmlspecialchars($product['name']) ?></h3>
 
-        <!-- Quota badge (plan/83): selalu tampil — Maks./Tersisa atau Tanpa Batas -->
+        <!-- Quota badge (plan/83; retained plan/87): selalu tampil — Maks./Tersisa atau Tanpa Batas -->
         <span class="mt-1.5 inline-flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full w-fit <?= $product['can_rent'] ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-slate-500/10 u-muted' ?>">
             <i class="fas fa-gauge-high text-[9px]"></i>
             <?php if (!empty($product['is_unlimited'])): ?>
@@ -104,15 +98,8 @@
                     data-price="<?= (int) $product['price'] ?>">
                 Sewa Sekarang
             </button>
-        <?php elseif ($is_locked): ?>
-            <!-- State B — Locked 🔒: prasyarat belum pernah disewa -->
-            <button type="button" disabled
-                    class="w-full h-12 u-btn-ghost rounded-xl font-bold mt-3 cursor-not-allowed opacity-90 inline-flex items-center justify-center gap-2">
-                <i class="fas fa-lock text-amber-500 dark:text-amber-400"></i>
-                Terkunci — Sewa <?= htmlspecialchars($product['prerequisite_name']) ?> dahulu
-            </button>
         <?php else: ?>
-            <!-- State C — Quota reached: kuota lifetime habis -->
+            <!-- State B — Quota reached: kuota lifetime habis -->
             <button type="button" disabled
                     class="w-full h-12 u-btn-ghost rounded-xl font-bold mt-3 cursor-not-allowed opacity-80 inline-flex items-center justify-center gap-2">
                 <i class="fas fa-ban"></i> Batas Maksimal Tercapai

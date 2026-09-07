@@ -3,6 +3,9 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Rental_model extends CI_Model {
 
+    /** @var array|null Per-request cache of merged rebate config (Plan 89). */
+    private static $_rebate_cfg = null;
+
     public function __construct() {
         parent::__construct();
         // C2: pastikan timezone Asia/Jakarta untuk seluruh perhitungan tanggal
@@ -52,29 +55,36 @@ class Rental_model extends CI_Model {
     }
 
     /**
-     * C5 (plan/48) + plan/83: ACID checkout anti-overspend + GATING ENGINE —
-     * debit wallet_ledger + buat user_rentals dalam SATU transaksi terkunci.
+     * C5 (plan/48) + plan/83 + plan/87: ACID checkout anti-overspend + GATING
+     * ENGINE — debit wallet_ledger + buat user_rentals dalam SATU transaksi
+     * terkunci. plan/87: gating prasyarat DICOMMISSIONED — ketersediaan murni
+     * is_active (GATE 0); batas pembelian per-user max_per_user (GATE 2) tetap.
      *   1. trans_begin() eksplisit + try/catch (gaya claim_roi, plan/44).
      *   2. lock_and_get_balance() (Wallet_model) — kunci anchor users + saldo
      *      segar otoritatif sebagai statement pertama (serialisasi semua
      *      debit per-user: checkout vs penarikan vs checkout lain).
      *   3. plan/83 GATE 0 — snapshot produk SEGAR dari DB setelah lock wait
      *      (menutup TOCTOU fetch controller): baris wajib ada & is_active=1,
-     *      price/roi/duration/gating diambil dari snapshot (bukan argumen).
-     *   4. plan/83 GATE 1 & GATE 2 — asersi prasyarat & kuota dalam TX
-     *      terkunci (read view dibuat SETELAH lock wait → bebas race
+     *      price/roi/duration/kuota diambil dari snapshot (bukan argumen).
+     *   4. plan/83 GATE 2 (GATE 1 prasyarat DIHAPUS — plan/87) — asersi kuota
+     *      dalam TX terkunci (read view dibuat SETELAH lock wait → bebas race
      *      double-checkout melewati kuota; rejection TIDAK pernah menyentuh
      *      wallet_ledger — immutability Z1).
      *   5. Penolakan overspend STRICT: fresh_balance < price → rollback +
      *      code 'insufficient' (audit C5; pre-check controller hanya UX).
-     *   6. Insert debit wallet_ledger + user_rentals (active) → commit.
+     *   6. Insert debit wallet_ledger + user_rentals (active).
+     *   7. (Plan 89) Distribusi rebate 3-tier dalam TX yang sama — kredit
+     *      komisi L1–L3 via Wallet_model::credit() (RBT-{rental_id}-L{tier})
+     *      + notifikasi; upline wajib punya kontrak aktif (M3), inaktif →
+     *      breakage tanpa pass-up; kegagalan kredit → rollback penuh.
+     *   8. Commit → success.
      *
      * @param int   $user_id
      * @param array $product Produk dari Product_model::get_product() — hanya
      *                       dipakai untuk id & UX fast-fail; nilai finansial
      *                       & gating otoritatif diambil ulang di GATE 0.
      * @return array{success:bool, code:string, message:string, rental_id:int|null}
-     *   code: 'ok' | 'product_unavailable' | 'locked' | 'quota_exceeded'
+     *   code: 'ok' | 'product_unavailable' | 'quota_exceeded'
      *         | 'insufficient' | 'error'
      */
     public function checkout_rental($user_id, $product) {
@@ -89,15 +99,14 @@ class Rental_model extends CI_Model {
                 return ['success' => false, 'code' => 'error', 'message' => 'Sistem: Gagal memotong saldo atau membuat kontrak sewa.', 'rental_id' => null];
             }
 
-            // 2. GATE 0 (plan/83) — snapshot produk SEGAR + nama prasyarat
-            //    (current read SETELAH lock wait). Baris hilang / non-aktif →
-            //    tolak: produk non-aktif tidak boleh dibeli via POST tamper.
+            // 2. GATE 0 (plan/83, retained) — snapshot produk SEGAR (current
+            //    read SETELAH lock wait). Baris hilang / non-aktif → tolak:
+            //    produk non-aktif tidak boleh dibeli via POST tamper.
+            //    (plan/87: tanpa join/kolom prasyarat.)
             $product = $this->db->query(
                 "SELECT p.id, p.name, p.price, p.daily_rate, p.duration_days,
-                        p.is_active, p.max_per_user, p.unlock_prerequisite_id,
-                        pr.name AS prerequisite_name
+                        p.is_active, p.max_per_user
                    FROM gpu_products p
-                   LEFT JOIN gpu_products pr ON pr.id = p.unlock_prerequisite_id
                   WHERE p.id = ?",
                 [(int) $product['id']]
             )->row_array();
@@ -107,38 +116,25 @@ class Rental_model extends CI_Model {
                 return ['success' => false, 'code' => 'product_unavailable', 'message' => 'Sistem: Produk tidak ditemukan di database.', 'rental_id' => null];
             }
 
-            // 3. GATE 1 & GATE 2 (plan/83) — hitung SATU pasang COUNT dalam
-            //    TX terkunci: kepemilikan produk ini & kepemilikan prasyarat.
-            //    Predikat D1: status IN ('active','completed'); 'cancelled'
-            //    tidak memenuhi prasyarat & tidak memakan kuota.
-            $prereq_id = ($product['unlock_prerequisite_id'] !== null)
-                ? (int) $product['unlock_prerequisite_id']
-                : (int) $product['id']; // tanpa prasyarat → count sendiri tak dipakai
+            // 3. GATE 2 (plan/83, retained) — COUNT kepemilikan produk ini
+            //    dalam TX terkunci. Predikat D1: status IN ('active','completed');
+            //    'cancelled' tidak memakan kuota. (GATE 1 prasyarat DIHAPUS —
+            //    plan/87: gating murni via is_active di GATE 0.)
             $gates = $this->db->query(
-                "SELECT
-                    (SELECT COUNT(*) FROM user_rentals ur
-                      WHERE ur.user_id = ? AND ur.product_id = ?
-                        AND ur.status IN ('active','completed')) AS own_count,
-                    (SELECT COUNT(*) FROM user_rentals ur2
-                      WHERE ur2.user_id = ? AND ur2.product_id = ?
-                        AND ur2.status IN ('active','completed')) AS prereq_count",
-                [$user_id, (int) $product['id'], $user_id, $prereq_id]
+                "SELECT COUNT(*) AS own_count
+                   FROM user_rentals ur
+                  WHERE ur.user_id = ? AND ur.product_id = ?
+                    AND ur.status IN ('active','completed')
+                    -- plan/91 (K4): kuota KANAL BERBAYAR — kontrak reward
+                    -- (source='promoter_reward') tidak memakan kuota pembelian.
+                    AND ur.source <> 'promoter_reward'",
+                [$user_id, (int) $product['id']]
             )->row();
 
             if (!$gates) {
                 $this->db->trans_rollback();
                 log_message('error', 'Rental_model::checkout_rental — gate count gagal (user=' . (int) $user_id . ', product=' . (int) $product['id'] . ')');
                 return ['success' => false, 'code' => 'error', 'message' => 'Sistem: Gagal memproses sewa. Coba lagi.', 'rental_id' => null];
-            }
-
-            // GATE 1 — paket terkunci sampai prasyarat pernah disewa ≥1x.
-            if ($product['unlock_prerequisite_id'] !== null
-                && (int) $gates->prereq_count < 1) {
-                $this->db->trans_rollback();
-                return ['success' => false, 'code' => 'locked',
-                    'message' => 'Sistem: Paket ini masih terkunci. Sewa '
-                        . $product['prerequisite_name'] . ' dahulu untuk membukanya.',
-                    'rental_id' => null];
             }
 
             // GATE 2 — kuota lifetime (0 = tanpa batas).
@@ -183,6 +179,19 @@ class Rental_model extends CI_Model {
                 'expired_at'     => date('Y-m-d H:i:s', strtotime('+' . (int) $product['duration_days'] . ' days')),
             ]);
             $rental_id = $this->db->insert_id();
+
+            // 7. (Plan 89) Distribusi komisi rebate 3-tier — DI DALAM TX yang
+            //    sama, SETELAH debit & kontrak dibuat, SEBELUM commit.
+            //    Upline L1–L3 yang memiliki kontrak aktif menerima kredit
+            //    RBT-{rental_id}-L{tier} (C4/Z1); upline inaktif → breakage
+            //    (no pass-up). Gagal → rollback penuh (zero rebate rows).
+            //    Engine nonaktif / tanpa upline → no-op sukses.
+            if (!$this->_distribute_rebate($user_id, (int) $product['price'], $rental_id)) {
+                $this->db->trans_rollback();
+                log_message('error', 'Rental_model::checkout_rental — distribusi rebate gagal (rental '
+                    . (int) $rental_id . ', user ' . (int) $user_id . ')');
+                return ['success' => false, 'code' => 'error', 'message' => 'Sistem: Gagal memotong saldo atau membuat kontrak sewa.', 'rental_id' => null];
+            }
 
             $this->db->trans_commit();
 
@@ -389,6 +398,284 @@ class Rental_model extends CI_Model {
             'id'      => $rental_id,
             'user_id' => $user_id,
         ])->row();
+    }
+
+    // ============================================================
+    // PLAN 89 — 3-TIER AFFILIATE PURCHASE REBATE ENGINE
+    //
+    // Referensi blueprint: plan/89_3_TIER_REBATE_AND_REFERRAL_GATING_PLAN.md
+    //   • Konfigurasi dinamis via system_settings + fallback config file
+    //     (pola M1/plan/56) — resolver & normalizer bertipe integer 0–100.
+    //   • Distribusi komisi L1/L2/L3 berjalan DI DALAM TX checkout
+    //     (checkout_rental), hanya lewat Wallet_model::credit() (C4/Z1),
+    //     ID deterministik RBT-{rental_id}-L{tier}.
+    //   • Kelayakan STRICT per posisi: upline wajib punya >= 1 kontrak aktif
+    //     (status='active' DAN expired_at > now WIB bound param — M3);
+    //     upline inaktif → jatah tier HANGUS (breakage, TANPA pass-up).
+    //   • get_user_rental_stats() = derived lifetime/active (nol perubahan
+    //     skema users) — dipakai gating referral & peringatan dashboard.
+    // ============================================================
+
+    /**
+     * Merged rebate config (per-request static cache).
+     *
+     * @return array{
+     *   rebate_enabled:int, rebate_l1_percent:int,
+     *   rebate_l2_percent:int, rebate_l3_percent:int
+     * }
+     */
+    public function get_rebate_config() {
+        if (self::$_rebate_cfg !== null) {
+            return self::$_rebate_cfg;
+        }
+
+        $fallback = require APPPATH . 'config/rebate_commission.php';
+
+        $map = [];
+        foreach ($this->db->select('key_name, key_value')->get('system_settings')->result() as $row) {
+            $map[$row->key_name] = $row->key_value;
+        }
+
+        self::$_rebate_cfg = $this->_resolve_rebate_config($fallback, $map);
+        return self::$_rebate_cfg;
+    }
+
+    /**
+     * Merge dynamic rows over the fallback with per-key validation.
+     * Nilai dinamis korup → log + fallback key tsb (tidak pernah crash).
+     */
+    private function _resolve_rebate_config(array $fallback, array $map) {
+        $cfg = $fallback;
+
+        $enabled = isset($map['rebate_enabled']) ? $map['rebate_enabled'] : null;
+        if ($enabled === '0' || $enabled === '1') {
+            $cfg['rebate_enabled'] = (int) $enabled;
+        } elseif ($enabled !== null) {
+            log_message('error', 'Rental_model: rebate_enabled tidak valid (' . var_export($enabled, true) . ') — fallback dipakai (plan/89)');
+        }
+
+        foreach ([1 => 'rebate_l1_percent', 2 => 'rebate_l2_percent', 3 => 'rebate_l3_percent'] as $tier => $key) {
+            $raw = isset($map[$key]) ? $map[$key] : null;
+            $val = $this->_norm_rebate_pct($raw);
+            if ($val !== null) {
+                $cfg[$key] = $val;
+            } elseif ($raw !== null) {
+                log_message('error', 'Rental_model: ' . $key . ' tidak valid (' . var_export($raw, true) . ') — fallback L' . $tier . ' dipakai (plan/89)');
+            }
+        }
+
+        return $cfg;
+    }
+
+    /**
+     * Normalizer persen komisi rebate: string digit-only, integer 0–100.
+     * Murni (tanpa log) — log dilakukan pemanggil untuk nilai DB korup.
+     *
+     * @param mixed $raw
+     * @return int|null Integer 0–100, atau null bila invalid.
+     */
+    private function _norm_rebate_pct($raw) {
+        if ($raw === null) {
+            return null;
+        }
+        $s = trim((string) $raw);
+        if ($s === '' || !preg_match('/^[0-9]{1,3}$/', $s)) {
+            return null;
+        }
+        $v = (int) $s;
+        return ($v <= 100) ? $v : null;
+    }
+
+    /**
+     * Validasi input admin (Plan 89) untuk form /admin/settings.
+     * Aturan identik normalizer resolver; pesan error eksplisit per field.
+     *
+     * @param array $raw Map key system_settings → nilai mentah dari $_POST.
+     * @return array{ok:bool, errors:string[], values:array<string,string>}
+     *   values berisi key yang valid & ternormalisasi (siap set_setting).
+     */
+    public function validate_rebate_settings(array $raw) {
+        $errors = [];
+        $values = [];
+
+        $values['rebate_enabled'] = !empty($raw['rebate_enabled']) ? '1' : '0';
+
+        foreach ([1 => 'rebate_l1_percent', 2 => 'rebate_l2_percent', 3 => 'rebate_l3_percent'] as $tier => $key) {
+            $rawVal = isset($raw[$key]) ? $raw[$key] : null;
+            $val = $this->_norm_rebate_pct($rawVal);
+            if ($val === null) {
+                $errors[] = 'Persen komisi Level ' . $tier . ' harus angka bulat 0–100 (%).';
+            } else {
+                $values[$key] = (string) $val;
+            }
+        }
+
+        return ['ok' => count($errors) === 0, 'errors' => $errors, 'values' => $values];
+    }
+
+    /**
+     * Statistik sewa member — DERIVED dari user_rentals (nol perubahan skema
+     * users; user_rentals = single source of truth).
+     *
+     * M3 (plan/60): "aktif" = status='active' DAN expired_at > now WIB (bound
+     * param PHP) — kontrak kedaluwarsa yang belum di-flip sweep tidak pernah
+     * dihitung. "lifetime" = pernah menyewa (active/completed); 'cancelled'
+     * dikecualikan (batal ≠ pernah menyewa).
+     *
+     * @param int $user_id
+     * @return array{lifetime_rentals:int, active_rentals:int}
+     */
+    public function get_user_rental_stats($user_id) {
+        $now = date('Y-m-d H:i:s'); // PHP Asia/Jakarta — bukan MySQL NOW()
+        $row = $this->db->query(
+            "SELECT
+               (SELECT COUNT(*) FROM user_rentals
+                 WHERE user_id = ? AND status IN ('active','completed')) AS lifetime_rentals,
+               (SELECT COUNT(*) FROM user_rentals
+                 WHERE user_id = ? AND status = 'active' AND expired_at > ?) AS active_rentals",
+            [(int) $user_id, (int) $user_id, $now]
+        )->row();
+
+        return [
+            'lifetime_rentals' => (int) ($row->lifetime_rentals ?? 0),
+            'active_rentals'   => (int) ($row->active_rentals ?? 0),
+        ];
+    }
+
+    /**
+     * Distribusi komisi rebate 3-tier — CALLER-TX PARTICIPANT (dipanggil
+     * dari checkout_rental DI DALAM transaksi yang sama, SETELAH kontrak
+     * dibuat & debit pembeli, SEBELUM commit).
+     *
+     * Aturan (plan/89):
+     *   1. rebate_enabled=0 → no-op (return true).
+     *   2. Traversal terikat TEPAT 3 posisi (L1 = parent pembeli, naik);
+     *      fail-closed pada self-reference/siklus/rantai putus (log + stop,
+     *      sisa tier hangus) — loop runaway mustahil.
+     *   3. Kelayakan STRICT per posisi: upline wajib punya >= 1 kontrak
+     *      aktif (expired_at > now WIB); is_banned=1 dilewati. Inaktif →
+     *      tier hangus, TANPA pass-up ke level atas (breakage platform).
+     *   4. M8: amount = intdiv(price * persen, 100) — integer murni, tanpa
+     *      float; amount < 1 IDR → dilewati (choke-point _post() menolak 0).
+     *   5. Kredit via Wallet_model::credit() (ledger + cache atomik C4/Z1)
+     *      dengan transaction_id deterministik RBT-{rental_id}-L{tier}
+     *      (backstop anti double-credit: uk_wallet_ledger_user_tx_type).
+     *   6. Notifikasi type 'commission' dalam TX yang sama (pola M5/N2).
+     *   7. Kegagalan kredit → return false → pemanggil ROLLBACK seluruh TX
+     *      (kontrak + debit + rebate batal atomik; zero rebate rows).
+     *
+     * @param int $buyer_id
+     * @param int $price     Harga paket (snapshot integer IDR dari GATE 0).
+     * @param int $rental_id Kontrak yang baru dibuat (untuk tx id).
+     * @return bool true = sukses/no-op; false = gagal → wajib rollback.
+     */
+    private function _distribute_rebate($buyer_id, $price, $rental_id) {
+        $cfg = $this->get_rebate_config();
+        if ((int) $cfg['rebate_enabled'] !== 1) {
+            return true; // engine nonaktif → tanpa kredit/notifikasi (T4)
+        }
+
+        $tiers = [
+            1 => (int) $cfg['rebate_l1_percent'],
+            2 => (int) $cfg['rebate_l2_percent'],
+            3 => (int) $cfg['rebate_l3_percent'],
+        ];
+
+        // Identitas pembeli untuk deskripsi ledger (kanonik database.sql:
+        // users TIDAK punya kolom username → pakai phone).
+        $buyer = $this->db->query(
+            "SELECT phone FROM users WHERE id = ?",
+            [(int) $buyer_id]
+        )->row();
+        if (!$buyer) {
+            // Defensif — anchor users sudah diverifikasi sebelumnya.
+            return true;
+        }
+        $buyer_label = (string) $buyer->phone;
+
+        // Titik awal traversal: parent (upline L1) pembeli.
+        $anchor = $this->db->query(
+            "SELECT parent_id FROM users WHERE id = ?",
+            [(int) $buyer_id]
+        )->row();
+        $cur_id = ($anchor && $anchor->parent_id !== null) ? (int) $anchor->parent_id : null;
+
+        // Fail-closed: self-reference / siklus parent chain.
+        $seen = [(int) $buyer_id => true];
+        $now  = date('Y-m-d H:i:s'); // WIB bound param (M3)
+
+        $this->load->model('Notification_model');
+
+        for ($tier = 1; $tier <= 3; $tier++) {
+            if ($cur_id === null) {
+                break; // rantai habis → sisa tier hangus ke platform
+            }
+
+            $u = $this->db->query(
+                "SELECT id, parent_id, is_banned FROM users WHERE id = ?",
+                [$cur_id]
+            )->row();
+
+            if (!$u) {
+                log_message('error', 'Rental_model::_distribute_rebate — upline L' . $tier
+                    . ' (id=' . $cur_id . ') tidak ditemukan saat checkout rental ' . (int) $rental_id);
+                break; // rantai putus → fail-closed
+            }
+
+            $uid = (int) $u->id;
+            if (isset($seen[$uid]) || $uid === (int) $buyer_id) {
+                log_message('error', 'Rental_model::_distribute_rebate — referensi diri/siklus '
+                    . 'terdeteksi (user ' . $uid . ') pada rental ' . (int) $rental_id
+                    . ' — rantai dihentikan (fail-closed)');
+                break;
+            }
+            $seen[$uid] = true;
+            $cur_id = ($u->parent_id !== null) ? (int) $u->parent_id : null;
+
+            // Kelayakan STRICT (M3): >= 1 kontrak BENAR-BENAR aktif.
+            $active = $this->db->query(
+                "SELECT 1 FROM user_rentals ur
+                  WHERE ur.user_id = ? AND ur.status = 'active' AND ur.expired_at > ?
+                  LIMIT 1",
+                [$uid, $now]
+            )->row();
+
+            // Upline inaktif / banned → jatah tier HANGUS (breakage),
+            // TANPA pass-up: tier lain tetap dihitung dari persennya sendiri.
+            if (!$active || (int) $u->is_banned === 1) {
+                continue;
+            }
+
+            // M8 (plan/74 §2.3): perkalian integer murni + intdiv (floor).
+            // Tidak ada jalur float; hasil selalu integer IDR.
+            $amount = intdiv($price * $tiers[$tier], 100);
+            if ($amount < 1) {
+                continue; // tier bernilai 0 IDR → dilewati (tanpa row kosong)
+            }
+
+            $credited = $this->Wallet_model->credit(
+                $uid,
+                $amount,
+                'RBT-' . (int) $rental_id . '-L' . $tier,
+                'Komisi sewa GPU Level ' . $tier . ' dari ' . $buyer_label
+            );
+
+            if (!$credited) {
+                log_message('error', 'Rental_model::_distribute_rebate — credit L' . $tier
+                    . ' gagal (upline ' . $uid . ', rental ' . (int) $rental_id . ')');
+                return false; // pemanggil wajib rollback (zero rebate rows)
+            }
+
+            $this->Notification_model->insert(
+                $uid,
+                'Komisi Rebate Cair',
+                'Komisi Level ' . $tier . ' sebesar Rp ' . number_format($amount, 0, ',', '.')
+                    . ' dari pembelian sewa ' . $buyer_label . ' telah masuk ke saldo Anda.',
+                'commission'
+            );
+        }
+
+        return true;
     }
 
     // ============================================================

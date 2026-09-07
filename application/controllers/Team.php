@@ -6,6 +6,7 @@ class Team extends MY_Controller {
     public function __construct() {
         parent::__construct();
         $this->load->model('User_model');
+        $this->load->model('Rental_model');
         $this->load->model('Rate_limit_model');
         $this->load->helper('ratelimit');
         // M9/P7 (plan/76 Batch B): choke-point JSON helper.
@@ -16,6 +17,25 @@ class Team extends MY_Controller {
         $user_id = $this->session->userdata('user_id');
         $user = $this->User_model->get_user_by_id($user_id);
         $members = $this->User_model->get_team_with_active_status($user_id);
+
+        // Plan 89: gating referral — kode/link/QR terbuka hanya bila member
+        // PERNAH menyewa (lifetime >= 1); derived dari user_rentals.
+        // Plan 91 (K1): promotor (users.is_promoter=1) BYPASS Condition A —
+        // kode/link/QR terbuka permanen walau lifetime == 0.
+        $rental_stats = $this->Rental_model->get_user_rental_stats($user_id);
+        $is_promoter  = ((int) ($user->is_promoter ?? 0)) === 1;
+        $referral_locked = ((int) $rental_stats['lifetime_rentals']) === 0 && !$is_promoter;
+
+        // Plan 91: data hub Program Promotor (hanya untuk promotor).
+        $promoter_summary = null;
+        $promoter_tiers   = [];
+        $promoter_history = [];
+        if ($is_promoter) {
+            $this->load->model('Promoter_model');
+            $promoter_summary = $this->Promoter_model->get_omzet_summary($user_id);
+            $promoter_tiers   = $this->Promoter_model->get_reward_tiers($user_id);
+            $promoter_history = $this->Promoter_model->get_claim_history($user_id, 15);
+        }
 
         // Format phone for WhatsApp + cast is_active to bool
         foreach ($members as &$m) {
@@ -41,19 +61,36 @@ class Team extends MY_Controller {
         $claim_data = $this->User_model->get_claim_data($user_id);
 
         $data = [
-            'page_title' => 'Tim & Afiliasi',
-            'user'       => $user,
-            'members'    => $members,
-            'total_bc'   => $total_bc,
-            'active_bc'  => $active_bc,
-            'l1_active'  => $l1_active,
-            'l2_active'  => $l2_active,
-            'ref_url'    => base_url('register?ref=' . $user->invite_code),
-            'claim_data' => $claim_data,
+            'page_title'      => 'Tim & Afiliasi',
+            'user'            => $user,
+            'members'         => $members,
+            'total_bc'        => $total_bc,
+            'active_bc'       => $active_bc,
+            'l1_active'       => $l1_active,
+            'l2_active'       => $l2_active,
+            // Plan 89: saat terkunci (lifetime == 0), ref_url KOSONG —
+            // kode undangan tidak pernah bocor ke markup (Condition A).
+            'ref_url'         => $referral_locked ? '' : base_url('register?ref=' . $user->invite_code),
+            'referral_locked' => $referral_locked,
+            'rental_stats'    => $rental_stats,
+            // Plan 91: flag & data Program Promotor (null/kosong utk non-promotor).
+            'is_promoter'     => $is_promoter,
+            'promoter_summary' => $promoter_summary,
+            'promoter_tiers'  => $promoter_tiers,
+            'promoter_history'=> $promoter_history,
+            'claim_data'      => $claim_data,
             // P5 (plan/80): single source of truth untuk tampilan bonus L1.
             'l1_bonus'     => User_model::LEVEL1_BONUS,
             'l1_bonus_fmt' => number_format(User_model::LEVEL1_BONUS, 0, ',', '.'),
         ];
+
+        // Plan 89: persen komisi untuk kartu panduan — dari merged dynamic
+        // config (fallback-safe), bukan hardcode.
+        $rebate_cfg = $this->Rental_model->get_rebate_config();
+        $data['rebate_enabled']    = (int) $rebate_cfg['rebate_enabled'];
+        $data['rebate_l1_percent'] = (int) $rebate_cfg['rebate_l1_percent'];
+        $data['rebate_l2_percent'] = (int) $rebate_cfg['rebate_l2_percent'];
+        $data['rebate_l3_percent'] = (int) $rebate_cfg['rebate_l3_percent'];
 
         $this->load->view('templates/header', $data);
         $this->load->view('team/index', $data);
@@ -195,6 +232,76 @@ class Team extends MY_Controller {
         // Business rejection (already_claimed / cycle_not_ready /
         // not_qualified / user_unavailable) — HTTP 200 {success:false}
         // + key `code` untuk branching JS claimWage().
+        api_error($result['message'], 200, [], $result['code'], $legacy);
+    }
+
+    /**
+     * POST (AJAX): Ajukan klaim reward promotor — plan/91.
+     * Lapisan HTTP/UX saja (pola claim_level1/claim_wage): POST + AJAX +
+     * sesi + rate limit + pemetaan hasil model ke JSON M9. SELURUH gate,
+     * omzet engine & TX ada di Promoter_model::submit_claim().
+     */
+    public function promoter_claim() {
+        // POST-only + AJAX-only — tutup celah GET-mutation (audit M9).
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
+        }
+        if ( ! $this->input->is_ajax_request()) {
+            show_404();
+            return;
+        }
+
+        $user_id = $this->session->userdata('user_id');
+        if ( ! $user_id) {
+            $message = 'Sesi habis. Silakan login ulang.';
+            api_error($message, 401, [], 'unauthenticated', ['message' => $message]);
+        }
+
+        // M8 (plan/74): input produk — integer ketat ^[1-9][0-9]*$.
+        $product_raw = $this->input->post('product_id', TRUE);
+        $product_id  = (is_string($product_raw) && preg_match('/^[1-9][0-9]*$/', $product_raw))
+            ? (int) $product_raw : 0;
+        if ($product_id <= 0) {
+            api_error('Sistem: Data klaim tidak valid.', 200, [], 'invalid_request',
+                ['message' => 'Sistem: Data klaim tidak valid.']);
+        }
+
+        // Rate limit (pola claim_wage, plan/50 §3.7): promoter_claim:{uid}, 5/60 dtk.
+        $rl_key   = 'promoter_claim:' . $user_id;
+        $throttle = $this->Rate_limit_model->check($rl_key, 5, 60);
+        if ( ! $throttle['allowed']) {
+            rate_limit_json_response($throttle);
+        }
+        $this->Rate_limit_model->hit($rl_key, 60, 5);
+
+        $this->load->model('Promoter_model');
+        $result = $this->Promoter_model->submit_claim($user_id, $product_id);
+
+        // Semua key model (kecuali success) tetap di root sebagai legacy.
+        $legacy = $result;
+        unset($legacy['success']);
+
+        // Internal error -> HTTP 500 (parity claim_wage).
+        if ($result['code'] === 'error') {
+            api_error($result['message'], 500, [], 'error', $legacy);
+        }
+
+        if ($result['success']) {
+            api_success(
+                [
+                    'claim_id' => $result['claim_id'],
+                    'summary'  => $this->Promoter_model->get_omzet_summary($user_id),
+                ],
+                $result['message'],
+                200,
+                $legacy
+            );
+        }
+
+        // Business rejection (not_promoter / banned / insufficient_omzet /
+        // quota_exceeded / product_unavailable / ratio_invalid ...) —
+        // HTTP 200 {success:false} + key `code`.
         api_error($result['message'], 200, [], $result['code'], $legacy);
     }
 

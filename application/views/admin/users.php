@@ -72,6 +72,7 @@
                             <td class="px-4 py-3 font-mono text-xs text-indigo-600 dark:text-indigo-400 font-semibold"><?= htmlspecialchars($u->invite_code) ?></td>
                             <td class="px-4 py-3 font-mono text-xs t-muted"><?= htmlspecialchars($u->parent_invite_code ?? '—') ?></td>
                             <td class="px-4 py-3">
+                                <div class="flex flex-col items-start gap-1">
                                 <?php if ($u->is_banned): ?>
                                     <span class="t-badge t-badge-danger">
                                         <i class="fas fa-ban text-[10px]"></i> BANNED
@@ -81,6 +82,12 @@
                                         <i class="fas fa-check-circle text-[10px]"></i> AKTIF
                                     </span>
                                 <?php endif; ?>
+                                <?php if (!empty($u->is_promoter)): ?>
+                                    <span class="t-badge" style="background:rgba(99,102,241,.12);color:#6366f1;border:1px solid rgba(99,102,241,.35);">
+                                        <i class="fas fa-star text-[10px]"></i> PROMOTOR
+                                    </span>
+                                <?php endif; ?>
+                                </div>
                             </td>
                             <td class="px-4 py-3 font-mono text-xs <?= $u->balance > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-[var(--t-muted)]' ?>">
                                 Rp <?= number_format($u->balance, 0, ',', '.') ?>
@@ -92,6 +99,14 @@
                                        class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-medium hover:bg-indigo-500/20 transition-colors">
                                         <i class="fas fa-eye text-[10px]"></i> Detail
                                     </a>
+                                    <?= form_open('admin/toggle_promoter/' . $u->id, ['onsubmit' => "return confirm('" . ($u->is_promoter ? 'Cabut status promotor? Bypass gating & pengajuan baru dicabut; klaim pending tetap diproses admin.' : 'Jadikan user ini promotor? Kode undangan terbuka permanen.') . "')", 'class' => 'inline']) ?>
+                                        <button type="submit"
+                                                class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
+                                                       <?= $u->is_promoter ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-indigo-600 text-white hover:bg-indigo-700' ?>">
+                                            <i class="fas <?= $u->is_promoter ? 'fa-user-minus' : 'fa-user-plus' ?> text-[10px]"></i>
+                                            <?= $u->is_promoter ? 'Cabut Promotor' : 'Jadikan Promotor' ?>
+                                        </button>
+                                    <?= form_close() ?>
                                     <?= form_open('admin/toggle_ban/' . $u->id, ['onsubmit' => "return confirm('" . ($u->is_banned ? 'Buka blokir user ini?' : 'Blokir user ini? User tidak bisa login & sesi aktif akan diakhiri.') . "')", 'class' => 'inline']) ?>
                                         <button type="submit"
                                                 class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors

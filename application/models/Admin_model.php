@@ -94,7 +94,7 @@ class Admin_model extends CI_Model {
         // user_detail (get_user_balance). Raw SQL: subquery join tidak aman
         // dipakai query builder (escaping identifier gabungan).
         $sql = "SELECT u.id, u.phone, u.username, u.invite_code, u.role, u.is_banned,
-                       COALESCE(l.balance, 0) AS balance, u.created_at,
+                       u.is_promoter, COALESCE(l.balance, 0) AS balance, u.created_at,
                        p.invite_code AS parent_invite_code
                 FROM users u
                 LEFT JOIN users p ON p.id = u.parent_id
@@ -118,6 +118,80 @@ class Admin_model extends CI_Model {
         $params[] = max(0, (int) $offset);
 
         return $this->db->query($sql, $params)->result();
+    }
+
+    // ===================================================================
+    // PLAN/91 — PROMOTER CLAIMS (queue admin)
+    // ===================================================================
+
+    /**
+     * Hitung klaim promotor utk pagination. $status: '' | pending | approved
+     * | rejected; $search: filter phone/username promotor (LIKE).
+     */
+    public function count_promoter_claims($status = '', $search = '') {
+        $this->db->from('promoter_claims pc');
+        if (in_array($status, ['pending', 'approved', 'rejected'], true)) {
+            $this->db->where('pc.status', $status);
+        }
+        if ($search !== '') {
+            $this->db->join('users u', 'u.id = pc.user_id', 'left');
+            $this->db->group_start();
+            $this->db->like('u.phone', $search);
+            $this->db->or_like('u.username', $search);
+            $this->db->group_end();
+        }
+        return (int) $this->db->count_all_results();
+    }
+
+    /**
+     * Daftar klaim (join promotor + produk + admin) utk queue
+     * /admin/promoter-claims. Order terbaru dulu.
+     */
+    public function get_promoter_claims($status = '', $search = '', $limit = 50, $offset = 0) {
+        $sql = "SELECT pc.*, u.phone AS user_phone, u.username, u.is_promoter, u.is_banned,
+                       p.name AS product_name, p.price AS product_price,
+                       a.username AS admin_username
+                FROM promoter_claims pc
+                LEFT JOIN users u       ON u.id = pc.user_id
+                LEFT JOIN gpu_products p ON p.id = pc.product_id
+                LEFT JOIN admins a      ON a.id = pc.admin_id";
+
+        $params = [];
+        $where  = [];
+
+        if (in_array($status, ['pending', 'approved', 'rejected'], true)) {
+            $where[]  = 'pc.status = ?';
+            $params[] = $status;
+        }
+        if ($search !== '') {
+            $where[]  = '(u.phone LIKE ? OR u.username LIKE ?)';
+            $like     = '%' . $search . '%';
+            $params[] = $like;
+            $params[] = $like;
+        }
+        if ($where) {
+            $sql .= ' WHERE ' . implode(' AND ', $where);
+        }
+        $sql     .= ' ORDER BY pc.created_at DESC, pc.id DESC LIMIT ? OFFSET ?';
+        $params[] = (int) $limit;
+        $params[] = max(0, (int) $offset);
+
+        return $this->db->query($sql, $params)->result();
+    }
+
+    /**
+     * Satu baris klaim (join promotor + produk) — utk validasi controller
+     * approve/reject sebelum memanggil TX model.
+     */
+    public function get_promoter_claim($claim_id) {
+        return $this->db->query(
+            "SELECT pc.*, u.phone AS user_phone, p.name AS product_name
+               FROM promoter_claims pc
+               LEFT JOIN users u ON u.id = pc.user_id
+               LEFT JOIN gpu_products p ON p.id = pc.product_id
+              WHERE pc.id = ?",
+            [(int) $claim_id]
+        )->row();
     }
 
     // --- Single User Detail ---
@@ -246,6 +320,25 @@ class Admin_model extends CI_Model {
 
         $new_val = $user->is_banned ? 0 : 1;
         $this->db->where('id', $id)->update('users', ['is_banned' => $new_val]);
+        return $new_val; // returns new state
+    }
+
+    /**
+     * plan/91 — Toggle flag promotor (is_promoter 0↔1). Admin-only mutator;
+     * audit atomik dikelola controller (pola toggle_ban, M5). Demosi TIDAK
+     * membatalkan klaim pending (dec-6d14b1039ad8cc30) — hanya mencabut
+     * bypass gating referral & memblokir pengajuan baru (gate baca segar
+     * di Promoter_model::submit_claim).
+     *
+     * @param int $id
+     * @return int|false Nilai BARU (0/1), false bila user tidak ditemukan.
+     */
+    public function toggle_promoter($id) {
+        $user = $this->db->select('is_promoter')->where('id', $id)->get('users')->row();
+        if (!$user) return false;
+
+        $new_val = $user->is_promoter ? 0 : 1;
+        $this->db->where('id', $id)->update('users', ['is_promoter' => $new_val]);
         return $new_val; // returns new state
     }
 
@@ -533,6 +626,191 @@ class Admin_model extends CI_Model {
             ->order_by('price', 'ASC')
             ->get('gpu_products')
             ->result();
+    }
+
+    // ===================================================================
+    //  plan/85 + plan/87 — ADMIN GPU PRODUCT MANAGEMENT (CRUD, no hard delete)
+    //
+    //  Semua SQL hidup di model (repo rule). Mutator dipanggil DI DALAM
+    //  transaksi controller (trans_start/trans_complete) yang juga menulis
+    //  audit via Audit_model::log_admin_action — state & audit commit/rollback
+    //  bersama (M5). Parameter selalu bound; id & angka di-(int) kan (M8).
+    //  Predikat kuota/usage konsisten plan/83 D1: user_rentals status
+    //  IN ('active','completed'); active_cnt = sedang berjalan (status active).
+    //  plan/87: gating prasyarat DICOMMISSIONED — query baca TANPA join/
+    //  kolom unlock_prerequisite_id (kolom dormant, seluruh baris NULL).
+    // ===================================================================
+
+    /**
+     * Semua paket (aktif & nonaktif) + pemakaian live. (plan/87: tanpa nama
+     * prasyarat — gating prasyarat DICOMMISSIONED.)
+     * Satu grouped aggregate pada user_rentals (bukan denormalisasi):
+     *   active_cnt = kontrak 'active' (sedang berjalan)
+     *   total_cnt  = 'active'+'completed' (kuota lifetime terpakai)
+     *
+     * @return array  objects: gpu_products.*, active_cnt:int, total_cnt:int
+     */
+    public function get_products_admin() {
+        $rows = $this->db->query(
+            "SELECT p.*,
+                    COALESCE(ag.active_cnt, 0) AS active_cnt,
+                    COALESCE(ag.total_cnt, 0)  AS total_cnt
+               FROM gpu_products p
+               LEFT JOIN (
+                    SELECT product_id,
+                           SUM(status = 'active')                AS active_cnt,
+                           SUM(status IN ('active','completed')) AS total_cnt
+                      FROM user_rentals
+                     GROUP BY product_id
+               ) ag ON ag.product_id = p.id
+              ORDER BY p.id ASC"
+        )->result();
+
+        // M8: counter & kebijakan integer dipaksa (int) sebelum return.
+        foreach ($rows as $r) {
+            $r->active_cnt     = (int) $r->active_cnt;
+            $r->total_cnt      = (int) $r->total_cnt;
+            $r->max_per_user   = (int) $r->max_per_user;
+            $r->duration_days  = (int) $r->duration_days;
+        }
+        return $rows;
+    }
+
+    /**
+     * Satu paket by id — snapshot BEFORE untuk audit. (plan/87: tanpa join
+     * prasyarat — gating prasyarat DICOMMISSIONED.)
+     *
+     * @param int $id
+     * @return object|null  null saat baris tidak ada.
+     */
+    public function get_product_row($id) {
+        return $this->db->query(
+            "SELECT p.*
+               FROM gpu_products p
+              WHERE p.id = ?",
+            [(int) $id]
+        )->row();
+    }
+
+    /**
+     * Cek duplikasi nama (case-insensitive via collation ci default).
+     * Uniqueness menjaga seeding plan/83 yang mencocokkan baris BY NAME.
+     *
+     * @param string   $name
+     * @param int|null $ignore_id  Abaikan baris ini (saat update diri sendiri).
+     * @return bool
+     */
+    public function is_product_name_taken($name, $ignore_id = null) {
+        $this->db->where('name', $name);
+        if ($ignore_id !== null) {
+            $this->db->where('id !=', (int) $ignore_id);
+        }
+        return $this->db->count_all_results('gpu_products') > 0;
+    }
+
+    /**
+     * INSERT paket baru — kolom eksplisit; dipanggil dalam TX controller.
+     *
+     * @param array $data  {name,type,price,daily_rate,duration_days,
+     *                     is_refundable,max_per_user,is_active}
+     * @return int|false  insert_id atau false.
+     */
+    public function create_product(array $data) {
+        $clean = $this->_sanitize_product_fields($data);
+        if (!$this->db->insert('gpu_products', $clean)) {
+            log_message('error', 'Admin_model::create_product — insert gagal: ' . $this->db->error()['message']);
+            return false;
+        }
+        return (int) $this->db->insert_id();
+    }
+
+    /**
+     * UPDATE paket by id (guarded). false hanya pada error SQL ATAU baris
+     * tidak ada; update bernilai identik (affected_rows 0) = sukses no-op.
+     *
+     * @param int   $id
+     * @param array $data  subset kolom yang diedit (lihat _sanitize_product_fields)
+     * @return bool
+     */
+    public function update_product($id, array $data) {
+        $id    = (int) $id;
+        $clean = $this->_sanitize_product_fields($data);
+
+        $this->db->where('id', $id);
+        if (!$this->db->update('gpu_products', $clean)) {
+            log_message('error', 'Admin_model::update_product — update gagal (id=' . $id . '): ' . $this->db->error()['message']);
+            return false;
+        }
+
+        if ($this->db->affected_rows() === 0) {
+            // 0 baris: nilai identik (no-op sukses) ATAU baris hilang.
+            $exists = $this->db->where('id', $id)->count_all_results('gpu_products');
+            return $exists > 0;
+        }
+        return true;
+    }
+
+    /**
+     * Toggle/paksa is_active (0|1). no-op nilai sama = sukses; baris hilang
+     * atau error SQL = false.
+     *
+     * @param int $id
+     * @param int $is_active  0 atau 1
+     * @return bool
+     */
+    public function set_product_active($id, $is_active) {
+        $id        = (int) $id;
+        $is_active = (int) $is_active;
+
+        $this->db->where('id', $id);
+        if (!$this->db->update('gpu_products', ['is_active' => ($is_active === 1 ? 1 : 0)])) {
+            log_message('error', 'Admin_model::set_product_active — update gagal (id=' . $id . '): ' . $this->db->error()['message']);
+            return false;
+        }
+        if ($this->db->affected_rows() === 0) {
+            $exists = $this->db->where('id', $id)->count_all_results('gpu_products');
+            return $exists > 0;
+        }
+        return true;
+    }
+
+    /**
+     * Normalisasi + koersi (int) kolom produk sebelum write (M8). Kolom
+     * finansial & durasi sudah divalidasi regex di controller; model tetap
+     * memaksa integer & whitelist kolom (anti mass-assignment).
+     * plan/87: unlock_prerequisite_id TIDAK lagi di whitelist — kolom
+     * dormant, tidak boleh tersentuh jalur write mana pun.
+     *
+     * @param array $data  subset kolom yang diizinkan.
+     * @return array       kolom bersih siap insert/update.
+     */
+    private function _sanitize_product_fields(array $data) {
+        $allowed = ['name', 'type', 'price', 'daily_rate', 'duration_days',
+                    'is_refundable', 'max_per_user', 'is_active'];
+        $clean = [];
+        foreach ($allowed as $key) {
+            if (!array_key_exists($key, $data)) {
+                continue;
+            }
+            switch ($key) {
+                case 'name':
+                    $clean[$key] = trim((string) $data[$key]);
+                    break;
+                case 'type':
+                    $clean[$key] = (in_array($data[$key], ['short_term', 'long_term'], true))
+                        ? $data[$key] : 'short_term';
+                    break;
+                case 'price':
+                case 'daily_rate':
+                case 'duration_days':
+                case 'max_per_user':
+                    $clean[$key] = (int) $data[$key];
+                    break;
+                default: // is_refundable, is_active — boolean 0/1
+                    $clean[$key] = ((int) $data[$key] === 1) ? 1 : 0;
+            }
+        }
+        return $clean;
     }
 
     // --- Inject Rental (Bypass) ---

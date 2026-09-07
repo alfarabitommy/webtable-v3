@@ -37,6 +37,8 @@ $route['wallet/bind_bank'] = 'wallet/bind_bank';
 
 // Phase 8.2: Team & Affiliates
 $route['team'] = 'team/index';
+// Plan 89: alias rute referral → hub afiliasi terpadu (gating di /team).
+$route['referral'] = 'team/index';
 
 // Phase 8B: Help / FAQ
 $route['help'] = 'help/index';
@@ -46,3 +48,17 @@ $route['user/read_notifications'] = 'user/read_notifications';
 
 // P3 (plan/80): notification history page — pretty URL parity (team/profile/help)
 $route['notification'] = 'notification/index';
+
+// plan/85: Admin GPU product management (CRUD — no hard delete). Pretty URLs
+// wajib route eksplisit: /admin/products/create dll. jika dibiarkan default
+// akan dipetakan sebagai argumen method Admin::products.
+$route['admin/products'] = 'admin/products';
+$route['admin/products/create'] = 'admin/create_product';
+$route['admin/products/update/(:num)'] = 'admin/update_product/$1';
+$route['admin/products/toggle_status/(:num)'] = 'admin/toggle_product_status/$1';
+
+// plan/91: Program Promoter (omzet burn) — klaim member (AJAX) & queue admin.
+$route['promoter/claim'] = 'team/promoter_claim';
+$route['admin/promoter-claims'] = 'admin/promoter_claims';
+$route['admin/promoter-claims/approve/(:num)'] = 'admin/approve_promoter_claim/$1';
+$route['admin/promoter-claims/reject/(:num)'] = 'admin/reject_promoter_claim/$1';

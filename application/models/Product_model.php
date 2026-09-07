@@ -27,36 +27,34 @@ class Product_model extends CI_Model {
     }
 
     /**
-     * plan/83 — Katalog ter-personalisasi untuk satu user (DISPLAY ONLY).
-     * Menggabungkan produk aktif dengan nama paket prasyarat + telemetri
-     * pembelian lifetime user. Otoritas GATE (prasyarat & kuota) tetap di
-     * Rental_model::checkout_rental di dalam TX terkunci — method ini hanya
-     * bahan render UI marketplace (State A/B/C), TIDAK pernah dipercaya.
+     * plan/83 + plan/87 — Katalog ter-personalisasi untuk satu user (DISPLAY ONLY).
+     * Menyajikan produk AKTIF + telemetri kuota pembelian lifetime user.
+     * Otoritas GATE (kuota & is_active) tetap di Rental_model::checkout_rental
+     * di dalam TX terkunci — method ini hanya bahan render UI marketplace
+     * (State A available / B quota reached), TIDAK pernah dipercaya.
      *
-     * Predikat "pernah disewa" (D1, plan/83): user_rentals.status IN
-     * ('active','completed') — baris 'cancelled' (soft-cancel admin tanpa
-     * refund) tidak memenuhi prasyarat dan tidak memakan kuota.
+     * plan/87: gating prasyarat DICOMMISSIONED — ketersediaan murni via
+     * toggle admin is_active; produk non-aktif tidak pernah dirender (bukan
+     * kartu terkunci/dim). Predikat kuota (D1, plan/83): user_rentals.status
+     * IN ('active','completed') — baris 'cancelled' (soft-cancel admin tanpa
+     * refund) tidak memakan kuota.
      *
      * @param int $user_id
      * @return array  Produk aktif (result_array, order id ASC) dengan ekstra:
-     *   prerequisite_id|prerequisite_name (int|null|string|null),
      *   user_rentals_count (int), quota_max (int), is_unlimited (bool),
-     *   quota_remaining (int|null), is_locked (bool), is_quota_exhausted (bool),
+     *   quota_remaining (int|null), is_quota_exhausted (bool),
      *   can_rent (bool). Produk non-aktif / katalog kosong → array kosong
      *   (empty-state marketplace P4 tetap tercapai).
      */
     public function get_catalog_for_user($user_id) {
         $user_id = (int) $user_id;
 
-        // Query A — produk aktif + nama prasyarat (self LEFT JOIN; prasyarat
-        // yang sedang is_active=0 tetap menampilkan nama & tetap terpenuhi
-        // oleh riwayat sewa lama — D1/D3 plan/83).
+        // Query A — produk aktif SAJA (is_active = 1). Tanpa self-join
+        // prasyarat (plan/87): gating 100% via toggle admin; produk
+        // non-aktif tidak pernah dirender dalam bentuk apa pun.
         $rows = $this->db->query(
-            "SELECT p.*,
-                    pr.id   AS prerequisite_id,
-                    pr.name AS prerequisite_name
+            "SELECT p.*
                FROM gpu_products p
-               LEFT JOIN gpu_products pr ON pr.id = p.unlock_prerequisite_id
               WHERE p.is_active = 1
               ORDER BY p.id ASC"
         )->result_array();
@@ -67,6 +65,9 @@ class Product_model extends CI_Model {
             "SELECT product_id, COUNT(*) AS cnt
                FROM user_rentals
               WHERE user_id = ? AND status IN ('active', 'completed')
+                -- plan/91 (K4): kuota marketplace = kanal BERBAYAR saja;
+                -- kontrak reward (source='promoter_reward') tidak memakannya.
+                AND source <> 'promoter_reward'
               GROUP BY product_id",
             [$user_id]
         )->result() as $row) {
@@ -87,12 +88,9 @@ class Product_model extends CI_Model {
             $p['is_quota_exhausted'] = (!$p['is_unlimited']
                 && $p['user_rentals_count'] >= $max);
 
-            $prereq          = ($p['prerequisite_id'] === null)
-                ? null
-                : (int) $p['prerequisite_id'];
-            $p['is_locked']  = ($prereq !== null && !isset($counts[$prereq]));
-
-            $p['can_rent']   = !$p['is_locked'] && !$p['is_quota_exhausted'];
+            // plan/87: tanpa prasyarat — ketersediaan murni fungsi kuota
+            // (is_active sudah difilter di Query A).
+            $p['can_rent'] = !$p['is_quota_exhausted'];
         }
         unset($p);
 

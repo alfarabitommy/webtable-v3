@@ -274,6 +274,8 @@ class Admin extends CI_Controller {
     public function settings() {
         $this->load->model('Admin_model');
         $this->load->model('Wallet_model');
+        // Plan 89: rebate 3-tier config — resolver GET + validator POST.
+        $this->load->model('Rental_model');
 
         // M7 (plan/70): satu endpoint pengaturan — GET merender form terpadu
         // (kontak + finansial), POST memproses keduanya dalam satu submit.
@@ -314,6 +316,19 @@ class Admin extends CI_Controller {
                 $errors = array_merge($errors, $v['errors']);
             }
 
+            // ── Rebate 3-tier (Plan 89): raw POST → normalizer ketat
+            //    Rental_model (persen integer 0–100; toggle '1'/'0').
+            $rebate_raw = [
+                'rebate_enabled'    => $this->input->post('rebate_enabled'),
+                'rebate_l1_percent' => $this->input->post('rebate_l1_percent'),
+                'rebate_l2_percent' => $this->input->post('rebate_l2_percent'),
+                'rebate_l3_percent' => $this->input->post('rebate_l3_percent'),
+            ];
+            $rv = $this->Rental_model->validate_rebate_settings($rebate_raw);
+            if (!$rv['ok']) {
+                $errors = array_merge($errors, $rv['errors']);
+            }
+
             // All-or-nothing: satu error → tidak ada satupun yang disimpan.
             if (!empty($errors)) {
                 $this->session->set_flashdata('error', 'Validasi gagal: ' . implode(' ', $errors));
@@ -321,7 +336,7 @@ class Admin extends CI_Controller {
                 return;
             }
 
-            $final = array_merge($contact, $v['values']);
+            $final = array_merge($contact, $v['values'], $rv['values']);
 
             // M5/A1: snapshot nilai lama per key SEBELUM persist (audit before→after).
             $before = [];
@@ -377,6 +392,13 @@ class Admin extends CI_Controller {
             'deposit_fee_type'    => $cfg['deposit_fee_type'],
             'deposit_fee_value'   => $cfg['deposit_fee_value'],
         ];
+
+        // Plan 89: nilai rebate dari merged dynamic config (fallback-safe).
+        $rebate_cfg = $this->Rental_model->get_rebate_config();
+        $data['rebate_enabled']    = (int) $rebate_cfg['rebate_enabled'];
+        $data['rebate_l1_percent'] = (int) $rebate_cfg['rebate_l1_percent'];
+        $data['rebate_l2_percent'] = (int) $rebate_cfg['rebate_l2_percent'];
+        $data['rebate_l3_percent'] = (int) $rebate_cfg['rebate_l3_percent'];
 
         $this->load->view('admin/templates/header', $data);
         $this->load->view('admin/templates/sidebar', $data);
@@ -631,6 +653,55 @@ class Admin extends CI_Controller {
         redirect('admin/user_detail/' . $id);
     }
 
+    public function toggle_promoter($id)
+    {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
+        }
+        $this->load->model('Admin_model');
+
+        // Atomic: promoter state change + audit log (M5)
+        $this->db->trans_start();
+        $new_state = $this->Admin_model->toggle_promoter($id);
+        if ($new_state !== FALSE) {
+            $this->load->model('Audit_model');
+            $this->Audit_model->log_admin_action(
+                (int) $this->session->userdata('admin_id'),
+                $id,
+                'admin_toggle_promoter',
+                ['new_state' => $new_state ? 'promoter' : 'member'],
+                $this->input->ip_address()
+            );
+        }
+        $this->db->trans_complete();
+
+        if ($new_state === FALSE) {
+            $this->session->set_flashdata('error', 'User tidak ditemukan.');
+        } elseif ($new_state) {
+            $this->session->set_flashdata('success', 'User dijadikan PROMOTOR — kode undangan terbuka permanen.');
+        } else {
+            // plan/91 (K6): demosi hanya mencabut bypass & memblokir submit baru;
+            // klaim pending tetap diproses admin (keputusan dec-6d14b1039ad8cc30).
+            $this->session->set_flashdata('success', 'Status promotor dicabut. Klaim pending tetap diproses; pengajuan baru diblokir.');
+        }
+
+        // M5/N3: user wajib tahu perubahan status (post-commit).
+        if ($new_state !== FALSE) {
+            $this->load->model('Notification_model');
+            $this->Notification_model->insert(
+                (int) $id,
+                $new_state ? 'Status Promotor Aktif' : 'Status Promotor Dicabut',
+                $new_state
+                    ? 'Selamat! Anda kini promotor — kode undangan terbuka. Kumpulkan omzet L1 untuk reward GPU.'
+                    : 'Status promotor Anda dicabut oleh admin. Pengajuan klaim baru ditutup; klaim pending tetap diproses.',
+                'info'
+            );
+        }
+        redirect('admin/user_detail/' . $id);
+    }
+
     public function inject_balance($id)
     {
         // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
@@ -861,6 +932,146 @@ class Admin extends CI_Controller {
     }
 
     // ===================================================================
+    //  PLAN/91 — PROMOTER CLAIMS (approval queue)
+    // ===================================================================
+
+    /**
+     * GET: Queue klaim promotor (tab Semua/Pending/Approved/Rejected + cari
+     * phone/username). Setiap baris dilengkapi telemetri omzet L1 downline
+     * (display; otoritas gate tetap di Promoter_model TX).
+     */
+    public function promoter_claims()
+    {
+        $this->load->model('Admin_model');
+        $this->load->model('Promoter_model');
+
+        $status = (string) $this->input->get('status', TRUE);
+        if (!in_array($status, ['pending', 'approved', 'rejected'], true)) {
+            $status = '';
+        }
+        $search   = trim((string) $this->input->get('q', TRUE));
+        $per_page = 50;
+        $offset   = max(0, intval($this->input->get('per_page', TRUE) ?? 0));
+
+        $total  = $this->Admin_model->count_promoter_claims($status, $search);
+        $claims = $this->Admin_model->get_promoter_claims($status, $search, $per_page, $offset);
+
+        // Telemetri omzet per klaim — utk review manual anti volume sintetis (E9).
+        foreach ($claims as $c) {
+            $c->telemetry = $this->Promoter_model->get_omzet_summary((int) $c->user_id);
+        }
+
+        $params = array_filter(['q' => $search, 'status' => $status]);
+        $config['base_url']             = site_url('admin/promoter-claims') . ($params ? '?' . http_build_query($params) : '');
+        $config['total_rows']           = $total;
+        $config['per_page']             = $per_page;
+        $config['page_query_string']    = TRUE;
+        $config['query_string_segment'] = 'per_page';
+        $config['full_tag_open']        = '<nav class="flex items-center justify-center gap-1 mt-6">';
+        $config['full_tag_close']       = '</nav>';
+        $config['num_tag_open']         = '<a href="{link}" class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">';
+        $config['num_tag_close']        = '</a>';
+        $config['cur_tag_open']         = '<span class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 text-white font-medium">';
+        $config['cur_tag_close']        = '</span>';
+        $config['next_link']            = '&raquo;';
+        $config['next_tag_open']        = '<a href="{link}" class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">';
+        $config['next_tag_close']       = '</a>';
+        $config['prev_link']            = '&laquo;';
+        $config['prev_tag_open']        = '<a href="{link}" class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">';
+        $config['prev_tag_close']       = '</a>';
+
+        $this->pagination->initialize($config);
+
+        $data = [
+            'page_title'    => 'Klaim Promoter',
+            'claims'        => $claims,
+            'search'        => $search,
+            'status'        => $status,
+            'total'         => $total,
+            'pagination'    => $this->pagination->create_links(),
+            'pending_count' => $this->Admin_model->count_promoter_claims('pending'),
+        ];
+
+        $this->load->view('admin/templates/header', $data);
+        $this->load->view('admin/templates/sidebar', $data);
+        $this->load->view('admin/templates/topbar', $data);
+        $this->load->view('admin/promoter_claims', $data);
+        $this->load->view('admin/templates/footer');
+    }
+
+    /**
+     * POST: Approve klaim promotor (pending→approved + kontrak reward
+     * zero-cost). Seluruh TX & gate ada di Promoter_model::approve_claim();
+     * audit & notifikasi ditulis atomik di dalam TX model (M5).
+     */
+    public function approve_promoter_claim($claim_id)
+    {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
+        }
+
+        $this->load->model('Admin_model');
+        $claim = $this->Admin_model->get_promoter_claim($claim_id);
+        if (!$claim) {
+            $this->session->set_flashdata('error', 'Klaim tidak ditemukan.');
+            redirect('admin/promoter-claims');
+            return;
+        }
+
+        $this->load->model('Promoter_model');
+        $audit  = $this->_audit_ctx(null, 'promoter_claim_approved');
+        $result = $this->Promoter_model->approve_claim((int) $claim->id, $audit);
+
+        if ($result['success']) {
+            $this->session->set_flashdata('success', $result['message']);
+        } else {
+            $this->session->set_flashdata('error', $result['message']);
+        }
+        redirect('admin/promoter-claims');
+    }
+
+    /**
+     * POST: Reject klaim promotor (pending→rejected + admin_notes wajib).
+     * Lock omzet lepas otomatis; audit & notifikasi atomik di dalam TX model.
+     */
+    public function reject_promoter_claim($claim_id)
+    {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
+        }
+
+        $this->load->model('Admin_model');
+        $claim = $this->Admin_model->get_promoter_claim($claim_id);
+        if (!$claim) {
+            $this->session->set_flashdata('error', 'Klaim tidak ditemukan.');
+            redirect('admin/promoter-claims');
+            return;
+        }
+
+        $notes = trim((string) $this->input->post('admin_notes', TRUE));
+        if ($notes === '') {
+            $this->session->set_flashdata('error', 'Alasan penolakan wajib diisi.');
+            redirect('admin/promoter-claims');
+            return;
+        }
+
+        $this->load->model('Promoter_model');
+        $audit  = $this->_audit_ctx(null, 'promoter_claim_rejected');
+        $result = $this->Promoter_model->reject_claim((int) $claim->id, $audit, $notes);
+
+        if ($result['success']) {
+            $this->session->set_flashdata('success', $result['message']);
+        } else {
+            $this->session->set_flashdata('error', $result['message']);
+        }
+        redirect('admin/promoter-claims');
+    }
+
+    // ===================================================================
     //  CREATE NEW USER (Admin Bypass Referral)
     // ===================================================================
 
@@ -1063,6 +1274,261 @@ class Admin extends CI_Controller {
     // ===================================================================
     //  PHASE 9A: CHART DATA (AJAX)
     // ===================================================================
+
+    // ===================================================================
+    //  plan/85 — ADMIN GPU PRODUCT MANAGEMENT (CRUD, no hard delete)
+    //  Pretty URLs di routes.php. Semua mutator: POST-only fail-closed,
+    //  CSRF via form_open (csrf_protection=TRUE), audit atomik M5 dalam
+    //  trans_start/trans_complete (state + system_audit_logs commit bersama).
+    // ===================================================================
+
+    public function products() {
+        $this->load->model('Admin_model');
+
+        $data = [
+            'page_title' => 'Manajemen Produk GPU',
+            'products'   => $this->Admin_model->get_products_admin(),
+        ];
+
+        $this->load->view('admin/templates/header', $data);
+        $this->load->view('admin/templates/sidebar', $data);
+        $this->load->view('admin/templates/topbar', $data);
+        $this->load->view('admin/products/index', $data);
+        $this->load->view('admin/templates/footer');
+    }
+
+    public function create_product() {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
+        }
+
+        $this->load->model('Admin_model');
+        $this->load->model('Audit_model');
+
+        $v = $this->_validate_product_payload(false);
+        if (!$v['ok']) {
+            $this->session->set_flashdata('error', implode('<br>', $v['errors']));
+            redirect('admin/products');
+            return;
+        }
+
+        $this->db->trans_start();
+        $new_id = $this->Admin_model->create_product($v['fields']);
+        if ($new_id !== false) {
+            $after       = $v['fields'];
+            $after['id'] = $new_id;
+            $this->Audit_model->log_admin_action(
+                (int) $this->session->userdata('admin_id'),
+                null, // aksi produk — tanpa user (kolom nullable)
+                'admin_create_product',
+                ['product_id' => $new_id, 'before' => null, 'after' => $after],
+                $this->input->ip_address()
+            );
+        }
+        $this->db->trans_complete();
+
+        if (!$this->db->trans_status() || $new_id === false) {
+            $this->session->set_flashdata('error', 'Gagal menyimpan paket baru.');
+        } else {
+            $this->session->set_flashdata('success', 'Paket "' . $v['fields']['name'] . '" berhasil dibuat.');
+        }
+        redirect('admin/products');
+    }
+
+    public function update_product($id) {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
+        }
+
+        $this->load->model('Admin_model');
+        $this->load->model('Audit_model');
+        $id = (int) $id;
+
+        // M5/A1: snapshot BEFORE untuk payload audit (baca murni, pra-TX).
+        $before = $this->Admin_model->get_product_row($id);
+        if (!$before) {
+            $this->session->set_flashdata('error', 'Paket tidak ditemukan.');
+            redirect('admin/products');
+            return;
+        }
+
+        $v = $this->_validate_product_payload(true, $id);
+        if (!$v['ok']) {
+            $this->session->set_flashdata('error', implode('<br>', $v['errors']));
+            redirect('admin/products');
+            return;
+        }
+
+        // Payload audit simetris: BEFORE (semua kolom) vs AFTER (BEFORE +
+        // field yang diedit; is_active tidak diedit via form → tetap).
+        $before_payload = $this->_product_payload_from_row($before);
+        $after_payload  = $before_payload;
+        foreach ($v['fields'] as $k => $val) {
+            $after_payload[$k] = $val;
+        }
+
+        $this->db->trans_start();
+        $updated = $this->Admin_model->update_product($id, $v['fields']);
+        if ($updated) {
+            $this->Audit_model->log_admin_action(
+                (int) $this->session->userdata('admin_id'),
+                null,
+                'admin_update_product',
+                ['product_id' => $id, 'before' => $before_payload, 'after' => $after_payload],
+                $this->input->ip_address()
+            );
+        }
+        $this->db->trans_complete();
+
+        if (!$this->db->trans_status() || !$updated) {
+            $this->session->set_flashdata('error', 'Gagal memperbarui paket.');
+        } else {
+            $this->session->set_flashdata('success', 'Paket "' . $before->name . '" berhasil diperbarui.');
+        }
+        redirect('admin/products');
+    }
+
+    public function toggle_product_status($id) {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
+        }
+
+        $this->load->model('Admin_model');
+        $this->load->model('Audit_model');
+        $id = (int) $id;
+
+        $before    = $this->Admin_model->get_product_row($id);
+        if (!$before) {
+            $this->session->set_flashdata('error', 'Paket tidak ditemukan.');
+            redirect('admin/products');
+            return;
+        }
+        $new_state = (((int) $before->is_active === 1) ? 0 : 1);
+
+        $this->db->trans_start();
+        $ok = $this->Admin_model->set_product_active($id, $new_state);
+        if ($ok) {
+            $this->Audit_model->log_admin_action(
+                (int) $this->session->userdata('admin_id'),
+                null,
+                'admin_toggle_product_status',
+                [
+                    'product_id' => $id,
+                    'name'       => $before->name,
+                    'before'     => ['is_active' => (int) $before->is_active],
+                    'after'      => ['is_active' => $new_state],
+                ],
+                $this->input->ip_address()
+            );
+        }
+        $this->db->trans_complete();
+
+        if (!$this->db->trans_status() || !$ok) {
+            $this->session->set_flashdata('error', 'Gagal mengubah status paket.');
+        } elseif ($new_state === 1) {
+            $this->session->set_flashdata('success', 'Paket "' . $before->name . '" berhasil diaktifkan.');
+        } else {
+            $this->session->set_flashdata('success', 'Paket "' . $before->name . '" berhasil dinonaktifkan.');
+        }
+        redirect('admin/products');
+    }
+
+    /**
+     * Validasi payload produk (create/edit) — MURNI BACA, tanpa write.
+     *   * M8 (plan/74): price/daily_rate/duration_days regex ^[1-9][0-9]*$
+     *     (integer positif; float/exp/0 ditolak), max_per_user ^(0|[1-9][0-9]*)$.
+     *   * name wajib & unik (ci, excl. diri sendiri saat edit).
+     *   * is_active hanya untuk create (edit memakai endpoint toggle).
+     *   * plan/87: validasi prasyarat DIHAPUS — gating murni via is_active.
+     *
+     * @param bool     $is_edit
+     * @param int|null $product_id  id paket saat edit (excl. nama sendiri).
+     * @return array{ok:bool, errors:string[], fields:array}
+     */
+    private function _validate_product_payload($is_edit, $product_id = null) {
+        $errors = [];
+        $p      = $this->input->post();
+
+        // ── name ──
+        $name = trim((string) ($p['name'] ?? ''));
+        if ($name === '' || mb_strlen($name) > 100) {
+            $errors[] = 'Nama paket wajib diisi (maks. 100 karakter).';
+        } elseif ($this->Admin_model->is_product_name_taken($name, $product_id)) {
+            $errors[] = 'Nama paket sudah digunakan paket lain.';
+        }
+
+        // ── type ──
+        $type = (string) ($p['type'] ?? '');
+        if (!in_array($type, ['short_term', 'long_term'], true)) {
+            $errors[] = 'Tipe paket tidak valid.';
+        }
+
+        // ── M8 integer IDR & durasi/kuota ──
+        $price_raw = (string) ($p['price'] ?? '');
+        if (!preg_match('/^[1-9][0-9]*$/', $price_raw)) {
+            $errors[] = 'Harga sewa harus bilangan bulat positif (IDR).';
+        }
+        $roi_raw = (string) ($p['daily_rate'] ?? '');
+        if (!preg_match('/^[1-9][0-9]*$/', $roi_raw)) {
+            $errors[] = 'ROI harian harus bilangan bulat positif (IDR).';
+        }
+        $dur_raw = (string) ($p['duration_days'] ?? '');
+        if (!preg_match('/^[1-9][0-9]*$/', $dur_raw)) {
+            $errors[] = 'Durasi kontrak minimal 1 hari.';
+        }
+        $quota_raw = (string) ($p['max_per_user'] ?? '');
+        if (!preg_match('/^(0|[1-9][0-9]*)$/', $quota_raw)) {
+            $errors[] = 'Batas sewa per user harus ≥ 0 (0 = tanpa batas).';
+        }
+
+        // plan/87: validasi prasyarat DIHAPUS — gating produk murni via
+        // is_active (toggle admin). Kolom unlock_prerequisite_id dormant.
+
+        if (count($errors) > 0) {
+            return ['ok' => false, 'errors' => $errors, 'fields' => []];
+        }
+
+        $fields = [
+            'name'                     => $name,
+            'type'                     => $type,
+            'price'                    => (int) $price_raw,
+            'daily_rate'               => (int) $roi_raw,
+            'duration_days'            => (int) $dur_raw,
+            'is_refundable'            => isset($p['is_refundable']) ? 1 : 0,
+            'max_per_user'             => (int) $quota_raw,
+        ];
+        if (!$is_edit) {
+            $fields['is_active'] = (isset($p['is_active']) && (int) $p['is_active'] === 1) ? 1 : 0;
+        }
+        return ['ok' => true, 'errors' => [], 'fields' => $fields];
+    }
+
+    /**
+     * Payload audit simetris dari baris gpu_products (BEFORE snapshot).
+     * M8: nominal & boolean di-(int) kan. plan/87: unlock_prerequisite_id
+     * tidak disertakan (kolom dormant).
+     *
+     * @param object $row  hasil Admin_model::get_product_row()
+     * @return array
+     */
+    private function _product_payload_from_row($row) {
+        return [
+            'name'                   => $row->name,
+            'type'                   => $row->type,
+            'price'                  => (int) $row->price,
+            'daily_rate'             => (int) $row->daily_rate,
+            'duration_days'          => (int) $row->duration_days,
+            'is_refundable'          => (int) $row->is_refundable,
+            'max_per_user'           => (int) $row->max_per_user,
+            'is_active'              => (int) $row->is_active,
+        ];
+    }
 
     public function chart_data() {
         $this->load->model('Admin_model');

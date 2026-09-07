@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS `users` (
   `avatar_url` VARCHAR(255) DEFAULT NULL,
   `level_id` INT NOT NULL DEFAULT 0,
   `is_banned` TINYINT(1) NOT NULL DEFAULT 0,
+  -- plan/91: flag promotor (admin-only). Bypass gating referral Condition A.
+  `is_promoter` TINYINT(1) NOT NULL DEFAULT 0,
   `must_change_password` TINYINT(1) NOT NULL DEFAULT 0,
   `is_level_1_claimed` TINYINT(1) NOT NULL DEFAULT 0,
   `last_wage_claimed_at` DATETIME NULL DEFAULT NULL,
@@ -45,8 +47,10 @@ CREATE TABLE IF NOT EXISTS `gpu_products` (
   -- plan/83: gating & per-user purchase limits engine.
   -- 0 = unlimited; N >= 1 = lifetime rental cap per user.
   `max_per_user` INT UNSIGNED NOT NULL DEFAULT 0,
-  -- plan/83: paket terkunci sampai paket prasyarat disewa >= 1x
-  -- (user_rentals status active/completed). Self-referencing FK.
+  -- DEPRECATED (plan/87): prerequisite-chain gating decommissioned.
+  -- Product availability is 100% admin-controlled via `is_active`.
+  -- Column/index/FK retained non-destructively (all rows NULL); no
+  -- application code reads or writes this column anymore.
   `unlock_prerequisite_id` INT UNSIGNED NULL DEFAULT NULL,
   `is_active` TINYINT(1) NOT NULL DEFAULT 1,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -182,6 +186,10 @@ CREATE TABLE IF NOT EXISTS `user_rentals` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` BIGINT UNSIGNED NOT NULL,
   `product_id` INT UNSIGNED NOT NULL,
+  -- plan/91 (K4): origin kontrak — 'purchase' (checkout/inject, default)
+  -- vs 'promoter_reward' (reward zero-cost). Pembeda kuota per kanal:
+  -- baris reward TIDAK memakan kuota pembelian berbayar (GATE 2 source-aware).
+  `source` ENUM('purchase','promoter_reward') NOT NULL DEFAULT 'purchase',
   `purchase_price` DECIMAL(15,2) NOT NULL,
   `daily_roi` DECIMAL(15,2) NOT NULL,
   `total_days` INT UNSIGNED NOT NULL DEFAULT 0,
@@ -231,6 +239,28 @@ CREATE TABLE IF NOT EXISTS `user_notifications` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------
+-- Table `promoter_claims` (plan/91 — klaim reward promotor, omzet burn)
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `promoter_claims` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` BIGINT UNSIGNED NOT NULL COMMENT 'Promotor pemohon',
+  `product_id` INT UNSIGNED NOT NULL COMMENT 'Produk reward (harus di peta tier)',
+  `omzet_cost` INT UNSIGNED NOT NULL COMMENT 'Omzet L1 yang dibakar (integer IDR, M8)',
+  `status` ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+  `admin_id` INT UNSIGNED DEFAULT NULL COMMENT 'Admin yang approve/reject',
+  `admin_notes` VARCHAR(255) DEFAULT NULL COMMENT 'Catatan admin (wajib via UI saat reject)',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_user_status` (`user_id`, `status`),
+  INDEX `idx_status_created` (`status`, `created_at`),
+  INDEX `idx_product_id` (`product_id`),
+  CONSTRAINT `fk_promoter_claims_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_promoter_claims_product` FOREIGN KEY (`product_id`) REFERENCES `gpu_products` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_promoter_claims_admin` FOREIGN KEY (`admin_id`) REFERENCES `admins` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------
 -- Table `system_settings` (key-value; circuit breaker Phase 9A)
 -- -----------------------------------------------------
 CREATE TABLE IF NOT EXISTS `system_settings` (
@@ -258,7 +288,12 @@ INSERT IGNORE INTO `system_settings` (`key_name`, `key_value`) VALUES
 ('deposit_fee_value', '0'),
 -- M7 (plan/70): contact/support keys migrated from decommissioned `site_settings`.
 ('wa_number', '628000000000'),
-('support_email', 'support@synapse.id');
+('support_email', 'support@synapse.id'),
+-- Plan 89: 3-tier affiliate purchase rebate config (defaults 5/3/1%; engine skips when disabled).
+('rebate_enabled', '1'),
+('rebate_l1_percent', '5'),
+('rebate_l2_percent', '3'),
+('rebate_l3_percent', '1');
 
 -- -----------------------------------------------------
 -- Table `system_audit_logs` — Phase 10 baseline (ERD §6)
@@ -302,9 +337,10 @@ CREATE TABLE IF NOT EXISTS `rate_limits` (
 -- memakai fallback mock. 8 paket komersial final (id 1-8 eksplisit agar
 -- referensi `user_rentals.product_id` lama tetap valid; nilai adalah lineup
 -- resmi Rp 150.000 s.d. Rp 10.000.000, semuanya integer IDR).
--- plan/83: kolom gating & limits engine ditambahkan — `max_per_user` (0 =
--- tanpa batas) dan `unlock_prerequisite_id` (rantai progresif 4→5→6→7→8;
--- paket prasyarat harus pernah disewa ≥1x, status active/completed).
+-- plan/87: gating & limits engine disederhanakan — `max_per_user` (0 = tanpa
+-- batas) tetap aktif sebagai satu-satunya batas pembelian per-user;
+-- `unlock_prerequisite_id` DICOMMISSIONED (rantai progresif 4→5→6→7→8
+-- dihapus): ketersediaan produk 100% via toggle admin `is_active`.
 -- Idempotent-uppsert: ON DUPLICATE KEY UPDATE menyegarkan baris id 1-4 bila
 -- sudah ada (migrasi lineup), menyisipkan id 5-8 pada instalasi bersih, dan
 -- mengunci nilai gating/limits kanonik pada setiap re-run.
@@ -314,10 +350,10 @@ INSERT INTO `gpu_products` (`id`, `name`, `type`, `price`, `daily_rate`, `durati
 (2, 'RTX 4060 Lite', 'short_term', 300000.00, 13500.00, 30, 0, 2, NULL, 1),
 (3, 'RTX 4070 Basic', 'short_term', 600000.00, 28000.00, 30, 0, 3, NULL, 1),
 (4, 'RTX 4080 Prime', 'short_term', 1200000.00, 57600.00, 35, 0, 5, NULL, 1),
-(5, 'RTX 4090 Pro', 'long_term', 2500000.00, 125000.00, 40, 0, 5, 4, 1),
-(6, 'A100 Cloud Cluster', 'long_term', 4500000.00, 234000.00, 45, 0, 5, 5, 1),
-(7, 'H100 Tensor Node', 'long_term', 7000000.00, 378000.00, 50, 0, 0, 6, 1),
-(8, 'H200 Sovereign', 'long_term', 10000000.00, 560000.00, 60, 0, 0, 7, 1)
+(5, 'RTX 4090 Pro', 'long_term', 2500000.00, 125000.00, 40, 0, 5, NULL, 1),
+(6, 'A100 Cloud Cluster', 'long_term', 4500000.00, 234000.00, 45, 0, 5, NULL, 1),
+(7, 'H100 Tensor Node', 'long_term', 7000000.00, 378000.00, 50, 0, 0, NULL, 1),
+(8, 'H200 Sovereign', 'long_term', 10000000.00, 560000.00, 60, 0, 0, NULL, 1)
 ON DUPLICATE KEY UPDATE 
   `name` = VALUES(`name`),
   `type` = VALUES(`type`),
@@ -326,7 +362,7 @@ ON DUPLICATE KEY UPDATE
   `duration_days` = VALUES(`duration_days`),
   `is_refundable` = VALUES(`is_refundable`),
   `max_per_user` = VALUES(`max_per_user`),
-  `unlock_prerequisite_id` = VALUES(`unlock_prerequisite_id`),
+  `unlock_prerequisite_id` = NULL,
   `is_active` = VALUES(`is_active`);
 
 SET FOREIGN_KEY_CHECKS = 1;

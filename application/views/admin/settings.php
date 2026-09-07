@@ -229,6 +229,45 @@ $day_labels = [1 => 'Senin', 2 => 'Selasa', 3 => 'Rabu', 4 => 'Kamis', 5 => 'Jum
         </div>
     </div>
 
+    <!-- Card 5: Komisi Rebate 3-Tier (Plan 89) — full width di bawah grid -->
+    <div class="t-card p-6 mt-6">
+        <h4 class="text-sm font-semibold text-[var(--t-text)] mb-4 flex items-center gap-2">
+            <i class="fas fa-network-wired text-cyan-500"></i> Komisi Rebate 3-Tier (Affiliate Purchase Rebate)
+        </h4>
+
+        <div class="flex items-center justify-between mb-4">
+            <label for="rebate_enabled" class="text-sm text-[var(--t-text-2)] cursor-pointer select-none">
+                Aktifkan komisi rebate 3-tier
+            </label>
+            <input type="checkbox" id="rebate_enabled" name="rebate_enabled" value="1"
+                   class="rounded border-slate-300" <?= $rebate_enabled ? 'checked' : '' ?>>
+        </div>
+        <p class="text-xs text-[var(--t-muted)] -mt-2 mb-4">
+            Komisi dibayarkan <strong>otomatis</strong> ke upline L1–L3 yang memiliki sewa aktif saat
+            downline membeli paket GPU. Upline inaktif = jatah hangus (breakage platform, tanpa pass-up).
+        </p>
+
+        <?php $rebate_fields = [
+            ['level' => 1, 'key' => 'rebate_l1_percent', 'value' => (int) $rebate_l1_percent],
+            ['level' => 2, 'key' => 'rebate_l2_percent', 'value' => (int) $rebate_l2_percent],
+            ['level' => 3, 'key' => 'rebate_l3_percent', 'value' => (int) $rebate_l3_percent],
+        ]; ?>
+        <div class="grid grid-cols-3 gap-4">
+            <?php foreach ($rebate_fields as $rf): ?>
+            <div>
+                <label for="<?= $rf['key'] ?>" class="t-label text-sm mb-1.5 block">Level <?= (int) $rf['level'] ?> (%)</label>
+                <input type="number" id="<?= $rf['key'] ?>" name="<?= $rf['key'] ?>"
+                       value="<?= $rf['value'] ?>" min="0" max="100" step="1" required
+                       class="t-input w-full px-3 py-2.5 rounded-lg text-sm font-mono">
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <p class="text-xs text-[var(--t-muted)] mt-2">
+            Nilai harus angka bulat 0–100. Contoh: downline membeli paket Rp 2.000.000 dengan L1 5% →
+            komisi upline Rp 100.000; L2 3% → Rp 60.000; L3 1% → Rp 20.000.
+        </p>
+    </div>
+
     <!-- Submit (satu form → satu aksi simpan; M4 guard aktif via data-guard-submit) -->
     <div class="pt-6 mt-2 border-t border-[var(--t-border)] flex justify-end">
         <button type="submit"

@@ -30,6 +30,15 @@
             </div>
             <div>
                 <span class="text-[10px] u-muted font-semibold uppercase tracking-wider">Kode Undangan</span>
+                <?php if (!empty($referral_locked)): ?>
+                <!-- Condition A (Plan 89): lifetime == 0 → kode disembunyikan -->
+                <div class="flex items-center gap-2 mt-1">
+                    <a href="<?= base_url('marketplace') ?>"
+                       class="inline-flex items-center gap-1.5 px-3 py-1.5 u-card-inset rounded-lg text-[11px] font-semibold text-amber-600 dark:text-amber-400 hover:opacity-80 transition-opacity">
+                        <i class="fas fa-lock text-[10px]"></i> Terkunci — Sewa 1 Paket
+                    </a>
+                </div>
+                <?php else: ?>
                 <div class="flex items-center gap-2 mt-1">
                     <span id="inviteCodeText" class="inline-block px-3 py-1 u-card-inset rounded-lg text-sm font-bold u-text tracking-widest\"><?= $user->invite_code ?></span>
                     <button id="btnCopyInvite" class="flex items-center gap-1 px-2.5 py-1.5 u-btn-ghost rounded-lg transition-colors" title="Salin">
@@ -37,12 +46,35 @@
                         <span class="text-[11px] font-semibold u-text-2">Salin</span>
                     </button>
                 </div>
+                <?php endif; ?>
             </div>
         </div>
         <div class="w-16 h-16 rounded-2xl u-card-inset flex items-center justify-center">
             <i class="fas fa-user-astronaut u-muted text-2xl"></i>
         </div>
     </div>
+
+    <?php if (!empty($is_promoter)): ?>
+    <!-- ═══ Kartu Program Promotor (Plan 91) ═══ -->
+    <div class="u-card rounded-2xl p-5 shadow-sm" style="background: linear-gradient(135deg, rgba(79,70,229,.12), rgba(6,182,212,.10)); border: 1px solid rgba(79,70,229,.25);">
+        <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="w-11 h-11 shrink-0 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
+                    <i class="fas fa-star text-amber-500"></i>
+                </div>
+                <div class="min-w-0">
+                    <span class="text-[10px] u-muted font-semibold uppercase tracking-wider">Program Promotor</span>
+                    <p class="text-lg font-extrabold u-text leading-tight">Rp <?= number_format((int) ($promoter_available ?? 0), 0, ',', '.') ?></p>
+                    <p class="text-[10px] u-muted">Omzet tersedia untuk reward GPU</p>
+                </div>
+            </div>
+            <a href="<?= base_url('team#promoter-hub') ?>"
+               class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold transition-colors active:scale-95">
+                Kelola <i class="fas fa-arrow-right text-[10px]"></i>
+            </a>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <!-- Copy Toast (z-[60]: above bottom nav z-50) -->
     <div id="copy-toast" class="fixed left-1/2 -translate-x-1/2 bottom-24 px-4 py-2 u-toast text-xs font-medium rounded-xl opacity-0 transition-opacity duration-300 z-[60] shadow-lg pointer-events-none">
@@ -54,6 +86,7 @@
         var btn = document.getElementById('btnCopyInvite');
         var codeEl = document.getElementById('inviteCodeText');
         var toast = document.getElementById('copy-toast');
+        if (!btn || !codeEl || !toast) return; // Plan 89: locked state → tombol tak dirender
         var iconEl = btn.querySelector('i');
         var labelEl = btn.querySelector('span');
 
@@ -154,3 +187,42 @@
     </a>
 
 </div>
+
+<?php if (!empty($inactive_warning)): ?>
+<!-- ═══ WARNING MODAL: KONTAK SEWA TIDAK AKTIF (Plan 89 — Condition B) ═══
+     Target: lifetime_rentals > 0 && active_rentals == 0. Muncul otomatis saat
+     landing dashboard; dismiss hanya menutup render saat itu (deterministik). -->
+<div id="inactiveWarnModal" class="fixed inset-0 z-[70]">
+    <div class="absolute inset-0 bg-black/60" onclick="closeInactiveWarn()"></div>
+    <div class="absolute bottom-0 left-0 right-0 u-modal rounded-t-3xl px-5 pt-4 pb-6 max-h-[85vh] overflow-y-auto">
+        <div class="w-10 h-1 bg-slate-300 dark:bg-slate-600 rounded-full mx-auto mb-4"></div>
+        <div class="flex items-start gap-3 mb-3">
+            <div class="w-11 h-11 shrink-0 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
+                <i class="fas fa-exclamation-triangle text-amber-500 text-lg"></i>
+            </div>
+            <h3 class="text-sm font-extrabold u-text leading-snug pt-1.5">⚠️ Perhatian: Kontrak Sewa Anda Tidak Aktif!</h3>
+        </div>
+        <p class="text-xs u-text-2 leading-relaxed mb-5">
+            Anda saat ini tidak memiliki sewa GPU yang aktif. Aktifkan kembali minimal satu paket
+            sekarang agar komisi referral dari jaringan tim Anda tidak hangus.
+        </p>
+        <a href="<?= base_url('marketplace') ?>" class="w-full h-12 u-btn-cyber rounded-xl flex items-center justify-center gap-2 text-sm">
+            Aktifkan Sewa Sekarang <i class="fas fa-arrow-right"></i>
+        </a>
+        <button onclick="closeInactiveWarn()"
+                class="w-full mt-2 py-3 u-btn-ghost rounded-xl text-xs font-bold u-text-2 transition-colors active:scale-[0.98]">
+            Nanti Saja
+        </button>
+    </div>
+</div>
+<script>
+(function () {
+    var m = document.getElementById('inactiveWarnModal');
+    if (m) m.classList.remove('hidden'); // modal default tampil (tanpa class hidden)
+})();
+function closeInactiveWarn() {
+    var m = document.getElementById('inactiveWarnModal');
+    if (m) m.classList.add('hidden');
+}
+</script>
+<?php endif; ?>

@@ -45,6 +45,11 @@
                 <i class="fas fa-check-circle"></i> AKTIF
             </span>
         <?php endif; ?>
+        <?php if (!empty($user->is_promoter)): ?>
+            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-semibold">
+                <i class="fas fa-star"></i> PROMOTOR
+            </span>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -117,6 +122,25 @@
                 <?= form_open('admin/toggle_ban/' . $user->id, "onsubmit=\"return confirm('Blokir user ini? User tidak bisa login & sesi aktif akan diakhiri.')\"") ?>
                     <button type="submit" class="px-4 py-2 rounded-lg bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 transition-colors flex items-center gap-2">
                         <i class="fas fa-ban text-xs"></i> Blokir Akun
+                    </button>
+                <?= form_close() ?>
+            <?php endif; ?>
+        </div>
+
+        <!-- Promoter Toggle — standalone form (Plan 91). Demosi TIDAK
+             membatalkan klaim pending (dec-6d14b1039ad8cc30) — hanya
+             mencabut bypass gating & memblokir pengajuan baru. -->
+        <div class="flex items-center gap-3 pt-2">
+            <?php if (!empty($user->is_promoter)): ?>
+                <?= form_open('admin/toggle_promoter/' . $user->id, "onsubmit=\"return confirm('Cabut status promotor? Bypass gating & pengajuan baru dicabut; klaim pending tetap diproses admin.')\"") ?>
+                    <button type="submit" class="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 transition-colors flex items-center gap-2">
+                        <i class="fas fa-user-minus text-xs"></i> Cabut Promotor
+                    </button>
+                <?= form_close() ?>
+            <?php else: ?>
+                <?= form_open('admin/toggle_promoter/' . $user->id, "onsubmit=\"return confirm('Jadikan user ini promotor? Kode undangan terbuka permanen & akses klaim reward aktif.')\"") ?>
+                    <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors flex items-center gap-2">
+                        <i class="fas fa-user-plus text-xs"></i> Jadikan Promotor
                     </button>
                 <?= form_close() ?>
             <?php endif; ?>

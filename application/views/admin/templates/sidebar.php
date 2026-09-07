@@ -35,6 +35,17 @@
                 <i class="fas fa-users w-5 text-center text-xs"></i>
                 <span>User Management</span>
             </a>
+            <a href="<?= site_url('admin/products') ?>"
+               class="t-nav-link <?= $this->uri->segment(2) === 'products' ? 't-nav-active' : '' ?>">
+                <i class="fas fa-microchip w-5 text-center text-xs"></i>
+                <span>Produk GPU</span>
+            </a>
+            <!-- Plan 91: queue klaim reward promotor -->
+            <a href="<?= site_url('admin/promoter-claims') ?>"
+               class="t-nav-link <?= in_array($this->uri->segment(2), ['promoter-claims', 'promoter_claims']) ? 't-nav-active' : '' ?>">
+                <i class="fas fa-star w-5 text-center text-xs"></i>
+                <span>Klaim Promoter</span>
+            </a>
             <a href="<?= site_url('admin/analytics') ?>"
                class="t-nav-link <?= $this->uri->segment(2) === 'analytics' ? 't-nav-active' : '' ?>">
                 <i class="fas fa-chart-line w-5 text-center text-xs"></i>

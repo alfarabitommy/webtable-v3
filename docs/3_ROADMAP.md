@@ -116,15 +116,40 @@
 - [x] **M8B: Controller Integration** — Login/Register gates replaced with `_verify_captcha()` ("Kode keamanan salah atau sudah kedaluwarsa."); M5 phone-normalization + rate-limit ordering preserved; fresh challenge per render; AJAX `auth/refresh_captcha` JSON endpoint.
 - [x] **M8C: Views** — `api.js` & `.g-recaptcha` removed; light/dark Tailwind "Kode Keamanan" component + vanilla refresh JS on `login`/`register`.
 
+### Phase 10: System Hardening & Audit Trail ✅ COMPLETED
+- [x] **10A: Audit Logging** — `system_audit_logs` live (ERD §6): deposit approval, withdrawal approval/decline, user creation, password reset, settings update; ditulis atomik dalam TX yang sama (M5/A1).
+- [x] **10B: Rate Limiting** — `rate_limits` (ERD §4): brute-force lockout pada endpoint auth (login/register) + proteksi ban, timezone sync, perbaikan logout admin.
+- [x] **10C: Session Security** — proteksi CSRF global + `csrfFetch()` handler, session hardening, ubah sandi profil.
+- [x] **10D: Secret & Input Hygiene Sweep** — purge seluruh secret ter-commit (CAPTCHA external diganti native SVG M8, `seeder_admin` backdoor, `Test_core.php`); `base_url`/`encryption_key`/`log_threshold`/`TRUSTED_PROXIES`/DB credentials env-driven.
+
+### Audit Series M1–M10 & P1–P7 ✅ COMPLETED (plan/82 — 24/24 findings CLOSED & VERIFIED)
+- [x] **M-series (money correctness)** — M1 dynamic fees/rules, M2 wage tier audit, M3 lazy rental expiry (no cron), M4 idempotency & race hardening, M5 notifications & audit trail atomik, M6 `transactions` decommission → single `wallet_ledger`, M7 `site_settings` → `system_settings`, M8 integer IDR discipline, M9/P7 unified JSON envelope, M10 orphan cleanup & deprecation (`rentals`/`otp_logs` retention-only).
+- [x] **P-series (polish)** — notification pagination, marketplace empty state, dynamic L1 wage. Matriks definitif & production handoff checklist di `plan/82`; gap ledger di `plan/66`; index resolusi di `plan/37`.
+
+### Product Gating & Per-User Purchase Limits ✅ COMPLETED (plan/83–84)
+- [x] **Gating & limits engine** — `gpu_products.max_per_user` (0 = tanpa batas, N ≥ 1 = kuota lifetime); 8 paket kanonik RTX 3060 s.d. H200 Sovereign di-seed dari DB (id 1–8 eksplisit, integer IDR).
+
+### Admin GPU Product Management CRUD ✅ COMPLETED (plan/85–86)
+- [x] **Admin CRUD `gpu_products`** — list (aktif + nonaktif), create, edit, quick-toggle `is_active`; validasi ketat, audit atomik M5, nol permukaan hard-delete.
+
+### Simplified Admin-Controlled Gating ✅ COMPLETED (plan/87–88)
+- [x] **Decommission rantai prasyarat** — `unlock_prerequisite_id` dorman (semua NULL, non-destruktif); ketersediaan produk 100% via toggle admin `is_active`; `max_per_user` tetap satu-satunya batas pembelian. *(Catatan: item QA browser/session plan/88 §4 sempat open saat penulisan summary tsb.)*
+
+### 3-Tier Rebate Engine & Referral Gating ✅ COMPLETED — 100% Runtime Verified (plan/89–90)
+- [x] **Rebate 3-tier saat checkout** — `_distribute_rebate()` di dalam TX `checkout_rental()`: upline L1/L2/L3 (traversal fail-closed, anti-loop) menerima kredit `RBT-{id}-L{tier}` via satu-satunya jalur `Wallet_model::credit()`, breakage prevention (upline inaktif/banned → hangus tanpa pass-up), notifikasi `commission` atomik.
+- [x] **Dynamic admin rebate rates** — `system_settings` `rebate_enabled`/`rebate_l1_percent`/`rebate_l2_percent`/`rebate_l3_percent` (default 1/5/3/1) + fallback `application/config/rebate_commission.php`; Card 5 di `admin/settings` (validasi 0–100 all-or-nothing + audit before→after).
+- [x] **Active-contract gating** — Condition A/B/C: kode/link/QR referral & kartu dashboard hanya tampil saat syarat kontrak aktif/riwayat terpenuhi (anti DOM-leak); `/referral` alias ke `/team`; modal warning upline inaktif.
+- [x] **Bukti runtime (live `synapse.test` + MariaDB)** — rental downline memicu **rebate L1 5% instan** ke upline (transaksi `RBT-`); matriks T1–T16 PASSED — lihat `plan/90` (VERIFIED & SIGNED OFF, `dec-94563cfd1af2c22e`).
+
+### Promoter Program via Omzet Burn ✅ COMPLETED — 100% Runtime Verified (plan/91–92)
+- [x] **Referral gating bypass (K1/K6)** — `users.is_promoter` (admin-only, toggle ber-audit) mem-bypass Condition A; flag dibaca segar dalam TX → demosi langsung memblokir submit baru, klaim pending tetap diproses.
+- [x] **Independent caps via `user_rentals.source` (K4)** — kanal paid (`source='purchase'`) vs reward (`source='promoter_reward'`) memakai kuota `max_per_user` terpisah; semua COUNT kuota marketplace/GATE 2 memfilter `source <> 'promoter_reward'`.
+- [x] **Manual admin approval queue + zero-cost contracts (K7)** — `promoter_claims` (omzet L1 burn, guard rasio CAC K5, flip kondisional M4); approve menerbitkan kontrak reward `purchase_price = 0` + notifikasi + audit atomik; burn TIDAK pernah menyentuh `wallet_ledger` (Z1/C4).
+- [x] **Bukti runtime (live `synapse.test` + MariaDB)** — bypass Condition A pada promotor 0-rental (`087700010001`); omzet calc + lock + telemetri queue; happy-path approval zero-cost; reject melepaskan omzet terkunci + **CSRF fix pada modal reject**; aktivasi rebate 3-tier dari kontrak reward; matriks T1–T16 PASSED — lihat `plan/92` (VERIFIED & SIGNED OFF, `dec-94563cfd1af2c22e`).
+
 ---
 
 ## Upcoming Phases
-
-### Phase 10: System Hardening & Audit Trail (PLANNED)
-- [ ] **10A: Audit Logging** — `system_audit_logs` table (ERD v5.0 §6). Every admin action logged: deposit approval, withdrawal approval/decline, user creation, password reset.
-- [ ] **10B: Rate Limiting** — IP-based rate limiting on auth endpoints (login, register, OTP). Prevent brute-force attacks.
-- [ ] **10C: Session Security** — Session timeout (30 min idle). Concurrent session limiting. CSRF token rotation.
-- [ ] **10D: Input Sanitization Audit** — Full review of all user inputs against XSS, SQL injection, and CSRF vectors.
 
 ### Phase 11: Production Payment Gateway (PLANNED)
 - [ ] **11A: Payment Provider Integration** — Replace Dev Simulator with real payment gateway (Midtrans, Xendit, or similar).
