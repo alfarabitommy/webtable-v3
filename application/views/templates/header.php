@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="<?= htmlspecialchars(isset($site_lang_code) ? $site_lang_code : 'en', ENT_QUOTES, 'UTF-8') ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -262,25 +262,19 @@
         </div>
         <div class="flex items-center gap-2.5">
             <a href="<?= base_url('wallet'); ?>"
-               class="u-capsule group flex items-center px-3 py-1 rounded-full transition-all duration-200 active:scale-95 hover:shadow">
-                <i class="fas fa-wallet text-indigo-500 mr-2 text-xs group-hover:scale-110 transition-transform"></i>
-                <span class="text-xs font-mono font-bold tracking-tighter">
+               title="Rp <?= isset($global_balance) ? number_format($global_balance, 0, ',', '.') : '0' ?>"
+               class="u-capsule group flex items-center px-3 py-1 rounded-full transition-all duration-200 active:scale-95 hover:shadow min-w-0 max-w-[46vw]">
+                <i class="fas fa-wallet text-indigo-500 mr-2 text-xs group-hover:scale-110 transition-transform flex-shrink-0"></i>
+                <span class="text-xs font-mono font-bold tracking-tighter truncate">
                     Rp <?= isset($global_balance) ? number_format($global_balance, 0, ',', '.') : '0' ?>
                 </span>
             </a>
-
-            <!-- Theme Toggle (Phase 32) — Sun/Moon -->
-            <button id="user-theme-toggle" type="button" aria-label="Ganti tema"
-                    class="w-9 h-9 rounded-full u-btn-ghost flex items-center justify-center transition-colors active:scale-95"
-                    onclick="toggleUserTheme()">
-                <i id="theme-toggle-icon" class="fas fa-moon text-sm"></i>
-            </button>
 
             <!-- Notification Bell -->
             <div class="relative" id="notif-wrapper">
                 <button onclick="toggleNotifDropdown()"
                         class="u-text-2 relative hover:text-slate-700 dark:hover:text-slate-200 transition-colors active:scale-95"
-                        title="Notifikasi">
+                        title="<?= lang('notif_title') ?>">
                     <i class="fas fa-bell text-lg"></i>
                     <!-- Unread Badge -->
                     <?php $uc = isset($global_unread_count) ? (int) $global_unread_count : 0; ?>
@@ -296,10 +290,10 @@
 
                     <!-- Header -->
                     <div class="flex items-center justify-between px-4 py-2.5 border-b" style="border-color: var(--u-divide);">
-                        <span class="text-sm font-bold u-text">Notifikasi</span>
+                        <span class="text-sm font-bold u-text"><?= lang('notif_title') ?></span>
                         <button onclick="markAllRead()" id="notif-mark-read-btn"
                                 class="text-[11px] text-indigo-500 hover:text-indigo-700 font-medium transition-colors <?= $uc === 0 ? 'hidden' : '' ?>">
-                            Tandai semua dibaca
+                            <?= lang('notif_mark_all_read') ?>
                         </button>
                     </div>
 
@@ -309,7 +303,7 @@
                         <?php if (empty($notifs)): ?>
                             <div class="py-10 text-center">
                                 <i class="fas fa-inbox u-muted text-3xl mb-2"></i>
-                                <p class="text-xs u-muted">Belum ada notifikasi</p>
+                                <p class="text-xs u-muted"><?= lang('notif_empty') ?></p>
                             </div>
                         <?php else: ?>
                             <?php foreach ($notifs as $n): ?>
@@ -335,11 +329,11 @@
                                             $now = new DateTime();
                                             $diff = $now->diff($dt);
                                             if ($diff->days === 0 && $diff->h === 0) {
-                                                echo $diff->i . ' menit lalu';
+                                                echo sprintf(lang('common_minutes_ago'), (int) $diff->i);
                                             } elseif ($diff->days === 0) {
-                                                echo $diff->h . ' jam lalu';
+                                                echo sprintf(lang('common_hours_ago'), (int) $diff->h);
                                             } elseif ($diff->days < 7) {
-                                                echo $diff->days . ' hari lalu';
+                                                echo sprintf(lang('common_days_ago'), (int) $diff->days);
                                             } else {
                                                 echo $dt->format('d M Y');
                                             }
@@ -355,7 +349,7 @@
                     <div class="border-t px-4 py-2.5" style="border-color: var(--u-divide);">
                         <a href="<?= base_url('notification') ?>"
                            class="block text-center text-[11px] text-indigo-500 hover:text-indigo-700 font-semibold transition-colors">
-                            Lihat semua notifikasi <i class="fas fa-arrow-right ml-1 text-[9px]"></i>
+                            <?= lang('notif_see_all') ?> <i class="fas fa-arrow-right ml-1 text-[9px]"></i>
                         </a>
                     </div>
                 </div>
@@ -364,6 +358,14 @@
     </header>
 
     <script>
+    // Plan 94 (F1): kamus JS member (key ber-prefix js_) — teks dinamis di
+    // sisi client diterjemahkan lewat peta ini, bukan string mentah (L5).
+    window.SYNAPSE_I18N = <?= json_encode([
+        'js_processing'    => lang('js_processing'),
+        'js_copied'        => lang('js_copied'),
+        'js_copy_failed'   => lang('js_copy_failed'),
+    ], JSON_UNESCAPED_UNICODE) ?>;
+
     let notifUnreadCount = <?= isset($global_unread_count) ? (int) $global_unread_count : 0 ?>;
 
     function toggleNotifDropdown() {
@@ -425,27 +427,4 @@
         })
         .catch(() => {});
     }
-
-    /* ── Phase 32: User Theme Manager ── */
-    function toggleUserTheme() {
-        var html = document.documentElement;
-        var dark = html.classList.toggle('dark');
-        try { localStorage.setItem('user_theme', dark ? 'dark' : 'light'); } catch (e) {}
-        syncThemeUI(dark);
-        window.dispatchEvent(new CustomEvent('user-theme-change', { detail: { dark: dark } }));
-    }
-
-    function syncThemeUI(dark) {
-        document.querySelectorAll('#theme-toggle-icon').forEach(function (i) {
-            i.className = 'fas ' + (dark ? 'fa-sun' : 'fa-moon') + ' text-sm';
-        });
-        var hubIcon = document.getElementById('theme-hub-icon');
-        if (hubIcon) hubIcon.className = 'fas ' + (dark ? 'fa-sun' : 'fa-moon') + ' text-sm';
-        var lbl = document.getElementById('theme-mode-label');
-        if (lbl) lbl.textContent = dark ? 'Gelap' : 'Terang';
-    }
-
-    document.addEventListener('DOMContentLoaded', function () {
-        syncThemeUI(document.documentElement.classList.contains('dark'));
-    });
     </script>

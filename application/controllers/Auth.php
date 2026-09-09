@@ -6,9 +6,21 @@ class Auth extends CI_Controller {
     public function __construct() {
         parent::__construct();
 
+        // plan/95 (G-1/G-4): maintenance gate PALING AWAL — sebelum pin WIB M2,
+        // i18n_apply, dan load model/helper apa pun. Exempt: CLI + admin_id.
+        // Saat aktif & non-admin: exit HTTP 503 (HTML) / JSON MAINTENANCE_MODE.
+        maintenance_gate();
+
         // M2 (plan/58 §3 Phase 2): pin WIB sesi MySQL sebagai statement DB
-        // pertama (Auth bukan MY_Controller — entry point login/register).
+        // pertama setelah gate plan/95 (Auth bukan MY_Controller — entry point
+        // login/register).
         $this->db->query("SET time_zone = '+07:00'");
+
+        // Plan 94 (F1): bahasa member untuk halaman pra-login & forced
+        // change-password (Auth extends CI_Controller → bootstrap manual di
+        // sini, sama seperti MY_Controller). Auth TIDAK pernah me-render
+        // admin; admin panel tetap Indonesian (L1).
+        i18n_apply();
 
         $this->load->helper('captcha');
         $this->load->model('User_model');

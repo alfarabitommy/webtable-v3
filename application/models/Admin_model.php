@@ -47,6 +47,33 @@ class Admin_model extends CI_Model {
             ->count_all_results('withdrawals');
     }
 
+    // ===================================================================
+    //  ALERT CENTER (Plan 94 F2): COUNT antrean pending per queue.
+    //  ===================================================================
+    // Dipakai oleh polling GET /admin/alerts/poll DAN SSR awal
+    // (Admin::__construct → global_admin_alerts) agar badge/bell terisi
+    // sebelum poll pertama. Query memakai index leading-status
+    // (deposits/withdrawals: idx_status_created — migrasi plan/94;
+    // promoter_claims: idx_status_created existing) → index-scan sub-ms.
+    // A1/A3: read-only, tanpa TX, tanpa audit (bukan mutasi).
+
+    /**
+     * Counts urgent per queue + total.
+     *
+     * @return array{pending_deposits:int,pending_withdrawals:int,pending_promoter_claims:int,total_urgent:int}
+     */
+    public function get_alert_counts() {
+        $counts = [
+            'pending_deposits'    => (int) $this->db->where('status', 'pending')->count_all_results('deposits'),
+            'pending_withdrawals' => (int) $this->db->where('status', 'pending')->count_all_results('withdrawals'),
+            'pending_promoter_claims' => (int) $this->db->where('status', 'pending')->count_all_results('promoter_claims'),
+        ];
+        $counts['total_urgent'] = $counts['pending_deposits']
+                                + $counts['pending_withdrawals']
+                                + $counts['pending_promoter_claims'];
+        return $counts;
+    }
+
     // ===== HISTORY: FETCHERS =====
 
     public function get_history_deposits($limit, $offset) {

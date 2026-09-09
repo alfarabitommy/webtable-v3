@@ -33,7 +33,7 @@ class Home extends MY_Controller {
         }
 
         $data = [
-            'page_title'           => 'Dashboard',
+            'page_title'           => lang('home_page_title'),
             'user'                 => $user,
             // Warning modal dashboard: pernah menyewa tapi 0 kontrak aktif.
             'inactive_warning'     => ($lifetime > 0 && $active === 0),

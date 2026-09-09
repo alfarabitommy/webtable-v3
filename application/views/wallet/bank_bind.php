@@ -28,8 +28,8 @@
         <div class="absolute inset-0 opacity-5" style="background-image: repeating-linear-gradient(45deg, #fff 0, #fff 1px, transparent 1px, transparent 20px);"></div>
         <div class="relative z-10 space-y-6">
             <div class="flex items-center justify-between">
-                <span class="text-slate-400 text-xs uppercase tracking-wider font-bold">Rekening Terikat</span>
-                <span class="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">TERVERIFIKASI</span>
+                <span class="text-slate-400 text-xs uppercase tracking-wider font-bold"><?= lang('bb_linked_label') ?></span>
+                <span class="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30"><?= lang('wd_verified') ?></span>
             </div>
 
             <div>
@@ -37,7 +37,7 @@
             </div>
 
             <div>
-                <span class="text-slate-400 text-[10px] uppercase tracking-widest font-bold block mb-1">Nomor Rekening</span>
+                <span class="text-slate-400 text-[10px] uppercase tracking-widest font-bold block mb-1"><?= lang('bb_account_number_label') ?></span>
                 <div class="text-xl font-mono font-bold tracking-widest">
                     <?php
                         $acc = $existing_bank->account_number;
@@ -55,11 +55,11 @@
 
             <div class="flex justify-between items-end border-t border-slate-800 pt-4">
                 <div>
-                    <span class="text-slate-400 text-[10px] uppercase tracking-widest font-bold block mb-0.5">Atas Nama</span>
+                    <span class="text-slate-400 text-[10px] uppercase tracking-widest font-bold block mb-0.5"><?= lang('bb_account_holder_label') ?></span>
                     <div class="text-sm font-bold"><?= htmlspecialchars($existing_bank->account_holder); ?></div>
                 </div>
                 <div class="text-right">
-                    <span class="text-slate-500 text-[10px] font-mono">Bound</span>
+                    <span class="text-slate-500 text-[10px] font-mono"><?= lang('bb_bound_status') ?></span>
                 </div>
             </div>
         </div>
@@ -71,8 +71,8 @@
             <i class="fas fa-lock text-rose-500 dark:text-rose-400 text-xs"></i>
         </div>
         <div>
-            <h4 class="text-rose-700 dark:text-rose-300 text-xs font-extrabold mb-1">Data Rekening Dikunci</h4>
-            <p class="text-rose-600 dark:text-rose-400 text-[11px] leading-relaxed">Data rekening telah dikunci demi keamanan. Hubungi Customer Service untuk perubahan.</p>
+            <h4 class="text-rose-700 dark:text-rose-300 text-xs font-extrabold mb-1"><?= lang('bb_security_title') ?></h4>
+            <p class="text-rose-600 dark:text-rose-400 text-[11px] leading-relaxed"><?= lang('bb_security_body') ?></p>
         </div>
     </div>
 
@@ -84,8 +84,8 @@
                 <i class="fas fa-university text-indigo-500 text-sm"></i>
             </div>
             <div>
-                <h3 class="text-sm font-extrabold u-text">Ikat Rekening Bank</h3>
-                <p class="text-[10px] u-text-2">Data hanya bisa dikirim satu kali</p>
+                <h3 class="text-sm font-extrabold u-text"><?= lang('bb_bind_title') ?></h3>
+                <p class="text-[10px] u-text-2"><?= lang('bb_bind_sub') ?></p>
             </div>
         </div>
 
@@ -93,9 +93,9 @@
 
             <!-- Bank Name -->
             <div>
-                <label class="text-[10px] uppercase tracking-widest u-muted font-bold block mb-1.5">Nama Bank</label>
+                <label class="text-[10px] uppercase tracking-widest u-muted font-bold block mb-1.5"><?= lang('bb_bank_name_label') ?></label>
                 <select name="bank_name" class="u-select w-full h-12 px-4 rounded-xl text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all" required>
-                    <option value="">Pilih Bank</option>
+                    <option value=""><?= lang('bb_choose_bank') ?></option>
                     <option value="Bank Central Asia (BCA)" <?= set_select('bank_name', 'Bank Central Asia (BCA)'); ?>>Bank Central Asia (BCA)</option>
                     <option value="Bank Mandiri" <?= set_select('bank_name', 'Bank Mandiri'); ?>>Bank Mandiri</option>
                     <option value="Bank Rakyat Indonesia (BRI)" <?= set_select('bank_name', 'Bank Rakyat Indonesia (BRI)'); ?>>Bank Rakyat Indonesia (BRI)</option>
@@ -115,27 +115,27 @@
 
             <!-- Account Number -->
             <div>
-                <label class="text-[10px] uppercase tracking-widest u-muted font-bold block mb-1.5">Nomor Rekening</label>
-                <input type="text" name="account_number" value="<?= set_value('account_number'); ?>" placeholder="Masukkan nomor rekening" class="u-input w-full h-12 px-4 rounded-xl text-sm font-mono tracking-wider focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all" required inputmode="numeric">
+                <label class="text-[10px] uppercase tracking-widest u-muted font-bold block mb-1.5"><?= lang('bb_account_number_label') ?></label>
+                <input type="text" name="account_number" value="<?= set_value('account_number'); ?>" placeholder="<?= lang('bb_account_number_placeholder') ?>" class="u-input w-full h-12 px-4 rounded-xl text-sm font-mono tracking-wider focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all" required inputmode="numeric">
                 <?= form_error('account_number', '<p class="text-xs text-rose-500 mt-1">', '</p>'); ?>
             </div>
 
             <!-- Account Holder -->
             <div>
-                <label class="text-[10px] uppercase tracking-widest u-muted font-bold block mb-1.5">Nama Pemilik Rekening</label>
-                <input type="text" name="account_holder" value="<?= set_value('account_holder'); ?>" placeholder="Sesuai nama di rekening bank" class="u-input w-full h-12 px-4 rounded-xl text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all capitalize" required>
+                <label class="text-[10px] uppercase tracking-widest u-muted font-bold block mb-1.5"><?= lang('bb_holder_label') ?></label>
+                <input type="text" name="account_holder" value="<?= set_value('account_holder'); ?>" placeholder="<?= lang('bb_holder_placeholder') ?>" class="u-input w-full h-12 px-4 rounded-xl text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all capitalize" required>
                 <?= form_error('account_holder', '<p class="text-xs text-rose-500 mt-1">', '</p>'); ?>
             </div>
 
             <!-- Security Notice -->
             <div class="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl p-3 flex gap-3 items-start mt-4">
                 <i class="fas fa-exclamation-triangle text-amber-500 dark:text-amber-400 text-xs mt-0.5"></i>
-                <p class="text-amber-700 dark:text-amber-300 text-[11px] leading-relaxed">Perhatian: Data rekening hanya bisa dikirim <strong>sekali</strong> dan tidak dapat diubah setelah dikirim demi keamanan akun Anda.</p>
+                <p class="text-amber-700 dark:text-amber-300 text-[11px] leading-relaxed"><?= lang('bb_notice') ?></p>
             </div>
 
             <!-- Submit Button -->
             <button type="submit" class="u-btn-dark w-full h-14 rounded-xl text-sm font-extrabold shadow-lg transition-all active:scale-95 mt-6">
-                <i class="fas fa-link mr-2"></i> Ikat Rekening
+                <i class="fas fa-link mr-2"></i> <?= lang('bb_bind_btn') ?>
             </button>
 
         <?= form_close(); ?>

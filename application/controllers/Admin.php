@@ -20,6 +20,34 @@ class Admin extends CI_Controller {
         if (!$this->session->userdata('admin_id')) {
             redirect('control-panel');
         }
+
+        // Plan 94 (F2): SSR awal alert center — COUNT index-saja per queue
+        // di-inject sebagai var global (dipakai sidebar/topbar/footer agar
+        // badge & bell terisi SEBELUM poll pertama; A4 — pola sama
+        // global_balance di MY_Controller). Tanpa ini Admin_model tetap
+        // bisa di-load per-method di bawah (load->model idempotent).
+        $this->load->model('Admin_model');
+        $this->load->vars(array('global_admin_alerts' => $this->Admin_model->get_alert_counts()));
+    }
+
+    /**
+     * GET /admin/alerts/poll — Plan 94 (F2).
+     *
+     * Polling ringan alert center: COUNT pending per queue (read-only,
+     * GET, admin-only — guard constructor). Tanpa audit/rate-limit (bukan
+     * mutasi; A1). Respons via api_success() (M9/P7): data.* kanonik +
+     * key legacy di root ({pending_deposits, pending_withdrawals,
+     * pending_promoter_claims, total_urgent}) untuk kontrak spek/legacy.
+     */
+    public function alerts_poll()
+    {
+        $this->load->model('Admin_model');
+        $counts = $this->Admin_model->get_alert_counts();
+
+        // Poll GET tidak boleh di-cache browser (angka selalu segar).
+        $this->output->set_header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+
+        api_success($counts, 'ok', 200, $counts);
     }
 
     // ─── PHONE NORMALIZER ──────────────────────────────
@@ -86,6 +114,8 @@ class Admin extends CI_Controller {
             'analytics_stats'    => $analytics_stats,
             'chart_data'         => $chart_data,
             'is_registration_open' => ($this->Admin_model->get_setting('is_registration_open') === '1'),
+            // plan/95: state maintenance mode untuk tombol toggle dashboard.
+            'is_maintenance_mode'  => ($this->Admin_model->get_setting('is_maintenance_mode') === '1'),
         ];
 
         $this->load->view('admin/templates/header', $data);
@@ -1269,6 +1299,55 @@ class Admin extends CI_Controller {
         // plan/76 §4.4 kini tertutup).
         $message = 'Gagal mengubah pengaturan pendaftaran.';
         api_error($message, 500, [], 'toggle_failed', ['is_open' => $is_open, 'message' => $message, 'error' => $message]);
+    }
+
+    // ===================================================================
+    //  PLAN 95: MAINTENANCE MODE TOGGLE
+    // ===================================================================
+
+    public function toggle_maintenance() {
+        // M4 (plan/62 S1): POST-only fail-closed — mutasi tidak boleh via GET.
+        if ($this->input->method() !== 'post') {
+            // M9/P7: 405 JSON + content-type + legacy `error` alias.
+            api_error('Method not allowed', 405, [], 'method_not_allowed', ['error' => 'Method not allowed']);
+        }
+
+        $this->load->model('Admin_model');
+
+        $current = $this->Admin_model->get_setting('is_maintenance_mode');
+        $new_value = ($current === '1') ? '0' : '1';
+
+        // M5: write setting + audit atomik dalam SATU TX (rollback menghapus
+        // keduanya). CSRF otomatis (csrfFetch kirim token); guard admin_id
+        // sudah di constructor Admin.
+        $this->db->trans_start();
+        $this->Admin_model->set_setting('is_maintenance_mode', $new_value);
+        $this->load->model('Audit_model');
+        $this->Audit_model->log_admin_action(
+            (int) $this->session->userdata('admin_id'),
+            null,
+            'admin_toggle_maintenance',
+            ['was_maintenance' => ($current === '1'), 'is_maintenance' => ($new_value === '1')],
+            $this->input->ip_address()
+        );
+        $this->db->trans_complete();
+
+        $success = $this->db->trans_status();
+        $is_maintenance = ($new_value === '1');
+
+        if ($success) {
+            $message = $is_maintenance
+                ? 'Mode maintenance AKTIF — situs member terkunci (HTTP 503).'
+                : 'Mode maintenance NONAKTIF — situs member normal.';
+            // Envelope + legacy root {is_maintenance_mode, message} (dibaca dashboard).
+            api_success(['is_maintenance_mode' => $is_maintenance], $message, 200,
+                ['is_maintenance_mode' => $is_maintenance, 'message' => $message]);
+        }
+
+        // Gagal transaksi: HTTP 500 + legacy + alias `error` (bug "Unknown error" tertutup).
+        $message = 'Gagal mengubah mode maintenance.';
+        api_error($message, 500, [], 'toggle_failed',
+            ['is_maintenance_mode' => $is_maintenance, 'message' => $message, 'error' => $message]);
     }
 
     // ===================================================================

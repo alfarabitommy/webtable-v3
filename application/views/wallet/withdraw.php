@@ -15,11 +15,13 @@ if ($len > 7) {
 }
 
 // Baseline server (render awal); JS menyegarkan via jam WIB.
+// Plan 94 (F1): pesan notice diterjemahkan saat render (lang aktif).
+// Key memakai token {open}/{close} agar satu template dipakai PHP & JS.
 $closed_notice = '';
 if (!$wd_open) {
     $closed_notice = ($wd_code === 'closed_day')
-        ? 'Hari ini bukan hari operasional penarikan.'
-        : 'Penarikan hanya dapat diajukan pada pukul ' . $wd_config['open_time'] . '–' . $wd_config['close_time'] . ' WIB.';
+        ? lang('wd_closed_day')
+        : str_replace(['{open}', '{close}'], [$wd_config['open_time'], $wd_config['close_time']], lang('wd_closed_time'));
 }
 ?>
 
@@ -59,13 +61,13 @@ if (!$wd_open) {
         <div class="absolute inset-0 opacity-5" style="background-image: repeating-linear-gradient(45deg, #fff 0, #fff 1px, transparent 1px, transparent 20px);"></div>
         <div class="relative z-10">
             <div class="flex items-center justify-between mb-3">
-                <span class="text-slate-400 text-[10px] uppercase tracking-widest font-bold">Rekening Penarikan</span>
-                <span class="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">TERVERIFIKASI</span>
+                <span class="text-slate-400 text-[10px] uppercase tracking-widest font-bold"><?= lang('wd_rekening_label') ?></span>
+                <span class="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30"><?= lang('wd_verified') ?></span>
             </div>
             <div class="text-lg font-extrabold tracking-tight mb-1"><?= htmlspecialchars($bank->bank_name); ?></div>
             <div class="text-xl font-mono font-bold tracking-widest mb-3"><?= $masked; ?></div>
             <div class="border-t border-slate-800 pt-3">
-                <span class="text-slate-400 text-[10px] uppercase tracking-widest font-bold">a.n. </span>
+                <span class="text-slate-400 text-[10px] uppercase tracking-widest font-bold"><?= lang('wd_an_label') ?> </span>
                 <span class="text-sm font-bold"><?= htmlspecialchars($bank->account_holder); ?></span>
             </div>
         </div>
@@ -77,14 +79,14 @@ if (!$wd_open) {
         <!-- Balance Info -->
         <div class="u-card-inset rounded-xl p-4 mb-4 shadow-sm">
             <div class="flex items-center justify-between">
-                <span class="text-xs u-text-2 font-bold">Saldo Tersedia</span>
+                <span class="text-xs u-text-2 font-bold"><?= lang('wd_available_balance') ?></span>
                 <span class="text-sm font-extrabold u-text font-mono">Rp <?= number_format($balance, 0, ',', '.'); ?></span>
             </div>
         </div>
 
         <!-- Amount Input -->
         <div class="mb-4">
-            <label class="block text-[10px] uppercase tracking-widest u-muted font-bold mb-1.5">Nominal Penarikan</label>
+            <label class="block text-[10px] uppercase tracking-widest u-muted font-bold mb-1.5"><?= lang('wd_amount_label') ?></label>
             <div class="relative">
                 <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">Rp</span>
                 <input type="text"
@@ -96,8 +98,9 @@ if (!$wd_open) {
                        required>
             </div>
             <p class="mt-1.5 text-xs u-text-2">
-                Minimal: Rp <?= number_format((int) $wd_config['min_amount'], 0, ',', '.'); ?>
-                &bull; Maksimal: Rp <?= number_format((int) $wd_config['max_amount'], 0, ',', '.'); ?>
+                <?= sprintf(lang('wd_min_max'),
+                    'Rp ' . number_format((int) $wd_config['min_amount'], 0, ',', '.'),
+                    'Rp ' . number_format((int) $wd_config['max_amount'], 0, ',', '.')) ?>
             </p>
             <!-- M8 parity: pesan error format non-integer (client-side,
                  selaras dengan validasi backend ^[1-9][0-9]*$). -->
@@ -108,12 +111,12 @@ if (!$wd_open) {
         <div class="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl p-3 mb-4">
             <div class="flex items-center justify-between mb-1">
                 <span class="text-[11px] text-amber-700 dark:text-amber-400 font-bold">
-                    Biaya Admin <span id="wd_bps_label" class="opacity-70">(tier)</span>
+                    <?= lang('wd_admin_fee') ?> <span id="wd_bps_label" class="opacity-70"><?= lang('wd_tier_label') ?></span>
                 </span>
                 <span class="text-[11px] font-mono font-bold text-amber-700 dark:text-amber-400" id="wd_fee">Rp 0</span>
             </div>
             <div class="flex items-center justify-between border-t border-amber-200 dark:border-amber-500/20 pt-2 mt-2">
-                <span class="text-[11px] text-amber-800 dark:text-amber-300 font-extrabold">Diterima</span>
+                <span class="text-[11px] text-amber-800 dark:text-amber-300 font-extrabold"><?= lang('wd_received') ?></span>
                 <span class="text-sm font-mono font-extrabold text-amber-800 dark:text-amber-300" id="wd_net">Rp 0</span>
             </div>
         </div>
@@ -121,7 +124,7 @@ if (!$wd_open) {
         <!-- Submit Button -->
         <button type="submit" id="wd_submit"
                 class="w-full h-14 bg-orange-500 hover:bg-orange-400 text-white rounded-xl text-sm font-extrabold shadow-lg transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-orange-500">
-            <i class="fas fa-paper-plane mr-2"></i> Ajukan Penarikan
+            <i class="fas fa-paper-plane mr-2"></i> <?= lang('wd_submit_btn') ?>
         </button>
 
     <?= form_close(); ?>
@@ -129,6 +132,15 @@ if (!$wd_open) {
 
 <script>
 (function() {
+    // Plan 94 (F1): string JS halaman ini — diterjemahkan server-side
+    var L = <?= json_encode([
+        'closed_day' => lang('wd_closed_day'),
+        'closed_time' => lang('wd_closed_time'),
+        'amount_invalid_int' => lang('wallet_amount_invalid'),
+        'amount_invalid_generic' => lang('wd_amount_invalid_generic'),
+        'tier_label' => lang('wd_tier_label'),
+    ], JSON_UNESCAPED_UNICODE) ?>;
+
     // ===== Dynamic config dari server (M1 plan/56) — bukan 5% hardcoded.
     var WD_CONFIG = <?= json_encode($wd_config); ?>;
 
@@ -193,10 +205,10 @@ if (!$wd_open) {
         var now = wibNow();
         var days = WD_CONFIG.operational_days.split(',').map(function (s) { return parseInt(s, 10); });
         if (days.indexOf(now.day) === -1) {
-            return { open: false, code: 'closed_day', msg: 'Hari ini bukan hari operasional penarikan.' };
+            return { open: false, code: 'closed_day', msg: L.closed_day };
         }
         if (now.hm < WD_CONFIG.open_time || now.hm > WD_CONFIG.close_time) {
-            return { open: false, code: 'closed_time', msg: 'Penarikan hanya dapat diajukan pada pukul ' + WD_CONFIG.open_time + '–' + WD_CONFIG.close_time + ' WIB.' };
+            return { open: false, code: 'closed_time', msg: L.closed_time.replace('{open}', WD_CONFIG.open_time).replace('{close}', WD_CONFIG.close_time) };
         }
         return { open: true, code: 'open', msg: '' };
     }
@@ -220,7 +232,7 @@ if (!$wd_open) {
         // (mis. "50000.50") — jangan pernah menampilkan preview yang
         // berdasarkan nilai hasil strip.
         if (raw !== '' && !isIntegerAmount(raw)) {
-            showAmountError('Nominal harus berupa bilangan bulat (angka saja tanpa titik atau desimal).');
+            showAmountError(L.amount_invalid_int);
         } else {
             showAmountError(null);
         }
@@ -244,7 +256,7 @@ if (!$wd_open) {
             netEl.textContent = formatRupiah(res.net);
             submitBtn.disabled = false;
         } else {
-            bpsLabelEl.textContent = '(tier)';
+            bpsLabelEl.textContent = L.tier_label;
             feeEl.textContent = 'Rp 0';
             netEl.textContent = 'Rp 0';
             if (op.open) { submitBtn.disabled = true; } // nominal belum valid
@@ -272,9 +284,9 @@ if (!$wd_open) {
             if (!isIntegerAmount(raw) || !op.open || !within) {
                 e.preventDefault();
                 if (raw !== '' && !isIntegerAmount(raw)) {
-                    showAmountError('Nominal harus berupa bilangan bulat (angka saja tanpa titik atau desimal).');
+                    showAmountError(L.amount_invalid_int);
                 } else {
-                    showAmountError('Nominal penarikan tidak valid.');
+                    showAmountError(L.amount_invalid_generic);
                 }
                 amountInput.focus();
             }

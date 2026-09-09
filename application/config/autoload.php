@@ -89,7 +89,10 @@ $autoload['drivers'] = array();
 |
 |	$autoload['helper'] = array('url', 'file');
 */
-$autoload['helper'] = array('url', 'file', 'form', 'security');
+// Plan 94 (F1): 'language' = helper core CI lang() utk view member;
+// 'i18n' = helper kustom Plan 94 (i18n_resolve/apply/idom…). Admin tidak
+// pernah memuat app_lang, jadi helper ini netral bagi admin.
+$autoload['helper'] = array('url', 'file', 'form', 'security', 'language', 'i18n', 'maintenance');
 
 /*
 | -------------------------------------------------------------------

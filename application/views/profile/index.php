@@ -44,14 +44,14 @@
         <div class="flex justify-center">
             <span class="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 px-3 py-1 rounded-full border border-indigo-100 dark:border-indigo-500/20">
                 <i class="fas fa-crown text-indigo-400"></i>
-                Level <?= $user->level_id ?? 0 ?>
+                <?= lang('common_level') ?> <?= $user->level_id ?? 0 ?>
             </span>
         </div>
     </div>
 
     <!-- ===== REFERRAL CENTER ===== -->
     <div class="u-card rounded-2xl p-5 shadow-sm space-y-3">
-        <h3 class="text-[10px] font-bold u-muted uppercase tracking-widest">Kode Referral</h3>
+        <h3 class="text-[10px] font-bold u-muted uppercase tracking-widest"><?= lang('profile_referral_title') ?></h3>
         <div class="flex items-center gap-3">
             <div class="flex-1 u-card-inset rounded-xl px-4 py-3">
                 <span id="referral-code" class="font-mono text-sm font-bold text-indigo-600 tracking-wider">
@@ -64,12 +64,81 @@
             </button>
         </div>
         <!-- Copy toast -->
-        <p id="copy-toast" class="text-[10px] font-bold text-emerald-600 text-center opacity-0 transition-opacity">Tersalin!</p>
+        <p id="copy-toast" class="text-[10px] font-bold text-emerald-600 text-center opacity-0 transition-opacity"><?= lang('common_copied') ?></p>
+    </div>
+
+    <!-- ===== APP PREFERENCES (Plan 100) — Pengaturan Tampilan & Bahasa ===== -->
+    <div class="u-card rounded-2xl shadow-sm overflow-hidden">
+        <h3 class="text-[10px] font-bold u-muted uppercase tracking-widest px-5 pt-4 pb-2"><?= lang('profile_pref_title') ?></h3>
+
+        <!-- Row 1: Language / Bahasa -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-50 dark:border-slate-800">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center flex-shrink-0">
+                    <i class="fas fa-globe text-sm"></i>
+                </div>
+                <span class="text-sm font-medium u-text"><?= lang('profile_lang_label') ?></span>
+            </div>
+
+            <?php $lang_cur = isset($site_lang_code) ? $site_lang_code : 'en'; ?>
+            <div class="inline-flex items-center gap-0.5 u-capsule rounded-full p-0.5 flex-shrink-0" role="group" aria-label="<?= lang('lang_switch_label') ?>">
+                <!-- English (default) -->
+                <a href="<?= site_url('lang/switch/en') ?>"
+                   class="flex items-center gap-1.5 h-8 px-2.5 rounded-full transition-all duration-200 active:scale-95 <?= $lang_cur === 'en' ? 'bg-indigo-600 text-white shadow-sm' : 'opacity-60 hover:opacity-100' ?>"
+                   title="<?= lang('lang_english') ?>" aria-label="<?= lang('lang_english') ?>">
+                    <svg viewBox="0 0 30 20" class="w-[18px] h-3 rounded-[2px] shadow-sm" aria-hidden="true">
+                        <rect width="30" height="20" fill="#012169"/>
+                        <path d="M0 0 30 20 M30 0 0 20" stroke="#fff" stroke-width="5"/>
+                        <path d="M0 0 30 20 M30 0 0 20" stroke="#C8102E" stroke-width="2.2"/>
+                        <rect y="7.5" width="30" height="5" fill="#fff"/>
+                        <rect y="8.75" width="30" height="2.5" fill="#C8102E"/>
+                        <rect x="12.5" width="5" height="20" fill="#fff"/>
+                        <rect x="13.75" width="2.5" height="20" fill="#C8102E"/>
+                    </svg>
+                    <span class="text-[11px] font-extrabold tracking-wide">EN</span>
+                </a>
+                <!-- Indonesian (secondary) -->
+                <a href="<?= site_url('lang/switch/id') ?>"
+                   class="flex items-center gap-1.5 h-8 px-2.5 rounded-full transition-all duration-200 active:scale-95 <?= $lang_cur === 'id' ? 'bg-indigo-600 text-white shadow-sm' : 'opacity-60 hover:opacity-100' ?>"
+                   title="<?= lang('lang_indonesian') ?>" aria-label="<?= lang('lang_indonesian') ?>">
+                    <svg viewBox="0 0 30 20" class="w-[18px] h-3 rounded-[2px] shadow-sm" aria-hidden="true">
+                        <rect width="30" height="10" fill="#CE1126"/>
+                        <rect y="10" width="30" height="10" fill="#fff"/>
+                    </svg>
+                    <span class="text-[11px] font-extrabold tracking-wide">ID</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Row 2: Theme / Tema -->
+        <div class="flex items-center justify-between px-5 py-4">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="w-9 h-9 rounded-xl bg-cyan-50 dark:bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center flex-shrink-0">
+                    <i class="fas fa-palette text-sm"></i>
+                </div>
+                <div class="min-w-0">
+                    <p class="text-sm font-medium u-text"><?= lang('profile_theme_label') ?></p>
+                    <p class="text-[10px] u-muted"><?= lang('profile_theme_hint') ?></p>
+                </div>
+            </div>
+
+            <div id="pref-theme-seg" class="inline-flex items-center gap-0.5 u-capsule rounded-full p-0.5 flex-shrink-0"
+                 role="group" aria-label="<?= lang('profile_theme_label') ?>">
+                <button type="button" data-theme="dark" aria-pressed="false"
+                        class="pref-theme-opt flex items-center gap-1.5 h-8 px-2.5 rounded-full text-[11px] font-extrabold transition-all duration-200 active:scale-95 opacity-60 hover:opacity-100">
+                    <i class="fas fa-moon text-xs"></i><span><?= lang('profile_theme_dark') ?></span>
+                </button>
+                <button type="button" data-theme="light" aria-pressed="false"
+                        class="pref-theme-opt flex items-center gap-1.5 h-8 px-2.5 rounded-full text-[11px] font-extrabold transition-all duration-200 active:scale-95 opacity-60 hover:opacity-100">
+                    <i class="fas fa-sun text-xs"></i><span><?= lang('profile_theme_light') ?></span>
+                </button>
+            </div>
+        </div>
     </div>
 
     <!-- ===== THE HUB — Menu List ===== -->
     <div class="u-card rounded-2xl shadow-sm overflow-hidden">
-        <h3 class="text-[10px] font-bold u-muted uppercase tracking-widest px-5 pt-4 pb-2">Menu Akun</h3>
+        <h3 class="text-[10px] font-bold u-muted uppercase tracking-widest px-5 pt-4 pb-2"><?= lang('profile_menu_account') ?></h3>
 
         <!-- 1. Dompet & Riwayat Transaksi -->
         <a href="<?= site_url('wallet') ?>"
@@ -78,7 +147,7 @@
                 <div class="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
                     <i class="fas fa-wallet text-sm"></i>
                 </div>
-                <span class="text-sm font-medium u-text">Dompet & Riwayat Transaksi</span>
+                <span class="text-sm font-medium u-text"><?= lang('profile_wallet_history') ?></span>
             </div>
             <i class="fas fa-chevron-right text-[10px] u-muted"></i>
         </a>
@@ -90,7 +159,7 @@
                 <div class="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
                     <i class="fas fa-university text-sm"></i>
                 </div>
-                <span class="text-sm font-medium u-text">Tarik Dana & Rekening Bank</span>
+                <span class="text-sm font-medium u-text"><?= lang('profile_withdraw_bank') ?></span>
             </div>
             <i class="fas fa-chevron-right text-[10px] u-muted"></i>
         </a>
@@ -102,58 +171,43 @@
                 <div class="w-9 h-9 rounded-xl bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center">
                     <i class="fas fa-pen text-sm"></i>
                 </div>
-                <span class="text-sm font-medium u-text">Edit Profil</span>
+                <span class="text-sm font-medium u-text"><?= lang('profile_edit') ?></span>
             </div>
             <i class="fas fa-chevron-right text-[10px] u-muted"></i>
         </button>
 
-        <!-- 4. Tema Tampilan (Phase 32: Theme Manager) -->
-        <button type="button" id="btn-theme-hub" onclick="toggleUserTheme()"
-                class="w-full flex items-center justify-between px-5 py-4 u-row-hover transition border-b border-slate-50 dark:border-slate-800 active:scale-[0.98] text-left">
-            <div class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-xl bg-cyan-50 dark:bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center">
-                    <i id="theme-hub-icon" class="fas fa-moon text-sm"></i>
-                </div>
-                <span class="text-sm font-medium u-text">Tema Tampilan</span>
-            </div>
-            <span class="flex items-center gap-2">
-                <span id="theme-mode-label" class="text-[10px] font-bold u-muted uppercase tracking-wider">Gelap</span>
-                <i class="fas fa-chevron-right text-[10px] u-muted"></i>
-            </span>
-        </button>
-
-        <!-- 5. Keamanan & Sandi -->
+        <!-- 4. Keamanan & Sandi -->
         <a href="<?= site_url('profile/change-password') ?>"
            class="flex items-center justify-between px-5 py-4 u-row-hover transition border-b border-slate-50 dark:border-slate-800 active:scale-[0.98]">
             <div class="flex items-center gap-3">
                 <div class="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
                     <i class="fas fa-lock text-sm"></i>
                 </div>
-                <span class="text-sm font-medium u-text">Keamanan & Sandi</span>
+                <span class="text-sm font-medium u-text"><?= lang('profile_security') ?></span>
             </div>
             <i class="fas fa-chevron-right text-[10px] u-muted"></i>
         </a>
 
-        <!-- 6. Bantuan & FAQ -->
+        <!-- 5. Bantuan & FAQ -->
         <a href="<?= site_url('help') ?>"
            class="flex items-center justify-between px-5 py-4 u-row-hover transition border-b border-slate-50 dark:border-slate-800 active:scale-[0.98]">
             <div class="flex items-center gap-3">
                 <div class="w-9 h-9 rounded-xl bg-cyan-50 dark:bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center">
                     <i class="fas fa-life-ring text-sm"></i>
                 </div>
-                <span class="text-sm font-medium u-text">Bantuan & FAQ</span>
+                <span class="text-sm font-medium u-text"><?= lang('profile_help_faq') ?></span>
             </div>
             <i class="fas fa-chevron-right text-[10px] u-muted"></i>
         </a>
 
-        <!-- 7. Keluar (Logout) -->
+        <!-- 6. Keluar (Logout) -->
         <a href="<?= site_url('auth/logout') ?>"
            class="flex items-center justify-between px-5 py-4 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition active:scale-[0.98]">
             <div class="flex items-center gap-3">
                 <div class="w-9 h-9 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center">
                     <i class="fas fa-sign-out-alt text-sm"></i>
                 </div>
-                <span class="text-sm font-medium text-rose-600 dark:text-rose-400">Keluar</span>
+                <span class="text-sm font-medium text-rose-600 dark:text-rose-400"><?= lang('profile_logout') ?></span>
             </div>
             <i class="fas fa-chevron-right text-[10px] text-rose-300 dark:text-rose-400/60"></i>
         </a>
@@ -177,7 +231,7 @@
         <!-- Header -->
         <div class="px-5 pb-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
             <h3 class="text-base font-bold u-text flex items-center gap-2">
-                <i class="fas fa-user-edit text-indigo-500"></i> Edit Profil
+                <i class="fas fa-user-edit text-indigo-500"></i> <?= lang('profile_edit') ?>
             </h3>
             <button type="button" id="btn-close-ep" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center transition">
                 <i class="fas fa-times u-text-2 text-xs"></i>
@@ -202,40 +256,40 @@
                 </div>
                 <label for="avatarInput"
                        class="text-xs font-bold text-indigo-600 dark:text-indigo-400 cursor-pointer hover:text-indigo-700 dark:hover:text-indigo-300 transition">
-                    <i class="fas fa-camera mr-1"></i> Pilih Foto
+                    <i class="fas fa-camera mr-1"></i> <?= lang('profile_choose_photo') ?>
                 </label>
                 <input type="file" name="avatar" id="avatarInput" accept="image/png,image/jpeg,image/gif" class="hidden">
                 <!-- Delete avatar link -->
                 <?php if (!empty($user->avatar_url)): ?>
                     <a href="<?= site_url('profile/avatar_delete') ?>"
                        class="text-[10px] font-bold text-rose-500 hover:text-rose-600 transition">
-                        <i class="fas fa-trash-alt mr-1"></i> Hapus Foto
+                        <i class="fas fa-trash-alt mr-1"></i> <?= lang('profile_delete_photo') ?>
                     </a>
                 <?php endif; ?>
             </div>
 
             <!-- Username -->
             <div>
-                <label class="block text-xs font-bold u-text-2 mb-1.5 uppercase tracking-wide">Nama</label>
+                <label class="block text-xs font-bold u-text-2 mb-1.5 uppercase tracking-wide"><?= lang('profile_name_label') ?></label>
                 <input type="text" name="username" required maxlength="50"
                        value="<?= htmlspecialchars($user->username ?? '') ?>"
-                       placeholder="Masukkan nama"
+                       placeholder="<?= lang('profile_name_placeholder') ?>"
                        class="u-input w-full rounded-xl py-3 px-4 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                <p class="mt-1 text-[10px] u-muted">Maks. 50 karakter</p>
+                <p class="mt-1 text-[10px] u-muted"><?= lang('profile_name_max') ?></p>
             </div>
 
             <!-- Phone (Read-only) -->
             <div>
-                <label class="block text-xs font-bold u-text-2 mb-1.5 uppercase tracking-wide">Nomor Telepon</label>
+                <label class="block text-xs font-bold u-text-2 mb-1.5 uppercase tracking-wide"><?= lang('auth_phone_label') ?></label>
                 <input type="text" readonly
                        value="<?= htmlspecialchars($user->phone) ?>"
                        class="w-full bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl py-3 px-4 text-sm font-medium text-slate-400 dark:text-slate-500 cursor-not-allowed">
-                <p class="mt-1 text-[10px] u-muted">Tidak dapat diubah</p>
+                <p class="mt-1 text-[10px] u-muted"><?= lang('profile_phone_ro') ?></p>
             </div>
 
             <!-- Submit -->
             <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2">
-                <i class="fas fa-check"></i> Simpan Perubahan
+                <i class="fas fa-check"></i> <?= lang('profile_save_changes') ?>
             </button>
         </div>
         <?= form_close(); ?>
@@ -275,7 +329,7 @@
     }
 
     function showSuccess() {
-        toast.textContent = 'Tersalin!';
+        toast.textContent = (window.SYNAPSE_I18N || {})['js_copied'] || 'Tersalin!';
         toast.className = 'text-[10px] font-bold text-emerald-600 text-center opacity-100 transition-opacity';
         btn.innerHTML = '<i class="fas fa-check"></i>';
         btn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
@@ -283,7 +337,7 @@
     }
 
     function showError() {
-        toast.textContent = 'Gagal menyalin';
+        toast.textContent = (window.SYNAPSE_I18N || {})['js_copy_failed'] || 'Gagal menyalin';
         toast.className = 'text-[10px] font-bold text-rose-600 text-center opacity-100 transition-opacity';
     }
 
@@ -365,4 +419,62 @@ document.getElementById('avatarInput').addEventListener('change', function(e) {
     };
     reader.readAsDataURL(file);
 });
+
+/* --- App Preferences: Theme Segmented Control (Plan 100) ---
+   Pengganti engine tema lama di header.php — kontrak engine sama:
+   class .dark di <html> + localStorage 'user_theme' +
+   CustomEvent('user-theme-change', {detail:{dark}}). */
+(function () {
+    if (window.__profilePrefInit) { return; }
+    window.__profilePrefInit = true;
+
+    var seg  = document.getElementById('pref-theme-seg');
+    if (!seg) { return; }
+    var opts = Array.prototype.slice.call(seg.querySelectorAll('.pref-theme-opt'));
+    var html = document.documentElement;
+
+    function isDark() { return html.classList.contains('dark'); }
+
+    function render() {
+        var dark = isDark();
+        opts.forEach(function (b) {
+            var active = (b.getAttribute('data-theme') === 'dark') === dark;
+            b.setAttribute('aria-pressed', active ? 'true' : 'false');
+            // inactive
+            b.classList.toggle('opacity-60', !active);
+            b.classList.toggle('hover:opacity-100', !active);
+            // active — indigo solid (light theme) vs cyan glow (dark theme),
+            // mutually exclusive agar tak ada konflik urutan stylesheet
+            b.classList.toggle('bg-indigo-600', active && !dark);
+            b.classList.toggle('text-white', active && !dark);
+            b.classList.toggle('shadow-sm', active && !dark);
+            b.classList.toggle('bg-cyan-500/20', active && dark);
+            b.classList.toggle('text-cyan-200', active && dark);
+            b.classList.toggle('ring-1', active && dark);
+            b.classList.toggle('ring-inset', active && dark);
+            b.classList.toggle('ring-cyan-400/30', active && dark);
+        });
+    }
+
+    function applyTheme(dark) {
+        html.classList.toggle('dark', dark);
+        try { localStorage.setItem('user_theme', dark ? 'dark' : 'light'); } catch (e) {}
+        window.dispatchEvent(new CustomEvent('user-theme-change', { detail: { dark: dark } }));
+        render();
+    }
+
+    opts.forEach(function (b) {
+        b.addEventListener('click', function () {
+            applyTheme(b.getAttribute('data-theme') === 'dark');
+        });
+    });
+
+    // Sinkron bila tema berubah dari sumber lain di halaman yang sama.
+    window.addEventListener('user-theme-change', function (e) {
+        if (e && e.detail && typeof e.detail.dark === 'boolean') { render(); }
+    });
+
+    // Script berada di akhir body — markup sudah ter-parse; langsung render.
+    render();
+})();
 </script>

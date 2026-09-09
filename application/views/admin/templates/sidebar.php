@@ -13,12 +13,40 @@
             </div>
         </div>
 
+        <?php
+        // Plan 94 (F2): SSR alert counts (dari Admin::__construct) —
+        // badge merah live per queue. Polling JS menyegarkan id di bawah.
+        $adm_alerts = isset($global_admin_alerts) ? $global_admin_alerts : array();
+        $n_dep  = (int) ($adm_alerts['pending_deposits'] ?? 0);
+        $n_wd   = (int) ($adm_alerts['pending_withdrawals'] ?? 0);
+        $n_prom = (int) ($adm_alerts['pending_promoter_claims'] ?? 0);
+        $badge = function ($id, $n) {
+            return '<span id="' . $id . '" class="ml-auto min-w-[18px] h-[18px] px-1 bg-rose-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center ring-2 ring-[var(--t-surface)] ' . ($n > 0 ? '' : 'hidden') . '">' . ($n > 99 ? '99+' : $n) . '</span>';
+        };
+        ?>
+
         <!-- Navigation -->
         <nav class="flex-1 px-3 py-4 space-y-1">
             <a href="<?= site_url('admin') ?>"
                class="t-nav-link <?= $this->uri->segment(1) === 'admin' && !$this->uri->segment(2) ? 't-nav-active' : '' ?>">
                 <i class="fas fa-chart-pie w-5 text-center text-xs"></i>
                 <span>Dashboard</span>
+            </a>
+            <!-- Plan 94 (F2): shortcut queue → Command Center (anchor) + badge
+                 pending deposits. Deep-link = /admin#pending-deposits. -->
+            <a href="<?= site_url('admin') ?>#pending-deposits"
+               class="t-nav-link">
+                <i class="fas fa-arrow-down w-5 text-center text-xs"></i>
+                <span>Deposit</span>
+                <?= $badge('admin-badge-deposit', $n_dep) ?>
+            </a>
+            <!-- Plan 94 (F2): shortcut queue → Command Center (anchor) + badge
+                 pending withdrawals. Deep-link = /admin#pending-withdrawals. -->
+            <a href="<?= site_url('admin') ?>#pending-withdrawals"
+               class="t-nav-link">
+                <i class="fas fa-arrow-up w-5 text-center text-xs"></i>
+                <span>Penarikan</span>
+                <?= $badge('admin-badge-withdrawal', $n_wd) ?>
             </a>
             <a href="<?= site_url('admin/history/deposit') ?>"
                class="t-nav-link <?= $this->uri->segment(2) === 'history' ? 't-nav-active' : '' ?>">
@@ -40,11 +68,12 @@
                 <i class="fas fa-microchip w-5 text-center text-xs"></i>
                 <span>Produk GPU</span>
             </a>
-            <!-- Plan 91: queue klaim reward promotor -->
+            <!-- Plan 91: queue klaim reward promotor. Plan 94 (F2): + badge -->
             <a href="<?= site_url('admin/promoter-claims') ?>"
                class="t-nav-link <?= in_array($this->uri->segment(2), ['promoter-claims', 'promoter_claims']) ? 't-nav-active' : '' ?>">
                 <i class="fas fa-star w-5 text-center text-xs"></i>
                 <span>Klaim Promoter</span>
+                <?= $badge('admin-badge-promoter', $n_prom) ?>
             </a>
             <a href="<?= site_url('admin/analytics') ?>"
                class="t-nav-link <?= $this->uri->segment(2) === 'analytics' ? 't-nav-active' : '' ?>">

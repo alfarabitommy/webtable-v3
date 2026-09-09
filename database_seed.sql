@@ -259,6 +259,8 @@ INSERT INTO `system_audit_logs` (`admin_id`, `user_id`, `action`, `details`, `ip
 -- Idempotent, never overwrites a live value.
 INSERT IGNORE INTO `system_settings` (`key_name`, `key_value`) VALUES
 ('is_registration_open', '1'),
+-- plan/95: Maintenance Mode member site (0=normal, 1=locked down; admin/CLI exempt).
+('is_maintenance_mode', '0'),
 -- M1 (plan/56): dynamic withdrawal/deposit financial config (PRD §121-125 defaults).
 ('wd_operational_days', '1,2,3,4,5,6'),
 ('wd_open_time', '07:00'),

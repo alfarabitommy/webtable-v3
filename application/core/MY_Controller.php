@@ -6,8 +6,15 @@ class MY_Controller extends CI_Controller {
     public function __construct() {
         parent::__construct();
 
+        // plan/95 (G-1/G-4): maintenance gate PALING AWAL — sebelum pin WIB M2,
+        // i18n_apply, guard redirect login, sweep rental M3, dan baca
+        // saldo/notifikasi apa pun. Exempt: CLI + session admin_id (G-3).
+        // Saat aktif & non-admin: exit HTTP 503 (HTML) / JSON MAINTENANCE_MODE.
+        maintenance_gate();
+
         // M2 (plan/58 §3 Phase 2): unconditional WIB session pin as the FIRST
-        // DB statement of every authenticated user request. CI3 connects
+        // DB statement of every authenticated user request (setelah gate plan/95).
+        // CI3 connects
         // lazily (conn_id = FALSE until the first query), so a guarded
         // SET in a model constructor never fires on a fresh connection —
         // this query() forces the connection and applies
@@ -15,6 +22,12 @@ class MY_Controller extends CI_Controller {
         // keeping TIMESTAMP read-backs (created_at, last_wage_claimed_at,
         // rate-limit windows) WIB-consistent with the PHP clock.
         $this->db->query("SET time_zone = '+07:00'");
+
+        // Plan 94 (F1): bahasa member (member-facing ONLY). Resolusi
+        // session('site_lang') → cookie('site_lang') → 'en'; muat app_lang
+        // pada idiom terpilih (TEPAT SATU — L4) + inject var site_lang_code
+        // untuk <html lang> & switcher. Admin tidak pernah lewat sini (L1).
+        i18n_apply();
 
         $controller = $this->router->fetch_class();
 

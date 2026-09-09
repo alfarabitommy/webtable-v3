@@ -3,7 +3,7 @@
 <!-- ═══ HELP BUTTON ═══ -->
 <div class="px-4 pt-4">
     <button onclick="openRentalHelpModal()" class="w-full flex items-center justify-center gap-2 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-[11px] font-bold py-2 px-4 rounded-xl border border-indigo-500/20 transition-all active:scale-95">
-        <i class="fas fa-info-circle"></i> Cara Kerja Bonus
+        <i class="fas fa-info-circle"></i> <?= lang('rental_how_it_works') ?>
     </button>
 </div>
 
@@ -86,12 +86,12 @@
     <div class="mb-6">
         <div class="flex items-center gap-2 mb-1">
             <div class="w-1.5 h-1.5 rounded-full bg-blue-600 pulse-dot"></div>
-            <span class="text-[10px] font-bold text-blue-600 uppercase tracking-[0.2em]">System Monitor</span>
+            <span class="text-[10px] font-bold text-blue-600 uppercase tracking-[0.2em]"><?= lang('rental_system_monitor') ?></span>
         </div>
         <h2 class="flex items-center gap-2 text-xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-cyan-600 dark:from-cyan-300 dark:to-indigo-300">
-            <i class="fas fa-microchip text-blue-600"></i> Infrastruktur Aktif
+            <i class="fas fa-microchip text-blue-600"></i> <?= lang('rental_active_infra_title') ?>
         </h2>
-        <p class="text-xs u-text-2 mt-1">Status node dan penghasilan harian Anda.</p>
+        <p class="text-xs u-text-2 mt-1"><?= lang('rental_sub') ?></p>
     </div>
 
     <!-- ═══ Flash Messages ═══ -->
@@ -112,10 +112,10 @@
         <div class="w-20 h-20 rounded-full u-card-inset flex items-center justify-center mb-5">
             <i class="fas fa-server text-3xl u-muted"></i>
         </div>
-        <h3 class="text-lg font-bold u-text-2 mb-2">Belum Ada Node Aktif</h3>
-        <p class="text-xs u-muted max-w-[240px] leading-relaxed">Beli infrastruktur GPU di marketplace untuk mulai menghasilkan.</p>
+        <h3 class="text-lg font-bold u-text-2 mb-2"><?= lang('rental_empty_title') ?></h3>
+        <p class="text-xs u-muted max-w-[240px] leading-relaxed"><?= lang('rental_empty_body') ?></p>
         <a href="<?= site_url('marketplace') ?>" class="mt-6 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-xl transition-all active:scale-95 flex items-center gap-2">
-            <i class="fas fa-store"></i> Buka Marketplace
+            <i class="fas fa-store"></i> <?= lang('rental_open_market') ?>
         </a>
     </div>
 
@@ -157,26 +157,26 @@
             </div>
             <div class="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2.5 py-1 ml-3 flex-shrink-0">
                 <div class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></div>
-                <span class="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Online</span>
+                <span class="text-[10px] text-emerald-400 font-bold uppercase tracking-wider"><?= lang('common_online') ?></span>
             </div>
         </div>
 
         <!-- Data Grid -->
         <div class="relative data-grid mb-4">
             <div class="data-cell">
-                <span>Harga Sewa</span>
+                <span><?= lang('common_rent_price_label') ?></span>
                 <p class="text-sm font-extrabold text-white mt-0.5">Rp <?= number_format($rental->purchase_price, 0, ',', '.') ?></p>
             </div>
             <div class="data-cell">
-                <span>ROI Harian</span>
+                <span><?= lang('common_daily_roi_label') ?></span>
                 <p class="text-sm font-extrabold text-emerald-400 mt-0.5">Rp <?= number_format($rental->daily_roi, 0, ',', '.') ?></p>
             </div>
         </div>
 
         <!-- Expiry Info -->
         <div class="relative flex items-center justify-between text-[11px] text-slate-500 mb-2">
-            <span><i class="fas fa-clock mr-1"></i> Berakhir: <?= date('d M Y', $expired) ?></span>
-            <span class="font-mono <?= $days_left <= 3 ? 'text-rose-400' : 'text-slate-500' ?>"><?= $days_left ?> hari lagi</span>
+            <span><i class="fas fa-clock mr-1"></i> <?= sprintf(lang('rental_expires_on'), date('d M Y', $expired)) ?></span>
+            <span class="font-mono <?= $days_left <= 3 ? 'text-rose-400' : 'text-slate-500' ?>"><?= sprintf(lang('rental_days_left'), $days_left) ?></span>
         </div>
 
         <!-- Progress Bar -->
@@ -184,7 +184,7 @@
             <div class="progress-fill" style="width: <?= $progress_pct ?>%"></div>
         </div>
         <p class="text-[10px] text-slate-500 mb-4 font-mono">
-            Hari klaim: <?= $days_processed ?>/<?= $total_days ?> · <span class="text-slate-400">Maksimal ROI tertampung: 2 Hari</span>
+            <?= sprintf(lang('rental_claim_days'), $days_processed, $total_days) ?> · <span class="text-slate-400"><?= lang('rental_roi_cap') ?></span>
         </p>
 
         <!-- Claim Button — plan/46: mesin state 4-cabang deterministik.
@@ -192,24 +192,24 @@
              (actual_claimable < 1) TANPA form → mustahil submit dari UI. -->
         <?php if ($is_completed): ?>
         <button disabled aria-disabled="true" class="w-full h-12 bg-slate-800 text-slate-500 font-bold text-sm rounded-xl cursor-not-allowed border border-slate-700/50 flex justify-center items-center gap-2">
-            <i class="fas fa-lock text-slate-600"></i> Kontrak Habis
+            <i class="fas fa-lock text-slate-600"></i> <?= lang('rental_contract_done') ?>
         </button>
         <?php elseif ($is_expired): ?>
         <button disabled aria-disabled="true" class="w-full h-12 bg-slate-800 text-slate-500 font-bold text-sm rounded-xl cursor-not-allowed border border-slate-700/50 flex justify-center items-center gap-2">
-            <i class="fas fa-lock text-slate-600"></i> Kontrak Berakhir
+            <i class="fas fa-lock text-slate-600"></i> <?= lang('rental_contract_expired') ?>
         </button>
         <?php elseif ($is_claimed_today): ?>
         <button disabled aria-disabled="true" class="w-full h-12 bg-slate-800 text-slate-500 font-bold text-sm rounded-xl cursor-not-allowed border border-slate-700/50 flex justify-center items-center gap-2">
-            <i class="fas fa-check-circle text-slate-600"></i> Sudah Diklaim
+            <i class="fas fa-check-circle text-slate-600"></i> <?= lang('rental_claimed_today') ?>
         </button>
         <?php elseif ($actual_claimable < 1): ?>
         <button disabled aria-disabled="true" class="w-full h-12 bg-slate-800 text-slate-500 font-bold text-sm rounded-xl cursor-not-allowed border border-slate-700/50 opacity-60 flex justify-center items-center gap-2">
-            <i class="fas fa-clock text-slate-600"></i> Belum Waktunya (H+1)
+            <i class="fas fa-clock text-slate-600"></i> <?= lang('rental_not_yet') ?>
         </button>
         <?php else: ?>
         <?php echo form_open('rentals/claim/' . $rental->id, ['class' => 'w-full m-0 p-0 claim-form']); ?>
             <button type="submit" class="w-full h-12 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-[0_0_15px_rgba(37,99,235,0.4)] transform transition active:scale-95 flex justify-center items-center gap-2">
-                <i class="fas fa-bolt text-yellow-400"></i> Klaim Rp <?= number_format($rental->daily_roi * $actual_claimable, 0, ',', '.') ?><?= $actual_claimable >= 2 ? ' <span class="text-[10px] font-normal opacity-80">(2 Hari)</span>' : '' ?>
+                <i class="fas fa-bolt text-yellow-400"></i> <?= sprintf(lang('rental_claim_roi'), 'Rp ' . number_format($rental->daily_roi * $actual_claimable, 0, ',', '.')) ?><?= $actual_claimable >= 2 ? ' <span class="text-[10px] font-normal opacity-80">' . lang('rental_two_days') . '</span>' : '' ?>
             </button>
         <?php echo form_close(); ?>
         <?php endif; ?>
@@ -232,14 +232,14 @@
         <div class="flex items-center justify-between relative z-10">
             <div class="flex-1">
                 <span class="text-[10px] text-slate-500 uppercase tracking-widest font-bold flex items-center gap-1.5">
-                    <i class="fas fa-chart-line text-blue-400"></i> Estimasi Klaimable
+                    <i class="fas fa-chart-line text-blue-400"></i> <?= lang('rental_est_claimable') ?>
                 </span>
                 <p class="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400">Rp <?= number_format($total_pending, 0, ',', '.') ?></p>
-                <p class="text-[10px] text-slate-500 mt-0.5">Potensi/Hari: Rp <?= number_format($total_roi, 0, ',', '.') ?></p>
+                <p class="text-[10px] text-slate-500 mt-0.5"><?= sprintf(lang('rental_potential_day'), 'Rp ' . number_format($total_roi, 0, ',', '.')) ?></p>
             </div>
             <div class="border-l border-slate-700/50 pl-4 text-right min-w-[100px]">
                 <span class="text-[10px] text-slate-500 uppercase tracking-widest font-bold flex items-center justify-end gap-1.5">
-                    <i class="fas fa-server text-blue-400"></i> Total Node
+                    <i class="fas fa-server text-blue-400"></i> <?= lang('rental_total_nodes') ?>
                 </span>
                 <p class="text-2xl font-extrabold text-white"><?= count($rentals) ?></p>
             </div>
@@ -255,27 +255,27 @@
     <div class="absolute bottom-0 left-0 right-0 u-modal rounded-t-3xl max-h-[80vh] overflow-y-auto transform translate-y-full transition-transform duration-300" id="rentalHelpSheet">
         <div class="sticky top-0 u-modal px-5 pt-5 pb-3 border-b border-slate-100 dark:border-slate-800 rounded-t-3xl">
             <div class="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full mx-auto mb-3"></div>
-            <h3 class="text-sm font-bold u-text flex items-center gap-2"><i class="fas fa-info-circle text-indigo-500"></i> Cara Kerja Klaim ROI</h3>
+            <h3 class="text-sm font-bold u-text flex items-center gap-2"><i class="fas fa-info-circle text-indigo-500"></i> <?= lang('rental_help_title') ?></h3>
         </div>
         <div class="px-5 py-4 space-y-4">
             <!-- 2-Day Accumulation -->
             <div class="bg-indigo-50 dark:bg-indigo-500/10 rounded-xl p-4 border border-indigo-100 dark:border-indigo-500/20">
-                <h4 class="text-xs font-bold text-indigo-700 dark:text-indigo-300 mb-2"><i class="fas fa-clock mr-1"></i> Akumulasi Maks 2 Hari</h4>
-                <p class="text-[11px] u-text-2 leading-relaxed">ROI harian diakumulasi hingga <b>maksimal 2 hari</b>. Setelah 2 hari tanpa klaim, hari ke-3 dan seterusnya <b>hilang</b>.</p>
-                <p class="text-[10px] text-indigo-600 dark:text-indigo-400 mt-2 font-semibold">Contoh: Aktif 3 hari tanpa klaim → hanya 2 hari yang bisa diklaim.</p>
+                <h4 class="text-xs font-bold text-indigo-700 dark:text-indigo-300 mb-2"><i class="fas fa-clock mr-1"></i> <?= lang('rental_help_acc_title') ?></h4>
+                <p class="text-[11px] u-text-2 leading-relaxed"><?= lang('rental_help_acc_body') ?></p>
+                <p class="text-[10px] text-indigo-600 dark:text-indigo-400 mt-2 font-semibold"><?= lang('rental_help_acc_example') ?></p>
             </div>
             <!-- Use It or Lose It -->
             <div class="bg-amber-50 dark:bg-amber-500/10 rounded-xl p-4 border border-amber-100 dark:border-amber-500/20">
-                <h4 class="text-xs font-bold text-amber-700 dark:text-amber-300 mb-2"><i class="fas fa-exclamation-triangle mr-1"></i> Gunakan atau Hangus</h4>
-                <p class="text-[11px] u-text-2 leading-relaxed">ROI yang belum diklaim akan <b>hangus</b> melewati batas akumulasi. Klaim secara berkala untuk memaksimalkan penghasilan!</p>
+                <h4 class="text-xs font-bold text-amber-700 dark:text-amber-300 mb-2"><i class="fas fa-exclamation-triangle mr-1"></i> <?= lang('rental_help_lose_title') ?></h4>
+                <p class="text-[11px] u-text-2 leading-relaxed"><?= lang('rental_help_lose_body') ?></p>
             </div>
             <!-- Over-payment Protection -->
             <div class="bg-emerald-50 dark:bg-emerald-500/10 rounded-xl p-4 border border-emerald-100 dark:border-emerald-500/20">
-                <h4 class="text-xs font-bold text-emerald-700 dark:text-emerald-300 mb-2"><i class="fas fa-shield-alt mr-1"></i> Perlindungan Over-payment</h4>
-                <p class="text-[11px] u-text-2 leading-relaxed">Jika total klaim ROI melebihi harga beli sewa, kelebihan otomatis dikreditkan ke <b>saldo wallet</b> Anda. Tidak ada yang hilang!</p>
+                <h4 class="text-xs font-bold text-emerald-700 dark:text-emerald-300 mb-2"><i class="fas fa-shield-alt mr-1"></i> <?= lang('rental_help_overpay_title') ?></h4>
+                <p class="text-[11px] u-text-2 leading-relaxed"><?= lang('rental_help_overpay_body') ?></p>
             </div>
             <!-- Close Button -->
-            <button onclick="closeRentalHelpModal()" class="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition-all active:scale-95">Mengerti</button>
+            <button onclick="closeRentalHelpModal()" class="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition-all active:scale-95"><?= lang('common_got_it') ?></button>
         </div>
     </div>
 </div>
@@ -312,7 +312,7 @@ document.querySelectorAll('form.claim-form').forEach(function (form) {
         if (btn) {
             btn.disabled = true;
             btn.classList.add('opacity-60', 'cursor-not-allowed');
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Memproses...';
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> ' + ((window.SYNAPSE_I18N || {})['js_processing'] || 'Memproses...');
         }
     });
 });

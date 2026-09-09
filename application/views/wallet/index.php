@@ -21,8 +21,8 @@
 
         <div class="relative z-10">
             <div class="flex items-center justify-between mb-1">
-                <span class="text-slate-400 text-xs font-medium tracking-wider uppercase">Total Saldo</span>
-                <span class="text-emerald-400 text-[10px] font-mono bg-emerald-400/10 px-2 py-0.5 rounded-full">AKTIF</span>
+                <span class="text-slate-400 text-xs font-medium tracking-wider uppercase"><?= lang('wallet_total_balance') ?></span>
+                <span class="text-emerald-400 text-[10px] font-mono bg-emerald-400/10 px-2 py-0.5 rounded-full"><?= lang('wallet_active_badge') ?></span>
             </div>
             <div class="text-3xl font-bold font-mono tracking-tight mb-4">
                 Rp <?= number_format($balance, 0, ',', '.') ?>
@@ -30,23 +30,23 @@
 
             <div class="flex gap-2">
                 <button type="button" id="btn-toggle-topup" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold py-2.5 rounded-xl transition">
-                    <i class="fas fa-plus mr-1"></i> Top Up
+                    <i class="fas fa-plus mr-1"></i> <?= lang('wallet_topup_btn') ?>
                 </button>
                 <?php if (!empty($has_pending_wd)): ?>
                 <button disabled class="flex-1 bg-slate-600 text-slate-300 text-sm font-bold py-2.5 rounded-xl cursor-not-allowed opacity-60">
-                    <i class="fas fa-hourglass-half mr-1"></i> Menunggu Persetujuan
+                    <i class="fas fa-hourglass-half mr-1"></i> <?= lang('wallet_wd_pending_btn') ?>
                 </button>
                 <?php elseif (empty($has_active_rental)): ?>
                 <button disabled class="flex-1 bg-slate-400 text-white text-sm font-bold py-2.5 rounded-xl cursor-not-allowed opacity-60">
-                    <i class="fas fa-lock mr-1"></i> Pinjaman Aktif
+                    <i class="fas fa-lock mr-1"></i> <?= lang('wallet_loan_active') ?>
                 </button>
                 <?php elseif (!empty($daily_limit_reached)): ?>
                 <button disabled class="flex-1 bg-slate-600 text-slate-300 text-sm font-bold py-2.5 rounded-xl cursor-not-allowed opacity-60">
-                    <i class="fas fa-calendar-check mr-1"></i> Batas Harian
+                    <i class="fas fa-calendar-check mr-1"></i> <?= lang('wallet_daily_limit') ?>
                 </button>
                 <?php else: ?>
                 <a href="<?= base_url('wallet/withdraw') ?>" class="flex-1 bg-orange-500 hover:bg-orange-400 text-white text-sm font-bold py-2.5 rounded-xl transition text-center no-underline">
-                    <i class="fas fa-arrow-down mr-1"></i> Tarik Dana
+                    <i class="fas fa-arrow-down mr-1"></i> <?= lang('wallet_withdraw_btn') ?>
                 </a>
                 <?php endif; ?>
             </div>
@@ -56,7 +56,7 @@
     <!-- ===== TOP-UP FORM ===== -->
     <div id="topup-form-container" class="hidden transition-all duration-300 ease-in-out origin-top u-card rounded-2xl p-5 shadow-sm">
         <h3 class="text-sm font-bold u-text mb-3 flex items-center gap-2">
-            <i class="fas fa-wallet text-blue-500"></i> Isi Saldo
+            <i class="fas fa-wallet text-blue-500"></i> <?= lang('wallet_topup_title') ?>
         </h3>
 
         <?= form_open('wallet/topup', ['id' => 'topupForm', 'data-guard-submit' => '1']); ?>
@@ -71,7 +71,7 @@
                 <button type="button" data-amount="2000000" class="amt-btn u-amt-inactive text-xs font-bold py-2.5 rounded-xl transition">2M</button>
                 <button type="button" data-amount="2500000" class="amt-btn u-amt-inactive text-xs font-bold py-2.5 rounded-xl transition">2.5M</button>
                 <button type="button" onclick="setCustomAmount()" class="bg-transparent border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500 text-xs font-bold py-2.5 rounded-xl hover:border-blue-400 dark:hover:border-blue-500 hover:text-blue-500 dark:hover:text-blue-400 transition">
-                    <i class="fas fa-pen text-[10px]"></i> Lain
+                    <i class="fas fa-pen text-[10px]"></i> <?= lang('wallet_other') ?>
                 </button>
             </div>
 
@@ -89,7 +89,7 @@
 
             <!-- Submit -->
             <button type="submit" id="submitBtn" disabled class="w-full bg-blue-600 text-white text-sm font-bold py-3 rounded-xl transition disabled:opacity-40 disabled:cursor-not-allowed hover:bg-blue-700">
-                <i class="fas fa-lock mr-1"></i> Lanjutkan Pembayaran
+                <i class="fas fa-lock mr-1"></i> <?= lang('wallet_continue_pay') ?>
             </button>
 
         <?= form_close(); ?>
@@ -99,7 +99,7 @@
     <?php if (!empty($pending)): ?>
     <div class="u-card rounded-2xl p-5 shadow-sm">
         <h3 class="text-sm font-bold u-text mb-3 flex items-center gap-2">
-            <i class="fas fa-clock text-amber-500"></i> Menunggu Pembayaran
+            <i class="fas fa-clock text-amber-500"></i> <?= lang('wallet_pending_pay_title') ?>
         </h3>
         <div class="space-y-2">
             <?php foreach ($pending as $row): ?>
@@ -120,14 +120,14 @@
                     <button type="button"
                             class="btn-copy-nominal shrink-0 flex items-center gap-1.5 text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-white/70 dark:bg-black/20 border border-amber-200 dark:border-amber-500/20 px-2 py-1 rounded-lg hover:bg-white dark:hover:bg-black/30 transition active:scale-95"
                             data-copy="<?= $copy_val ?>"
-                            title="Salin nominal transfer">
-                        <i class="fas fa-copy text-[9px]"></i> Salin Nominal
+                            title="<?= lang('wallet_copy_amount_title') ?>">
+                        <i class="fas fa-copy text-[9px]"></i> <?= lang('wallet_copy_amount') ?>
                     </button>
                 </div>
 
                 <!-- Primary figure: TOTAL TAGIHAN / NOMINAL TRANSFER -->
                 <div class="mt-2">
-                    <div class="text-[10px] uppercase tracking-widest u-muted font-bold">Total Tagihan / Nominal Transfer</div>
+                    <div class="text-[10px] uppercase tracking-widest u-muted font-bold"><?= lang('wallet_total_bill') ?></div>
                     <div class="text-2xl font-extrabold u-text font-mono tracking-tight leading-tight">Rp <?= number_format($primary, 0, ',', '.') ?></div>
                 </div>
 
@@ -135,23 +135,23 @@
                 <?php if ($has_fee): ?>
                 <div class="mt-2 rounded-lg bg-white/70 dark:bg-black/20 border border-amber-200/80 dark:border-amber-500/15 px-3 py-2 space-y-1">
                     <div class="flex items-center justify-between text-[11px]">
-                        <span class="u-muted">Saldo Masuk (Pokok)</span>
+                        <span class="u-muted"><?= lang('wallet_principal_in') ?></span>
                         <span class="font-mono font-bold u-text">Rp <?= number_format((int) $row->amount, 0, ',', '.') ?></span>
                     </div>
                     <div class="flex items-center justify-between text-[11px]">
-                        <span class="u-muted">Biaya Layanan</span>
+                        <span class="u-muted"><?= lang('wallet_service_fee') ?></span>
                         <span class="font-mono font-bold u-text">Rp <?= number_format((int) $row->deposit_fee, 0, ',', '.') ?></span>
                     </div>
                 </div>
                 <?php endif; ?>
 
-                <span class="inline-block mt-2 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/10 px-2 py-0.5 rounded-full uppercase">Menunggu Pembayaran</span>
+                <span class="inline-block mt-2 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/10 px-2 py-0.5 rounded-full uppercase"><?= lang('wallet_pending_pay_title') ?></span>
                 <?php if (ENVIRONMENT !== 'production'): ?>
                 <!-- C1 (plan 38): simulasi pembayaran HANYA untuk development/UAT —
                      tidak pernah dirender di production. POST + CSRF (form_open). -->
                 <?= form_open('wallet/simulate_payment/' . $row->invoice_number, ['class' => 'mt-2', 'data-guard-submit' => '1']); ?>
                     <button type="submit" class="w-full bg-amber-500 hover:bg-amber-400 text-white text-xs font-bold py-2 rounded-lg transition">
-                        <i class="fas fa-flask mr-1"></i> Simulasi Pembayaran (Dev Only)
+                        <i class="fas fa-flask mr-1"></i> <?= lang('wallet_simulate_pay') ?>
                     </button>
                 <?= form_close(); ?>
                 <?php endif; ?>
@@ -164,7 +164,7 @@
     <!-- ===== PENDING WITHDRAWALS ===== -->
     <?php if (!empty($pending_withdrawals)): ?>
         <div class="mb-6">
-            <h3 class="text-sm font-bold u-text-2 uppercase tracking-wider mb-3">Penarikan Tertunda (Pending)</h3>
+            <h3 class="text-sm font-bold u-text-2 uppercase tracking-wider mb-3"><?= lang('wallet_pending_wd_title') ?></h3>
             <div class="space-y-3">
                 <?php foreach ($pending_withdrawals as $wd): ?>
                     <div class="bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-2xl p-4 flex flex-col gap-3 shadow-sm">
@@ -179,13 +179,13 @@
                                 <p class="text-xs font-semibold text-orange-500 dark:text-orange-400">Pending</p>
                             </div>
                         </div>
-                        <span class="inline-block text-[10px] font-bold text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-500/10 px-2 py-0.5 rounded-full uppercase">Menunggu Persetujuan</span>
+                        <span class="inline-block text-[10px] font-bold text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-500/10 px-2 py-0.5 rounded-full uppercase"><?= lang('wallet_wd_pending_btn') ?></span>
                         <?php if (ENVIRONMENT !== 'production'): ?>
                         <!-- C7 (plan 42): simulasi persetujuan WD HANYA untuk development/UAT —
                              tidak pernah dirender di production. POST + CSRF (form_open). -->
                         <?= form_open('wallet/simulate_wd_approve/' . $wd->wd_number, ['class' => 'mt-2', 'data-guard-submit' => '1']); ?>
                             <button type="submit" class="w-full bg-orange-500 hover:bg-orange-400 text-white text-xs font-bold py-2 rounded-lg transition">
-                                <i class="fas fa-flask mr-1"></i> Simulasi Persetujuan (Dev Only)
+                                <i class="fas fa-flask mr-1"></i> <?= lang('wallet_simulate_wd') ?>
                             </button>
                         <?= form_close(); ?>
                         <?php endif; ?>
@@ -199,17 +199,17 @@
     <div class="u-card rounded-2xl shadow-sm overflow-hidden">
         <div class="px-5 pt-5 pb-2 flex items-center justify-between">
             <h3 class="text-sm font-bold u-text flex items-center gap-2">
-                <i class="fas fa-receipt u-muted"></i> Riwayat Transaksi
+                <i class="fas fa-receipt u-muted"></i> <?= lang('wallet_ledger_title') ?>
             </h3>
             <?php if (!empty($ledger)): ?>
-            <span class="text-[10px] font-bold text-slate-400 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded-full"><?= count($ledger) ?> transaksi</span>
+            <span class="text-[10px] font-bold text-slate-400 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded-full"><?= sprintf(lang('wallet_count_tx'), count($ledger)) ?></span>
             <?php endif; ?>
         </div>
 
         <?php if (empty($ledger)): ?>
             <div class="px-5 pb-5 text-center py-8">
                 <div class="text-4xl mb-2 opacity-30">📄</div>
-                <p class="text-xs u-muted">Belum ada transaksi</p>
+                <p class="text-xs u-muted"><?= lang('wallet_empty_tx') ?></p>
             </div>
         <?php else: ?>
             <div class="u-divide">
@@ -238,6 +238,16 @@
 
 <!-- ===== JAVASCRIPT ===== -->
 <script>
+/* Plan 94 (F1): string JS halaman ini — diterjemahkan server-side */
+var L = <?= json_encode([
+    'fee_principal' => lang('wallet_fee_principal_label'),
+    'fee_fee' => lang('wallet_fee_fee_label'),
+    'fee_total' => lang('wallet_fee_total_label'),
+    'amount_prompt' => lang('wallet_amount_prompt'),
+    'amount_invalid' => lang('wallet_amount_invalid'),
+    'copied_short' => lang('js_copied_short'),
+], JSON_UNESCAPED_UNICODE) ?>;
+
 /* --- Top-up Quick Amount Buttons --- */
 var BASE   = 'amt-btn text-xs font-bold py-2.5 rounded-xl transition';
 var INACTIVE = BASE + ' u-amt-inactive';
@@ -266,9 +276,9 @@ function updateDepositFee(amount) {
     }
     var fee = depositFeeOf(amount);
     var total = amount + fee;
-    depFeeText.textContent = 'Pokok Rp ' + amount.toLocaleString('id-ID')
-        + ' + Biaya Rp ' + fee.toLocaleString('id-ID')
-        + ' = Total Dibayar Rp ' + total.toLocaleString('id-ID');
+    depFeeText.textContent = L.fee_principal + amount.toLocaleString('id-ID')
+        + L.fee_fee + fee.toLocaleString('id-ID')
+        + L.fee_total + total.toLocaleString('id-ID');
     depFeeBox.classList.remove('hidden');
 }
 
@@ -300,7 +310,7 @@ document.querySelectorAll('.amt-btn').forEach(function(btn) {
 });
 
 function setCustomAmount() {
-    var custom = prompt('Masukkan nominal (angka saja):\nContoh: 750000');
+    var custom = prompt(L.amount_prompt);
     if (!custom) { return; } // batal / kosong
 
     // M8 parity (plan/74 §2.4): tolak karakter non-digit (titik, koma,
@@ -308,7 +318,7 @@ function setCustomAmount() {
     // mengubah "50000.50" → 5000050, sehingga validasi integer backend
     // tidak pernah terpanggil. Hanya string bulat ^[1-9][0-9]*$ diterima.
     if (!/^[1-9][0-9]*$/.test(custom)) {
-        alert('Nominal harus berupa bilangan bulat (angka saja tanpa titik atau desimal).');
+        alert(L.amount_invalid);
         return; // abort — jangan mengisi form dengan nilai yang dimanipulasi
     }
 
@@ -333,7 +343,7 @@ if(btnToggleTopup && topupFormContainer) {
 /* --- Pending invoice: Salin Nominal (copy exact transfer integer, e.g. 104000) --- */
 function flashCopyLabel(btn) {
     var orig = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-check text-[9px]"></i> Tersalin';
+    btn.innerHTML = '<i class="fas fa-check text-[9px]"></i> ' + L.copied_short;
     setTimeout(function() { btn.innerHTML = orig; }, 1500);
 }
 

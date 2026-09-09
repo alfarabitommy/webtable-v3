@@ -18,7 +18,7 @@ class Wallet extends MY_Controller {
         $fin_cfg = $this->Wallet_model->get_financial_config();
 
         $data = [
-            'page_title'            => 'Wallet',
+            'page_title'            => lang('wallet_page_title'),
             'balance'               => $this->Wallet_model->get_balance($user_id),
             'pending'               => $this->Wallet_model->get_pending_deposits($user_id),
             'pending_withdrawals'   => $this->Wallet_model->get_pending_withdrawals($user_id),
@@ -153,7 +153,7 @@ class Wallet extends MY_Controller {
         $wd_op   = $this->Wallet_model->withdrawal_operational_status();
 
         $data = [
-            'page_title'   => 'Penarikan Dana',
+            'page_title'   => lang('wd_page_title'),
             'balance'      => $this->Wallet_model->get_balance($user_id),
             'bank'         => $bank,
             // Subset config untuk JS preview (json_encode di view).
@@ -379,7 +379,7 @@ class Wallet extends MY_Controller {
 
         // GET: Render view
         $data = [
-            'page_title'    => 'Bind Rekening',
+            'page_title'    => lang('bind_page_title'),
             'existing_bank' => $existing_bank,
         ];
 

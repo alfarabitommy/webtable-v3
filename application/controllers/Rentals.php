@@ -35,7 +35,7 @@ class Rentals extends MY_Controller {
         unset($r);
 
         $data = [
-            'page_title' => 'Sewa Saya',
+            'page_title' => lang('rental_page_title'),
             'rentals'    => $rentals,
         ];
 

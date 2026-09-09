@@ -13,7 +13,7 @@ class Profile extends MY_Controller {
         $user = $this->User_model->get_user_by_id($user_id);
 
         $data = [
-            'page_title' => 'Profil Saya',
+            'page_title' => lang('profile_page_title'),
             'user'       => $user,
         ];
 
@@ -122,7 +122,7 @@ class Profile extends MY_Controller {
         }
 
         $data['values'] = $this->input->post();
-        $this->load->view('templates/header', ['page_title' => 'Ubah Kata Sandi']);
+        $this->load->view('templates/header', ['page_title' => lang('profile_change_password_title')]);
         $this->load->view('profile/change_password', $data);
         $this->load->view('templates/bottom_nav');
     }

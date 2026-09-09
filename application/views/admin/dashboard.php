@@ -26,11 +26,22 @@
                 <i class="fas fa-shield-halved <?= $is_critical ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400' ?>"></i>
                 <h2 class="text-sm font-bold <?= $is_critical ? 'text-red-600 dark:text-red-300' : 'text-emerald-600 dark:text-emerald-300' ?> uppercase tracking-wider">Treasury Health</h2>
             </div>
-            <button id="circuit-breaker-btn" onclick="toggleRegistration()"
-                    class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 <?= $is_registration_open ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white' ?>">
-                <i class="fas fa-power-off mr-1"></i>
-                <span id="cb-label"><?= $is_registration_open ? 'TUTUP PENDAFTARAN' : 'BUKA PENDAFTARAN' ?></span>
-            </button>
+            <div class="flex items-center gap-2">
+                <button id="circuit-breaker-btn" onclick="toggleRegistration()"
+                        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 <?= $is_registration_open ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white' ?>">
+                    <i class="fas fa-power-off mr-1"></i>
+                    <span id="cb-label"><?= $is_registration_open ? 'TUTUP PENDAFTARAN' : 'BUKA PENDAFTARAN' ?></span>
+                </button>
+                <!-- plan/95: Maintenance Mode toggle — state danger (ring merah/pulse) saat AKTIF -->
+                <button id="maintenance-toggle-btn" onclick="toggleMaintenance()"
+                        title="<?= $is_maintenance_mode ? 'Situs member terkunci (503) — klik untuk mematikan' : 'Kunci situs member (maintenance mode)' ?>"
+                        class="px-4 py-1.5 rounded-lg text-xs font-bold border transition-all duration-200 <?= $is_maintenance_mode
+                            ? 'bg-red-600 hover:bg-red-700 text-white border-red-400 ring-2 ring-red-500/60 animate-pulse'
+                            : 'border-slate-500/60 text-slate-300 hover:bg-slate-700/50 hover:text-white' ?>">
+                    <i class="fas fa-triangle-exclamation mr-1"></i>
+                    <span id="mm-label"><?= $is_maintenance_mode ? 'MAINTENANCE AKTIF — MATIKAN' : 'MAINTENANCE NONAKTIF' ?></span>
+                </button>
+            </div>
         </div>
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <!-- Cash In -->
@@ -132,8 +143,8 @@
     <!-- Grid Layout -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-        <!-- LEFT: Pending Deposits -->
-        <div class="t-card shadow-sm overflow-hidden">
+        <!-- LEFT: Pending Deposits (Plan 94 F2: anchor deep-link) -->
+        <div id="pending-deposits" class="t-card shadow-sm overflow-hidden scroll-mt-24">
             <div class="px-5 py-4 border-b border-[var(--t-border)] flex items-center justify-between">
                 <h2 class="text-sm font-semibold text-[var(--t-text)] flex items-center gap-2">
                     <span class="w-2 h-2 bg-green-500 rounded-full"></span>
@@ -174,8 +185,8 @@
             <?php endif; ?>
         </div>
 
-        <!-- RIGHT: Pending Withdrawals -->
-        <div class="t-card shadow-sm overflow-hidden">
+        <!-- RIGHT: Pending Withdrawals (Plan 94 F2: anchor deep-link) -->
+        <div id="pending-withdrawals" class="t-card shadow-sm overflow-hidden scroll-mt-24">
             <div class="px-5 py-4 border-b border-[var(--t-border)] flex items-center justify-between">
                 <h2 class="text-sm font-semibold text-[var(--t-text)] flex items-center gap-2">
                     <span class="w-2 h-2 bg-amber-500 rounded-full"></span>
@@ -266,6 +277,47 @@
                 alert('Terjadi kesalahan jaringan.');
             })
             .finally(() => {
+                btn.disabled = false;
+            });
+        }
+
+        // ─── PLAN 95: MAINTENANCE MODE TOGGLE ─────────────────────────
+        function toggleMaintenance() {
+            const btn = document.getElementById('maintenance-toggle-btn');
+            const label = document.getElementById('mm-label');
+            const originalText = label.textContent;
+            const originalClass = btn.className;
+
+            btn.disabled = true;
+            label.textContent = 'Memproses...';
+            btn.classList.add('opacity-75', 'cursor-not-allowed');
+
+            csrfFetch('<?= base_url('admin/toggle-maintenance') ?>', {
+                method: 'POST'
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    const isMM = data.is_maintenance_mode; // key legacy root (parity is_open)
+                    label.textContent = isMM ? 'MAINTENANCE AKTIF — MATIKAN' : 'MAINTENANCE NONAKTIF';
+                    btn.title = isMM
+                        ? 'Situs member terkunci (503) — klik untuk mematikan'
+                        : 'Kunci situs member (maintenance mode)';
+                    const activeCls = ['bg-red-600', 'hover:bg-red-700', 'text-white', 'border-red-400', 'ring-2', 'ring-red-500/60', 'animate-pulse'];
+                    const inactiveCls = ['border-slate-500/60', 'text-slate-300', 'hover:bg-slate-700/50', 'hover:text-white'];
+                    (isMM ? inactiveCls : activeCls).forEach(c => btn.classList.remove(c));
+                    (isMM ? activeCls : inactiveCls).forEach(c => btn.classList.add(c));
+                } else {
+                    label.textContent = originalText;
+                    alert('Gagal: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(() => {
+                label.textContent = originalText;
+                alert('Terjadi kesalahan jaringan.');
+            })
+            .finally(() => {
+                btn.classList.remove('opacity-75', 'cursor-not-allowed');
                 btn.disabled = false;
             });
         }

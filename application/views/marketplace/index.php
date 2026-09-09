@@ -2,8 +2,8 @@
 
     <!-- ═══ Page Header ═══ -->
     <div>
-        <h2 class="text-xl font-extrabold u-text tracking-tight">Katalog Infrastruktur</h2>
-        <p class="text-sm u-text-2 mt-1">Pilih node sesuai kebutuhan Anda.</p>
+        <h2 class="text-xl font-extrabold u-text tracking-tight"><?= lang('market_catalog_title') ?></h2>
+        <p class="text-sm u-text-2 mt-1"><?= lang('market_catalog_sub') ?></p>
     </div>
 
     <!-- ═══ Flashdata Alerts ═══ -->
@@ -44,14 +44,13 @@
                     <path d="M78 44a9 9 0 1 0 9.2 15.5L103 76l-7 7-13.8-16.5A9 9 0 0 0 78 44z"/>
                 </g>
             </svg>
-            <h3 class="text-base font-bold u-text mt-4">Belum Ada Paket Tersedia</h3>
+            <h3 class="text-base font-bold u-text mt-4"><?= lang('market_empty_title') ?></h3>
             <p class="text-xs u-text-2 leading-relaxed mt-2 max-w-[260px] mx-auto">
-                Saat ini seluruh unit komputasi sedang penuh atau dalam pemeliharaan.
-                Silakan cek kembali secara berkala.
+                <?= lang('market_empty_body') ?>
             </p>
             <a href="<?= base_url('marketplace') ?>"
                class="u-btn-ghost inline-flex items-center gap-2 text-[11px] font-semibold px-4 py-2 rounded-lg mt-5 transition-all active:scale-95">
-                <i class="fas fa-rotate-right text-[10px]"></i> Muat Ulang
+                <i class="fas fa-rotate-right text-[10px]"></i> <?= lang('market_reload') ?>
             </a>
         </div>
 
@@ -73,19 +72,19 @@
         <span class="mt-1.5 inline-flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full w-fit <?= $product['can_rent'] ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-slate-500/10 u-muted' ?>">
             <i class="fas fa-gauge-high text-[9px]"></i>
             <?php if (!empty($product['is_unlimited'])): ?>
-                Batas Sewa: Tanpa Batas
+                <?= lang('market_rent_limit_unlimited') ?>
             <?php else: ?>
-                Batas Sewa: Maks. <?= (int) $product['quota_max'] ?> (Tersisa: <?= (int) $product['quota_remaining'] ?>)
+                <?= sprintf(lang('market_rent_limit_max'), (int) $product['quota_max'], (int) $product['quota_remaining']) ?>
             <?php endif; ?>
         </span>
 
         <div class="flex items-center gap-4 mt-3">
             <div>
-                <span class="text-[10px] u-muted font-semibold uppercase tracking-wider">Harga Sewa</span>
+                <span class="text-[10px] u-muted font-semibold uppercase tracking-wider"><?= lang('common_rent_price_label') ?></span>
                 <p class="text-lg font-extrabold u-text">Rp <?= number_format((int) $product['price'], 0, ',', '.') ?></p>
             </div>
             <div class="ml-auto text-right">
-                <span class="text-[10px] u-muted font-semibold uppercase tracking-wider">ROI Harian</span>
+                <span class="text-[10px] u-muted font-semibold uppercase tracking-wider"><?= lang('common_daily_roi_label') ?></span>
                 <p class="text-sm font-bold text-emerald-500">Rp <?= number_format((int) $product['daily_rate'], 0, ',', '.') ?></p>
             </div>
         </div>
@@ -96,13 +95,13 @@
                     data-id="<?= (int) $product['id'] ?>"
                     data-name="<?= htmlspecialchars($product['name']) ?>"
                     data-price="<?= (int) $product['price'] ?>">
-                Sewa Sekarang
+                <?= lang('market_rent_now_btn') ?>
             </button>
         <?php else: ?>
             <!-- State B — Quota reached: kuota lifetime habis -->
             <button type="button" disabled
                     class="w-full h-12 u-btn-ghost rounded-xl font-bold mt-3 cursor-not-allowed opacity-80 inline-flex items-center justify-center gap-2">
-                <i class="fas fa-ban"></i> Batas Maksimal Tercapai
+                <i class="fas fa-ban"></i> <?= lang('market_quota_reached') ?>
             </button>
         <?php endif; ?>
     </div>
@@ -122,20 +121,20 @@
         <!-- Handle -->
         <div class="w-10 h-1 bg-slate-300 dark:bg-slate-600 rounded-full mx-auto mb-5"></div>
 
-        <h3 class="text-lg font-bold u-text mb-4" id="modalTitle">Detail Transaksi</h3>
+        <h3 class="text-lg font-bold u-text mb-4" id="modalTitle"><?= lang('market_modal_title') ?></h3>
 
         <div class="space-y-3 mb-6">
             <div class="flex justify-between items-center">
-                <span class="text-sm u-text-2">Produk</span>
+                <span class="text-sm u-text-2"><?= lang('market_product') ?></span>
                 <span class="text-sm font-semibold u-text" id="modalProductName">-</span>
             </div>
             <div class="flex justify-between items-center">
-                <span class="text-sm u-text-2">Harga Sewa</span>
+                <span class="text-sm u-text-2"><?= lang('common_rent_price_label') ?></span>
                 <span class="text-sm font-bold u-text" id="modalProductPrice">-</span>
             </div>
             <div class="h-px" style="background-color: var(--u-divide);"></div>
             <div class="flex justify-between items-center">
-                <span class="text-sm u-text-2">Saldo Anda</span>
+                <span class="text-sm u-text-2"><?= lang('market_your_balance') ?></span>
                 <span class="text-sm font-semibold" id="modalBalance">-</span>
             </div>
         </div>
@@ -161,6 +160,11 @@
     var userBalance = <?= (int) $user_balance ?>;
     var baseUrl     = '<?= base_url() ?>';
 
+    var STR = {
+        confirmPay: <?= json_encode(lang('market_confirm_pay'), JSON_UNESCAPED_UNICODE) ?>,
+        insufficient: <?= json_encode(lang('market_insufficient'), JSON_UNESCAPED_UNICODE) ?>
+    };
+
     var IDR = new Intl.NumberFormat('id-ID', {
         style: 'currency',
         currency: 'IDR',
@@ -179,13 +183,13 @@
             balanceEl.className = 'text-sm font-semibold text-emerald-600 dark:text-emerald-400';
             actionBtn.innerHTML =
                 '<button type="submit" class="w-full h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold shadow-lg transition-all flex items-center justify-center gap-2">' +
-                    '<i class="fas fa-lock"></i> Konfirmasi & Bayar' +
+                    '<i class="fas fa-lock"></i> ' + STR.confirmPay +
                 '</button>';
         } else {
             balanceEl.className = 'text-sm font-semibold text-rose-600 dark:text-rose-400';
             actionBtn.innerHTML =
                 '<a href="' + baseUrl + 'wallet" class="block w-full h-14 bg-rose-500 hover:bg-rose-600 text-white rounded-2xl font-bold shadow-lg transition-all flex items-center justify-center gap-2">' +
-                    '<i class="fas fa-wallet"></i> Saldo Tidak Mencukupi — Isi Saldo' +
+                    '<i class="fas fa-wallet"></i> ' + STR.insufficient +
                 '</a>';
         }
 

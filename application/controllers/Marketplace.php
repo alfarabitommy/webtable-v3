@@ -20,7 +20,7 @@ class Marketplace extends MY_Controller {
         $user_balance = $user_id ? $this->Wallet_model->get_balance($user_id) : 0;
 
         $data = [
-            'page_title'  => 'Marketplace',
+            'page_title'  => lang('market_page_title'),
             'products'    => $products,
             'user_balance'=> $user_balance,
         ];

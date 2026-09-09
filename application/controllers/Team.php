@@ -61,7 +61,7 @@ class Team extends MY_Controller {
         $claim_data = $this->User_model->get_claim_data($user_id);
 
         $data = [
-            'page_title'      => 'Tim & Afiliasi',
+            'page_title'      => lang('team_page_title'),
             'user'            => $user,
             'members'         => $members,
             'total_bc'        => $total_bc,

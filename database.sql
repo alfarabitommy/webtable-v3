@@ -120,6 +120,9 @@ CREATE TABLE IF NOT EXISTS `withdrawals` (
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_wd_number` (`wd_number`),
+  -- Plan 94 (F2): leading-status untuk COUNT antrean pending + listing
+  -- dashboard ORDER BY created_at. Live DB: ALTER one-time (lihat bawah).
+  INDEX `idx_status_created` (`status`, `created_at`),
   CONSTRAINT `fk_withdrawals_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `fk_withdrawals_bank` FOREIGN KEY (`bank_account_id`) REFERENCES `bank_accounts` (`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -176,6 +179,9 @@ CREATE TABLE IF NOT EXISTS `deposits` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_invoice_number` (`invoice_number`),
   INDEX `idx_user_status` (`user_id`, `status`),
+  -- Plan 94 (F2): leading-status untuk COUNT antrean pending + listing
+  -- dashboard ORDER BY created_at. Live DB: ALTER one-time (lihat bawah).
+  INDEX `idx_status_created` (`status`, `created_at`),
   CONSTRAINT `fk_deposits_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -261,7 +267,7 @@ CREATE TABLE IF NOT EXISTS `promoter_claims` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------
--- Table `system_settings` (key-value; circuit breaker Phase 9A)
+-- Table `system_settings` (key-value; circuit breaker Phase 9A + maintenance mode plan/95)
 -- -----------------------------------------------------
 CREATE TABLE IF NOT EXISTS `system_settings` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -275,6 +281,8 @@ CREATE TABLE IF NOT EXISTS `system_settings` (
 -- Seed is idempotent: never fails on duplicate key, never overwrites a live value.
 INSERT IGNORE INTO `system_settings` (`key_name`, `key_value`) VALUES
 ('is_registration_open', '1'),
+-- plan/95: Maintenance Mode member site (0=normal, 1=locked down; admin/CLI exempt).
+('is_maintenance_mode', '0'),
 -- M1 (plan/56): dynamic withdrawal/deposit financial config (PRD §121-125 defaults).
 ('wd_operational_days', '1,2,3,4,5,6'),
 ('wd_open_time', '07:00'),
@@ -366,3 +374,21 @@ ON DUPLICATE KEY UPDATE
   `is_active` = VALUES(`is_active`);
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+-- -----------------------------------------------------
+-- Plan 94 (F2) — MIGRASI LIVE (one-time; jalankan manual di DB aktif):
+-- `idx_status_created` sudah masuk CREATE TABLE di atas (instalasi baru
+-- otomatis). Untuk DB yang SUDAH ADA, jalankan SEKALI:
+--
+--   MySQL 8 (tanpa IF NOT EXISTS):
+--   ALTER TABLE `deposits`    ADD INDEX `idx_status_created` (`status`, `created_at`);
+--   ALTER TABLE `withdrawals` ADD INDEX `idx_status_created` (`status`, `created_at`);
+--
+--   MariaDB (mendukung IF NOT EXISTS — idempotent-safe):
+--   CREATE INDEX IF NOT EXISTS `idx_status_created` ON `deposits`    (`status`, `created_at`);
+--   CREATE INDEX IF NOT EXISTS `idx_status_created` ON `withdrawals` (`status`, `created_at`);
+--
+-- Tujuan: COUNT antrean pending (Admin_model::get_alert_counts) memakai
+-- leading-status → index-scan sub-ms; listing Command Center yang memakai
+-- ORDER BY created_at ASC juga terlayani index yang sama.
+-- -----------------------------------------------------

@@ -62,3 +62,15 @@ $route['promoter/claim'] = 'team/promoter_claim';
 $route['admin/promoter-claims'] = 'admin/promoter_claims';
 $route['admin/promoter-claims/approve/(:num)'] = 'admin/approve_promoter_claim/$1';
 $route['admin/promoter-claims/reject/(:num)'] = 'admin/reject_promoter_claim/$1';
+
+// Plan 94 (F1): switcher bahasa member — GET /lang/switch/(en|id).
+// Lang extends CI_Controller (pra-login boleh); validasi kode di controller.
+$route['lang/switch/(:any)'] = 'lang/switch/$1';
+
+// Plan 94 (F2): polling ringan alert center admin (COUNT pending per queue).
+// Route eksplisit karena segment tambahan (method URL bukan default).
+$route['admin/alerts/poll'] = 'admin/alerts_poll';
+
+// plan/95: maintenance mode toggle (POST-only; dash di URL butuh route
+// eksplisit karena translate_uri_dashes=FALSE).
+$route['admin/toggle-maintenance'] = 'admin/toggle_maintenance';
