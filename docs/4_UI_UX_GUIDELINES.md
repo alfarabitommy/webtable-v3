@@ -214,33 +214,79 @@ Secondary input forms (Top-Up amount selection, custom amount input) MUST be hid
 </div>
 ```
 
+### F. Profile — "App Preferences" Card (plan/100 — canonical member settings surface)
+
+`application/views/profile/index.php` MUST render the **App Preferences** card (Indonesian label: *Pengaturan Tampilan & Bahasa*). This card is the **single canonical location** for the member's **Language** and **Theme** controls — those controls were deliberately removed from the member header (see §6.A). Placed between the REFERRAL CENTER card and THE HUB menu card.
+
+**Container:**
+```html
+<div class="u-card rounded-2xl shadow-sm overflow-hidden">
+    <h3 class="text-[10px] font-bold u-muted uppercase tracking-widest px-5 pt-4 pb-2">
+        <?= lang('profile_pref_title') ?>   <!-- "App Preferences" / "Pengaturan Tampilan & Bahasa" -->
+    </h3>
+    ...
+</div>
+```
+
+**Row 1 — Language (`profile_lang_label`):** `fa-globe` indigo tile (`w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400`) + a segmented capsule `u-capsule rounded-full p-0.5` with two `<a>` anchors to `site_url('lang/switch/en')` / `site_url('lang/switch/id')`.
+* Each segment: inline-SVG flag (UK / ID — **no emoji, no network asset**) + `EN` / `ID` label, `h-8 px-2.5 rounded-full text-[11px] font-extrabold`.
+* **Active segment** is rendered **server-side** from `$site_lang_code`: `bg-indigo-600 text-white shadow-sm` — inactive: `opacity-60 hover:opacity-100`.
+* Wrapper carries `role="group"` + `aria-label="<?= lang('lang_switch_label') ?>"`; each anchor carries `title`/`aria-label` from `lang_english`/`lang_indonesian`.
+
+**Row 2 — Theme (`profile_theme_label` + `profile_theme_hint`):** `fa-palette` cyan tile + label column, and a segmented control `#pref-theme-seg` (`role="group"`) holding two `button.pref-theme-opt` with `data-theme="dark"` (`fa-moon`, `profile_theme_dark`) and `data-theme="light"` (`fa-sun`, `profile_theme_light`).
+* Active styling is applied by JS as **mutually exclusive** classes (never rely on stylesheet order): `bg-indigo-600 text-white shadow-sm` vs `opacity-60 hover:opacity-100`; `aria-pressed` tracks the state.
+* The guard IIFE (`window.__profilePrefInit`) must: mirror `.dark` on `<html>`, persist `localStorage['user_theme']` (`'dark'`/`'light'` — **not** `'theme'`), dispatch `CustomEvent('user-theme-change', { detail: { dark } })`, re-render on that same event, and run an immediate initial `render()`.
+* **`localStorage['user_theme']` is the cross-page theme contract** — it must stay byte-compatible with the anti-FOUC head script in `templates/header.php`. Never rename the key.
+* Do **not** reintroduce a theme row inside THE HUB menu (`#btn-theme-hub` was deleted in plan/100; hub rows are 1–6: Dompet, Tarik Dana, Edit Profil, Keamanan, Bantuan, Keluar).
+
+> **Rule:** member Language and Theme controls live in this Profile card only. Auth pages keep their own top-right cluster (`templates/lang_switcher.php` + `templates/auth_theme_toggle.php`) and admin keeps its own toggle — those are separate surfaces, not duplicates of this card.
+
 ---
 
 ## 6. Header Elements (v5.0 New)
 
-### A. Balance Capsule (Global User Header)
-**Container:** `<a href="/wallet" class="group flex items-center bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-full transition-all duration-200 active:scale-95 border border-slate-200 shadow-sm hover:shadow">`
-* **Icon:** `<i class="fas fa-wallet text-indigo-500 mr-2 text-xs">`
-* **Balance:** `<span class="text-xs font-mono font-bold tracking-tighter">Rp {global_balance}</span>`
+### A. Header Composition Rule (plan/100 — STRICT)
+
+The member header (`application/views/templates/header.php`) houses **exactly three groups, left to right**, and nothing else:
+
+| # | Group | Markup / anchor |
+|---|-------|-----------------|
+| 1 | **Brand** — logo tile + wordmark | `<img>` `h-7 w-7 rounded-lg shadow-sm mr-3` (alt `Logo`) + `<h1 class="text-lg font-extrabold u-text tracking-tight">Synapse</h1>` |
+| 2 | **Balance Pill** — wallet link | `<a href="/wallet">` — see §6.B |
+| 3 | **Notification Bell** — badge + dropdown | `<div class="relative" id="notif-wrapper">` — see §6.C |
+
+* **Wrapper:** `h-14 u-topbar flex items-center justify-between px-4 sticky top-0 z-40`.
+* **Removed from the header (plan/100):** the `templates/lang_switcher.php` include and the `#user-theme-toggle` Sun/Moon button. Do **not** re-add either — the header's right cluster must stay `pill + gap-2.5 + bell`.
+* **Canonical location for member Language & Theme settings is the Profile page** — the "App Preferences" card in `application/views/profile/index.php` (§5.F). That card is the single source of truth for member language/theme controls.
+* **Exception — auth pages only:** `views/auth/{login,register,change_password}.php` keep their own top-right cluster (`templates/lang_switcher.php` + `templates/auth_theme_toggle.php`) because they render without the member shell. Admin has its own separate theme toggle (`admin/templates/topbar.php` + `footer.php`). Neither is affected by this rule.
+* **Anti-pattern:** adding a fourth header group (extra icon, search field, lang switcher, theme toggle, avatar) reintroduces the collision that plan/100 removed. At 360 px the budget is left group ≈126 px + right cluster ≈200 px.
+
+### B. Balance Capsule (Global User Header)
+**Container:** `<a href="/wallet" class="group flex items-center bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-full transition-all duration-200 active:scale-95 border border-slate-200 shadow-sm hover:shadow min-w-0 max-w-[46vw]">`
+* **Icon:** `<i class="fas fa-wallet text-indigo-500 mr-2 text-xs flex-shrink-0">`
+* **Balance:** `<span class="text-xs font-mono font-bold tracking-tighter truncate">Rp {global_balance}</span>`
+* **Truncation guard (plan/100 — mandatory):** the anchor carries `min-w-0 max-w-[46vw]`, the icon carries `flex-shrink-0`, the amount span carries `truncate`, and the anchor carries `title="Rp {full amount}"`. At 360 px the pill can occupy ≤ ~166 px and can never collide with the bell; the full amount stays readable via the hover/long-press tooltip. Removing any of these four pieces re-opens the overflow bug.
 * **Position:** Right side of sticky header (`z-40`), between logo and notification bell.
 * **Data Source:** `$global_balance` — injected by `MY_Controller.php` via `$this->load->vars()` on every request. Always calculated from `wallet_ledger` SUM at page load time.
 
-### B. Notification Dropdown (v5.0 New)
+### C. Notification Dropdown (v5.0 New)
 AJAX-driven notification system rendered in the sticky header bar. MUST follow this specification.
 
-**Bell Icon Button:**
+**Bell Icon Button (live markup — plan/100):**
 ```html
-<button id="notif-bell" class="relative p-2 rounded-full hover:bg-slate-100 transition">
-  <i class="fas fa-bell text-slate-500 text-sm"></i>
+<button onclick="toggleNotifDropdown()"
+        class="u-text-2 relative hover:text-slate-700 dark:hover:text-slate-200 transition-colors active:scale-95">
+  <i class="fas fa-bell text-lg"></i>
   <span id="notif-badge"
-    class="absolute -top-0.5 -right-0.5 flex items-center justify-center w-5 h-5
-           text-[10px] font-bold text-white bg-red-500 rounded-full hidden">
+    class="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-rose-500 text-white text-[9px]
+           font-bold rounded-full flex items-center justify-center ring-2 ring-white dark:ring-slate-900 px-1">
   </span>
 </button>
 ```
+* Bell button carries the i18n `title="<?= lang('notif_title') ?>"`; badge uses rose-500 (not red-500) with a `ring-2` halo in the header colour, and is a `min-w` pill so 3-digit counts keep their shape.
 * Badge hidden (`hidden` class) when unread count = 0.
 * Badge text: `N` if ≤ 99, `"99+"` if > 99.
-* Badge updated via AJAX `GET /notifications/unread-count` on page load + every 60 seconds.
+* Badge value is **server-rendered** from `$global_unread_count` on every page load (no client polling) and is cleared client-side the moment the dropdown auto-marks-all-read (see State Management below).
 
 **Dropdown Popover (on bell click):**
 ```html
@@ -248,6 +294,7 @@ AJAX-driven notification system rendered in the sticky header bar. MUST follow t
      class="hidden absolute right-0 top-full mt-2 w-80 max-h-96 bg-slate-800 rounded-xl
             shadow-2xl overflow-hidden z-[60]">
 ```
+> **Live implementation is theme-token based (authoritative):** the shipped markup uses `u-card` (not the literal `bg-slate-800` above) so the dropdown follows the active light/dark theme, renders each item as a typed **icon-circle row** (`info`/`success`/`warning`/`alert` → blue/green/amber/rose tint) with an i18n'd relative timestamp (`common_minutes_ago` / `common_hours_ago` / `common_days_ago`), and paginates via `#notif-list` (`max-h-96 overflow-y-auto u-divide`). `z-[60]` (above bottom nav `z-50`) and the badge/AJAX contract are the invariants to preserve; read `application/views/templates/header.php` as the source of truth for spacing and colour tokens rather than the legacy literal classes in this snippet.
 * **Container background:** `bg-slate-800` (dark theme, consistent with Bloomberg Terminal).
 * **Dropdown header:** Flex row with "Notifikasi" (`text-sm font-bold text-white`) and "Tandai semua dibaca" link (`text-xs text-blue-400 hover:text-blue-300`).
 * **Notification list container:** `max-h-80 overflow-y-auto divide-y divide-slate-700/50`.
@@ -261,13 +308,13 @@ AJAX-driven notification system rendered in the sticky header bar. MUST follow t
 * **Empty state:** `text-center py-8 text-slate-500 text-xs` — "Tidak ada notifikasi."
 * **Footer (if notifications exist):** "Lihat semua" link or scroll-to-bottom indicator.
 
-**AJAX State Management (Vanilla JS):**
-* On page load + every 60s: `fetch('/notifications/unread-count')` → update `#notif-badge`.
-* On bell click: `fetch('/notifications/list')` → render dropdown list HTML.
-* On individual notification click: `fetch('/notifications/mark-read/{id}', { method: 'POST' })` → remove unread styling, decrement badge count.
-* On "Tandai semua dibaca": `fetch('/notifications/mark-all-read', { method: 'POST' })` → clear all unread states, hide badge.
-* **No jQuery. No page reloads.** Pure Vanilla JS `fetch()` API.
-* Dropdown toggle: `classList.toggle('hidden')` on `#notif-dropdown`. Click outside → close.
+**State Management (Vanilla JS — SSR-first, live contract):**
+* **No polling and no client-side list fetch.** The list is **server-rendered** from `$global_notifications` (injected by `MY_Controller`) and the badge from `$global_unread_count` — the dropdown HTML ships with the page.
+* On bell click: toggle `hidden` on `#notif-dropdown`; if `notifUnreadCount > 0`, fire `csrfFetch('<?= base_url('notification/mark_all_read') ?>', { method: 'POST' })` → on `data.success`, hide `#notif-badge` and `#notif-mark-read-btn` and zero the counter. Click outside `#notif-wrapper` closes the dropdown.
+* On "Tandai semua dibaca" (`markAllRead()`): same POST to `notification/mark_all_read` → same badge/button teardown.
+* **No jQuery. No page reloads.** Pure Vanilla JS + the project's `csrfFetch()` wrapper (POST endpoints are CSRF-protected — never use bare `fetch()` for these).
+* **Footer:** "Lihat semua" anchor → `base_url('notification')` (history page, `$route['notification'] = 'notification/index'`).
+* The legacy `/notifications/unread-count` · `/notifications/list` · `/notifications/mark-read/{id}` · `/notifications/mark-all-read` endpoint names are **retired** — do not reference or reintroduce them; any new notification transport is bound by the M9/P7 envelope rule (`api_success()` / `api_error()`).
 
 ---
 
