@@ -666,11 +666,10 @@ class Rental_model extends CI_Model {
                 return false; // pemanggil wajib rollback (zero rebate rows)
             }
 
-            $this->Notification_model->insert(
+            $this->Notification_model->insert_keyed(
                 $uid,
-                'Komisi Rebate Cair',
-                'Komisi Level ' . $tier . ' sebesar Rp ' . number_format($amount, 0, ',', '.')
-                    . ' dari pembelian sewa ' . $buyer_label . ' telah masuk ke saldo Anda.',
+                'notif_rebate',
+                [(int) $tier, number_format($amount, 0, ',', '.')],
                 'commission'
             );
         }
@@ -735,10 +734,10 @@ class Rental_model extends CI_Model {
                 );
                 if ($this->db->affected_rows() === 1) {
                     $flipped++;
-                    $this->Notification_model->insert(
+                    $this->Notification_model->insert_keyed(
                         (int) $user_id,
-                        'Kontrak Sewa Selesai',
-                        'Masa sewa kontrak #' . (int) $row->id . ' telah berakhir dan kontrak ditutup otomatis.',
+                        'notif_rental_expired',
+                        [(int) $row->id],
                         'info'
                     );
                 }
@@ -788,10 +787,10 @@ class Rental_model extends CI_Model {
             );
             if ($this->db->affected_rows() === 1) {
                 $flipped++;
-                $this->Notification_model->insert(
+                $this->Notification_model->insert_keyed(
                     (int) $row->user_id,
-                    'Kontrak Sewa Selesai',
-                    'Masa sewa kontrak #' . (int) $row->id . ' telah berakhir dan kontrak ditutup otomatis.',
+                    'notif_rental_expired',
+                    [(int) $row->id],
                     'info'
                 );
             }

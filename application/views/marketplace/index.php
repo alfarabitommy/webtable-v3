@@ -62,9 +62,37 @@
         // Prasyarat & state "locked" DICOMMISSIONED (gating 100% via admin
         // is_active); produk non-aktif tidak pernah sampai ke view ini.
         $is_exhausted = !empty($product['is_quota_exhausted']);
+
+        // plan/104 — gambar produk nyata. Resolusi tunggal via helper:
+        // null = kolom NULL/kosong ATAU berkasnya tidak ada di disk
+        // (degradasi graceful → fallback banner, bukan broken image).
+        // `?? null` menjaga view tetap aman bila kode ter-deploy sebelum DDL.
+        $img_url = product_image_url($product['image'] ?? null);
     ?>
     <div class="u-card-gpu rounded-2xl p-4 shadow-sm flex flex-col <?= $is_exhausted ? 'opacity-75' : '' ?>">
-        <img src="https://placehold.co/400x150/f8fafc/94a3b8?text=<?= urlencode($product['name']) ?>" class="rounded-xl object-cover h-28 w-full mb-3" alt="<?= htmlspecialchars($product['name']) ?>">
+        <?php if ($img_url !== null): ?>
+            <img src="<?= $img_url ?>" alt="<?= htmlspecialchars($product['name']) ?>"
+                 loading="lazy" decoding="async"
+                 class="w-full aspect-video object-cover rounded-xl mb-3 bg-slate-900">
+        <?php else: ?>
+            <!-- Fallback 16:9 (plan/104): gradien gelap di KEDUA tema, ikonografi
+                 chip GPU, TANPA teks (kemurnian dwibahasa plan/103) dan TANPA
+                 <defs>/id (8 kartu dirender sekaligus → nol ID duplikat). -->
+            <div class="w-full aspect-video rounded-xl mb-3 overflow-hidden
+                        bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900
+                        flex items-center justify-center"
+                 role="img" aria-label="<?= htmlspecialchars($product['name']) ?>">
+                <svg viewBox="0 0 96 96" fill="none" class="w-16 h-16" aria-hidden="true">
+                    <circle cx="48" cy="48" r="24" fill="#6366f1" opacity="0.12"/>
+                    <g stroke="#475569" stroke-width="2.5" stroke-linecap="round">
+                        <path d="M26 40h-8M26 48h-8M26 56h-8M70 40h8M70 48h8M70 56h8"/>
+                        <path d="M40 26v-8M48 26v-8M56 26v-8M40 70v8M48 70v8M56 70v8"/>
+                    </g>
+                    <rect x="26" y="26" width="44" height="44" rx="7" stroke="#818cf8" stroke-width="2.5" opacity="0.85"/>
+                    <rect x="40" y="40" width="16" height="16" rx="3" fill="#22d3ee" opacity="0.5"/>
+                </svg>
+            </div>
+        <?php endif; ?>
 
         <h3 class="text-base font-bold u-text"><?= htmlspecialchars($product['name']) ?></h3>
 

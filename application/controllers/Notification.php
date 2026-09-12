@@ -84,7 +84,7 @@ class Notification extends MY_Controller {
     public function mark_all_read() {
         $user_id = $this->session->userdata('user_id');
         if (!$user_id) {
-            api_error('Sesi habis. Silakan login ulang.', 401, [], 'unauthenticated', ['error' => 'Unauthorized']);
+            api_error(lang('common_session_expired'), 401, [], 'unauthenticated', ['error' => 'Unauthorized']);
         }
 
         $this->Notification_model->mark_read($user_id);

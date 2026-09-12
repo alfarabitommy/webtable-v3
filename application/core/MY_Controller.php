@@ -49,7 +49,7 @@ class MY_Controller extends CI_Controller {
 
             if ($row && $is_banned === 1) {
                 $this->session->unset_userdata('user_id'); // keep flashdata alive (sess_destroy would kill it)
-                $this->session->set_flashdata('error', 'Akun Anda telah dinonaktifkan. Silakan hubungi admin.');
+                $this->session->set_flashdata('error', lang('auth_err_account_inactive'));
                 redirect('login');
             }
 
@@ -67,6 +67,16 @@ class MY_Controller extends CI_Controller {
             $this->Rental_model->expire_user_rentals($this->session->userdata('user_id'));
 
             $this->load->model('Wallet_model');
+
+            // plan/102: lazy expiry deposit manual QRIS — pending yang lewat
+            // jendela bayar ditutup (status expired + reservasi kode unik
+            // dilepas) SEBELUM halaman wallet/menu lain membaca deposit aktif.
+            // Satu UPDATE ber-index (idx_status_expires), autocommit tanpa TX,
+            // idempotent. `waiting_approval` SENGAJA tidak disentuh (D1: uang
+            // sudah diklaim ditransfer → menunggu verifikasi admin, bukan
+            // kedaluwarsa). Urutan statement mengikuti pola M3 di atasnya.
+            $this->Wallet_model->expire_user_deposits($this->session->userdata('user_id'));
+
             $balance = $this->Wallet_model->get_balance($this->session->userdata('user_id'));
             $this->load->vars(['global_balance' => $balance]);
 

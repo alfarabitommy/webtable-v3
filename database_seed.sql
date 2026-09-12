@@ -44,11 +44,17 @@ INSERT INTO `admins` (`id`, `username`, `password`, `created_at`) VALUES
 ON DUPLICATE KEY UPDATE `username` = VALUES(`username`), `password` = VALUES(`password`);
 
 -- ============ SECTION: gpu_products ============
-INSERT INTO `gpu_products` (`id`, `name`, `type`, `price`, `daily_rate`, `duration_days`, `is_refundable`, `is_active`, `created_at`) VALUES
-(1, 'RTX 4090 Node (Entry)',          'short_term', 1000000.00,  40000.00,   30,  0, 1, DATE_SUB(NOW(), INTERVAL 90 DAY)),
-(2, 'RTX 4090 Dual Cluster (Mid)',    'long_term',  5000000.00,  185000.00,  90,  1, 1, DATE_SUB(NOW(), INTERVAL 90 DAY)),
-(3, 'A100 Tensor Cloud (High)',       'long_term',  15000000.00, 520000.00,  180, 1, 1, DATE_SUB(NOW(), INTERVAL 90 DAY)),
-(4, 'H100 Sovereign Node (Enterprise)','long_term',  50000000.00, 1650000.00, 365, 1, 1, DATE_SUB(NOW(), INTERVAL 90 DAY))
+-- plan/104: kolom `image` (BASENAME berkas di uploads/products/) ikut
+-- disertakan eksplisit dengan nilai NULL — lineup legacy di section ini
+-- tidak memiliki aset gambar. Backfill 8 paket kanonik (RTX 3060 Starter
+-- s.d. H200 Sovereign) dilakukan oleh migrasi plan/104 yang KEYED BY
+-- `name`, bukan oleh seed ini:
+--   php scripts/migrate_104_gpu_product_images.php --apply
+INSERT INTO `gpu_products` (`id`, `name`, `image`, `type`, `price`, `daily_rate`, `duration_days`, `is_refundable`, `is_active`, `created_at`) VALUES
+(1, 'RTX 4090 Node (Entry)',           NULL, 'short_term', 1000000.00,  40000.00,   30,  0, 1, DATE_SUB(NOW(), INTERVAL 90 DAY)),
+(2, 'RTX 4090 Dual Cluster (Mid)',     NULL, 'long_term',  5000000.00,  185000.00,  90,  1, 1, DATE_SUB(NOW(), INTERVAL 90 DAY)),
+(3, 'A100 Tensor Cloud (High)',        NULL, 'long_term',  15000000.00, 520000.00,  180, 1, 1, DATE_SUB(NOW(), INTERVAL 90 DAY)),
+(4, 'H100 Sovereign Node (Enterprise)',NULL, 'long_term',  50000000.00, 1650000.00, 365, 1, 1, DATE_SUB(NOW(), INTERVAL 90 DAY))
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`), `type` = VALUES(`type`), `price` = VALUES(`price`),
                          `daily_rate` = VALUES(`daily_rate`), `duration_days` = VALUES(`duration_days`),
                          `is_refundable` = VALUES(`is_refundable`), `is_active` = VALUES(`is_active`);
@@ -274,6 +280,13 @@ INSERT IGNORE INTO `system_settings` (`key_name`, `key_value`) VALUES
 ('deposit_fee_value', '0'),
 -- M7 (plan/70): contact/support keys migrated from decommissioned `site_settings`.
 ('wa_number', '628000000000'),
-('support_email', 'support@synapse.id');
+('support_email', 'support@synapse.id'),
+-- plan/102: gateway deposit QRIS manual — identitas pembayaran + kebijakan deposit.
+('qris_image', ''),
+('qris_merchant_name', 'Synapse'),
+('qris_payment_instructions', 'Scan QRIS di atas menggunakan aplikasi bank/e-wallet Anda, lalu transfer sejumlah TEPAT nominal yang tertera (termasuk 3 digit kode unik). Deposit diverifikasi manual oleh admin pada jam kerja.'),
+('deposit_expiry_minutes', '60'),
+('deposit_min_amount', '10000'),
+('deposit_max_amount', '50000000');
 
 -- ============ SEED COMPLETE ============

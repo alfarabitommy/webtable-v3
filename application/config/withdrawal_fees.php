@@ -52,4 +52,12 @@ return [
     'deposit_fee_enabled' => 0,
     'deposit_fee_type'    => 'flat',
     'deposit_fee_value'   => 0,
+
+    // plan/102 — Kebijakan deposit QRIS manual (fallback bila baris
+    // system_settings hilang/rusak; dibaca Wallet_model::get_deposit_policy()):
+    //   - jendela bayar invoice (menit) sebelum status → expired & kode dilepas,
+    //   - batas nominal POKOK deposit (belum termasuk kode unik & fee).
+    'deposit_expiry_minutes' => 60,
+    'deposit_min_amount'     => 10000,
+    'deposit_max_amount'     => 50000000,
 ];

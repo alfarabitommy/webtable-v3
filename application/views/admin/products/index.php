@@ -56,6 +56,7 @@ $IDR = static function ($v) { return 'Rp ' . number_format((int) $v, 0, ',', '.'
             <thead>
                 <tr class="border-b border-[var(--t-border)] bg-[var(--t-surface-2)]">
                     <th class="text-left px-4 py-3 t-th">ID</th>
+                    <th class="text-left px-4 py-3 t-th">Gambar</th>
                     <th class="text-left px-4 py-3 t-th">Nama &amp; Type</th>
                     <th class="text-left px-4 py-3 t-th">Harga Sewa</th>
                     <th class="text-left px-4 py-3 t-th">ROI Harian</th>
@@ -68,7 +69,7 @@ $IDR = static function ($v) { return 'Rp ' . number_format((int) $v, 0, ',', '.'
             <tbody class="divide-y divide-[var(--t-border)]">
                 <?php if (empty($products)): ?>
                     <tr>
-                        <td colspan="8" class="px-4 py-12 text-center text-[var(--t-muted)]">
+                        <td colspan="9" class="px-4 py-12 text-center text-[var(--t-muted)]">
                             <i class="fas fa-microchip text-3xl mb-3 block opacity-60"></i>
                             Belum ada paket GPU. Tambahkan paket pertama.
                             <div class="mt-4">
@@ -84,9 +85,22 @@ $IDR = static function ($v) { return 'Rp ' . number_format((int) $v, 0, ',', '.'
                     <?php
                         $is_on = ((int) $p->is_active === 1);
                         $is_limited = ((int) $p->max_per_user > 0);
+                        // plan/104: resolusi tunggal via helper — null = belum ada
+                        // gambar ATAU berkasnya hilang di disk (fallback mini).
+                        $thumb = product_image_url($p->image ?? null);
                     ?>
                     <tr class="t-row-hover transition-colors <?= $is_on ? '' : 'opacity-60' ?>">
                         <td class="px-4 py-3 font-mono text-xs t-text-2"><?= (int) $p->id ?></td>
+                        <td class="px-4 py-3">
+                            <div class="w-20 aspect-video rounded-lg overflow-hidden bg-slate-900 border border-[var(--t-border)] flex items-center justify-center">
+                                <?php if ($thumb !== null): ?>
+                                    <img src="<?= $thumb ?>" alt="<?= htmlspecialchars($p->name) ?>"
+                                         loading="lazy" decoding="async" class="w-full h-full object-cover">
+                                <?php else: ?>
+                                    <i class="fas fa-microchip text-[var(--t-muted)]" title="Belum ada gambar"></i>
+                                <?php endif; ?>
+                            </div>
+                        </td>
                         <td class="px-4 py-3">
                             <span class="font-semibold text-[var(--t-text)]"><?= htmlspecialchars($p->name) ?></span>
                             <span class="ml-2 inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide
@@ -125,6 +139,10 @@ $IDR = static function ($v) { return 'Rp ' . number_format((int) $v, 0, ',', '.'
                                         'is_refundable'        => (int) $p->is_refundable,
                                         'max_per_user'         => (int) $p->max_per_user,
                                         'is_active'            => (int) $p->is_active,
+                                        // plan/104: nama berkas + URL siap-render untuk
+                                        // preview modal (URL '' bila fallback).
+                                        'image'                => (string) ($p->image ?? ''),
+                                        'image_url'            => (string) (product_image_url($p->image ?? null) ?? ''),
                                     ], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8') ?>'
                                         class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-medium hover:bg-indigo-500/20 transition-colors">
                                     <i class="fas fa-pen text-[10px]"></i> Edit
@@ -174,8 +192,14 @@ $IDR = static function ($v) { return 'Rp ' . number_format((int) $v, 0, ',', '.'
         // JS modal hanya mengganti action/title/value — token TIDAK pernah
         // dihapus/di-overwrite (form.reset() hanya memulihkan nilai awal token,
         // yang tetap valid: csrf_regenerate = FALSE per session).
+        //
+        // plan/104: form_open_MULTIPART — wajib untuk unggah gambar produk.
+        // `enctype` tetap utuh walau JS mengganti form.action ke endpoint update.
+        // Form ini SENGAJA tidak memakai data-guard-submit: resetForm() memanggil
+        // form.reset() yang tidak membersihkan flag data-submitting, sehingga
+        // tombol bisa terkunci permanen setelah submit yang gagal.
         ?>
-        <?= form_open('admin/products/create', ['id' => 'productModalForm', 'class' => 'space-y-4']) ?>
+        <?= form_open_multipart('admin/products/create', ['id' => 'productModalForm', 'class' => 'space-y-4']) ?>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="sm:col-span-2">
                     <label class="t-label text-xs mb-1">Nama Paket <span class="text-red-500">*</span></label>
@@ -227,6 +251,38 @@ $IDR = static function ($v) { return 'Rp ' . number_format((int) $v, 0, ',', '.'
                         <option value="0">Nonaktif</option>
                     </select>
                 </div>
+
+                <!-- plan/104: GAMBAR PRODUK (16:9) — preview server-rendered +
+                     pratinjau langsung via URL.createObjectURL saat berkas dipilih. -->
+                <div class="sm:col-span-2">
+                    <label for="f_image" class="t-label text-xs mb-1">
+                        Gambar Produk <span class="text-[var(--t-muted)] font-normal">(opsional)</span>
+                    </label>
+
+                    <div class="rounded-xl border border-[var(--t-border)] bg-[var(--t-surface-2)] p-3 flex items-center justify-center min-h-[140px]">
+                        <img id="f_image_preview" src="" alt=""
+                             class="hidden w-full max-w-[280px] aspect-video object-cover rounded-lg">
+                        <div id="f_image_empty" class="text-center text-[var(--t-muted)] text-xs">
+                            <i class="fas fa-microchip text-3xl block mb-2 opacity-40"></i>
+                            Belum ada gambar
+                        </div>
+                    </div>
+
+                    <input type="file" id="f_image" name="image"
+                           accept="image/jpeg,image/png,image/webp"
+                           class="t-input w-full mt-3 px-3 py-2 rounded-lg text-xs file:mr-2 file:px-2 file:py-1 file:rounded file:border-0 file:text-xs file:bg-emerald-600 file:text-white">
+
+                    <p class="text-xs text-[var(--t-muted)] mt-1">
+                        Format JPG/PNG/WebP, maksimal 2 MB. Rasio ideal 16:9 (contoh 1920×1080).
+                        Mengunggah berkas baru akan menggantikan gambar lama.
+                    </p>
+
+                    <label id="f_image_remove_wrap"
+                           class="hidden items-center gap-2 text-xs t-text-2 mt-2 cursor-pointer">
+                        <input type="checkbox" name="remove_image" id="f_image_remove" value="1" class="accent-rose-600">
+                        Hapus gambar saat ini
+                    </label>
+                </div>
             </div>
 
             <div id="edit_status_hint" class="hidden text-[11px] text-amber-600 dark:text-amber-400 -mt-2">
@@ -258,8 +314,38 @@ $IDR = static function ($v) { return 'Rp ' . number_format((int) $v, 0, ',', '.'
     var createUrl = '<?= site_url('admin/products/create') ?>';
     var updateBase = '<?= site_url('admin/products/update') ?>/';
 
+    // plan/104: elemen gambar produk + penanda object URL yang sedang dipakai
+    // (wajib di-revoke agar blob tidak menumpuk di memori).
+    var imgInput     = document.getElementById('f_image');
+    var imgPreview   = document.getElementById('f_image_preview');
+    var imgEmpty     = document.getElementById('f_image_empty');
+    var imgRemoveBox = document.getElementById('f_image_remove');
+    var imgRemoveWrap= document.getElementById('f_image_remove_wrap');
+    var objectUrl    = null;
+
+    function clearObjectUrl() {
+        if (objectUrl !== null) {
+            URL.revokeObjectURL(objectUrl);
+            objectUrl = null;
+        }
+    }
+
+    /** Tampilkan pratinjau gambar (src apa pun) atau blok kosong. */
+    function showImagePreview(src) {
+        if (src) {
+            imgPreview.src = src;
+            imgPreview.classList.remove('hidden');
+            imgEmpty.classList.add('hidden');
+        } else {
+            imgPreview.removeAttribute('src');
+            imgPreview.classList.add('hidden');
+            imgEmpty.classList.remove('hidden');
+        }
+    }
+
     function resetForm() {
         var csrfValue = (csrfInput && csrfInput.value !== '') ? csrfInput.value : null;
+        clearObjectUrl();
         form.reset();
         // Pastikan token tetap utuh setelah reset (fallback bila browser
         // mengosongkannya): pulihkan nilai yang tadi terbaca.
@@ -272,6 +358,12 @@ $IDR = static function ($v) { return 'Rp ' . number_format((int) $v, 0, ',', '.'
         document.getElementById('productSubmitLabel').textContent = 'Buat Paket';
         document.getElementById('edit_status_hint').classList.add('hidden');
         document.getElementById('f_active_wrap').classList.remove('hidden');
+
+        // plan/104: mode create → belum ada gambar; kontrol hapus disembunyikan.
+        showImagePreview('');
+        imgRemoveBox.checked = false;
+        imgRemoveWrap.classList.add('hidden');
+        imgRemoveWrap.classList.remove('inline-flex');
     }
 
     window.openProductCreate = function () {
@@ -295,6 +387,14 @@ $IDR = static function ($v) { return 'Rp ' . number_format((int) $v, 0, ',', '.'
         document.getElementById('f_quota').value    = d.max_per_user;
         document.getElementById('f_refundable').checked = (d.is_refundable === 1);
 
+        // plan/104: tampilkan gambar saat ini (server-rendered URL) + kontrol
+        // hapus hanya bila produk memang sudah punya gambar.
+        showImagePreview(d.image_url || '');
+        if (d.image_url) {
+            imgRemoveWrap.classList.remove('hidden');
+            imgRemoveWrap.classList.add('inline-flex');
+        }
+
         // edit: status dikelola toggle → sembunyikan field is_active + hint
         document.getElementById('f_active_wrap').classList.add('hidden');
         document.getElementById('edit_status_hint').classList.remove('hidden');
@@ -309,6 +409,20 @@ $IDR = static function ($v) { return 'Rp ' . number_format((int) $v, 0, ',', '.'
         modal.classList.add('hidden');
         resetForm();
     };
+
+    // plan/104: pratinjau langsung berkas yang dipilih + uncheck "Hapus gambar"
+    // (berkas baru selalu menang atas permintaan hapus).
+    if (imgInput) {
+        imgInput.addEventListener('change', function () {
+            var file = (imgInput.files && imgInput.files[0]) ? imgInput.files[0] : null;
+            if (!file) { return; }
+
+            clearObjectUrl();
+            objectUrl = URL.createObjectURL(file);
+            showImagePreview(objectUrl);
+            imgRemoveBox.checked = false;
+        });
+    }
 
     // tombol Edit tiap baris — binding deklaratif (tanpa inline onclick)
     document.querySelectorAll('.btn-product-edit').forEach(function (btn) {

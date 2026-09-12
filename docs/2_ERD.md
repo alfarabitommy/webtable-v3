@@ -209,6 +209,7 @@ Menyimpan data autentikasi, profil pengguna, saldo utama, dan struktur *Adjacenc
 Katalog paket GPUaaS (Marketplace). Data master; **tidak boleh** hard-delete (soft via `is_active`). 8 paket kanonik id 1–8 di-seed dari `database.sql` (Rp 150.000–Rp 10.000.000).
 * `id` (INT, Primary Key, Auto Increment, Unsigned)
 * `name` (VARCHAR 100, NOT NULL) - Contoh: "RTX 3060 Starter".
+* `image` (VARCHAR 255, NULLABLE) - **plan/104:** nama berkas gambar produk (**BASENAME saja**, tanpa path) di `uploads/products/`. `NULL` **atau** berkas hilang di disk → marketplace merender fallback banner gelap (kontrak tunggal `product_image_url() === null`, helper `product_image_helper.php`). Berkas fisik bersifat runtime (`uploads/products/*` di-gitignore, placeholder `index.html` di-track) dan diunggah admin lewat `Admin::_handle_product_image_upload()` (allowlist `jpg|jpeg|png|webp`, maks 2048 KB, `detect_mime` + `encrypt_name`; SVG/executable ditolak). Backfill 8 paket kanonik dijalankan `scripts/migrate_104_gpu_product_images.php` — **keyed by `name`, bukan `id`** (id live bisa 5–12 sementara seed kanonik memakai 1–8).
 * `type` (ENUM('short_term', 'long_term'), NOT NULL)
 * `price` (DECIMAL 15,2, NOT NULL) - Harga untuk mulai menyewa (IDR).
 * `daily_rate` (DECIMAL 15,2, NOT NULL) - Fix ROI (pendapatan harian) (IDR).

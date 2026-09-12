@@ -315,27 +315,32 @@
                                     'alert'   => ['bg' => 'bg-rose-50 dark:bg-rose-500/10',    'icon' => 'fa-times-circle',  'text' => 'text-rose-500 dark:text-rose-400'],
                                 ];
                                 $tc = $type_colors[$n['type']] ?? $type_colors['info'];
+                                // plan/103 W8: render dalam idiom pembaca.
+                                $nt = i18n_notification_text($n);
                                 ?>
                                 <div class="flex items-start gap-3 px-4 py-3 u-row-hover transition-colors">
                                     <div class="<?= $tc['bg'] ?> w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                                         <i class="fas <?= $tc['icon'] ?> <?= $tc['text'] ?> text-xs"></i>
                                     </div>
                                     <div class="flex-1 min-w-0">
-                                        <p class="text-sm font-semibold u-text leading-tight"><?= htmlspecialchars($n['title']) ?></p>
-                                        <p class="text-xs u-text-2 mt-0.5 truncate"><?= htmlspecialchars($n['message']) ?></p>
+                                        <p class="text-sm font-semibold u-text leading-tight"><?= htmlspecialchars($nt['title']) ?></p>
+                                        <p class="text-xs u-text-2 mt-0.5 truncate"><?= htmlspecialchars($nt['message']) ?></p>
                                         <p class="text-[10px] u-muted mt-1 font-medium">
                                             <?php
                                             $dt = new DateTime($n['created_at']);
                                             $now = new DateTime();
                                             $diff = $now->diff($dt);
-                                            if ($diff->days === 0 && $diff->h === 0) {
+                                            // plan/103: tanggal ber-lokalisasi (dulu 'd M Y').
+                                            if ($diff->days === 0 && $diff->h === 0 && $diff->i < 1) {
+                                                echo lang('time_moments_ago');
+                                            } elseif ($diff->days === 0 && $diff->h === 0) {
                                                 echo sprintf(lang('common_minutes_ago'), (int) $diff->i);
                                             } elseif ($diff->days === 0) {
                                                 echo sprintf(lang('common_hours_ago'), (int) $diff->h);
                                             } elseif ($diff->days < 7) {
                                                 echo sprintf(lang('common_days_ago'), (int) $diff->days);
                                             } else {
-                                                echo $dt->format('d M Y');
+                                                echo i18n_date($n['created_at']);
                                             }
                                             ?>
                                         </p>
@@ -360,10 +365,15 @@
     <script>
     // Plan 94 (F1): kamus JS member (key ber-prefix js_) — teks dinamis di
     // sisi client diterjemahkan lewat peta ini, bukan string mentah (L5).
+    // plan/103: ditambah js_copied_short + js_copy_code_failed agar TIDAK ADA
+    // lagi fallback literal di level JS (fallback apa pun pasti salah di salah
+    // satu idiom). Objek ini selalu ada — di-inject oleh template ini sendiri.
     window.SYNAPSE_I18N = <?= json_encode([
-        'js_processing'    => lang('js_processing'),
-        'js_copied'        => lang('js_copied'),
-        'js_copy_failed'   => lang('js_copy_failed'),
+        'js_processing'      => lang('js_processing'),
+        'js_copied'          => lang('js_copied'),
+        'js_copied_short'    => lang('js_copied_short'),
+        'js_copy_failed'     => lang('js_copy_failed'),
+        'js_copy_code_failed'=> lang('js_copy_code_failed'),
     ], JSON_UNESCAPED_UNICODE) ?>;
 
     let notifUnreadCount = <?= isset($global_unread_count) ? (int) $global_unread_count : 0 ?>;

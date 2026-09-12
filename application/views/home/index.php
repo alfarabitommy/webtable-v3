@@ -216,7 +216,7 @@
                 <?php else: ?>
                 <div class="flex items-center gap-2 mt-1">
                     <span id="inviteCodeText" class="inline-block px-3 py-1 u-card-inset rounded-lg text-sm font-bold u-text tracking-widest\"><?= $user->invite_code ?></span>
-                    <button id="btnCopyInvite" class="flex items-center gap-1 px-2.5 py-1.5 u-btn-ghost rounded-lg transition-colors" title="Salin">
+                    <button id="btnCopyInvite" class="flex items-center gap-1 px-2.5 py-1.5 u-btn-ghost rounded-lg transition-colors" title="<?= lang('common_copier_label') ?>" aria-label="<?= lang('home_copy_btn') ?>">
                         <i class="fas fa-copy u-text-2 text-xs"></i>
                         <span class="text-[11px] font-semibold u-text-2"><?= lang('home_copy_btn') ?></span>
                     </button>
@@ -270,7 +270,7 @@
             var code = codeEl.textContent.trim();
 
             function onSuccess() {
-                labelEl.textContent = (window.SYNAPSE_I18N || {})['js_copied'] || 'Tersalin!';
+                labelEl.textContent = window.SYNAPSE_I18N['js_copied'];
                 iconEl.className = 'fas fa-check text-white text-xs';
                 btn.classList.remove('u-btn-ghost');
                 btn.classList.add('bg-emerald-500');
@@ -304,7 +304,7 @@
                     document.execCommand('copy');
                     onSuccess();
                 } catch (e) {
-                    alert((window.SYNAPSE_I18N || {})['js_copy_failed'] || 'Gagal menyalin kode.');
+                    alert(window.SYNAPSE_I18N['js_copy_code_failed']);
                 }
                 document.body.removeChild(ta);
             }

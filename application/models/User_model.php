@@ -296,7 +296,7 @@ class User_model extends CI_Model {
 
             if ((int) $user->is_level_1_claimed === 1) {
                 $this->db->trans_rollback();
-                return ['success' => false, 'message' => 'Bonus sudah diklaim sebelumnya.'];
+                return ['success' => false, 'code' => 'already_claimed', 'message' => 'Bonus sudah diklaim sebelumnya.'];
             }
 
             // 3. Flag atomik kondisional — gate anti double-claim.
@@ -305,7 +305,7 @@ class User_model extends CI_Model {
 
             if ($this->db->affected_rows() !== 1) {
                 $this->db->trans_rollback();
-                return ['success' => false, 'message' => 'Bonus sudah diklaim sebelumnya.'];
+                return ['success' => false, 'code' => 'already_claimed', 'message' => 'Bonus sudah diklaim sebelumnya.'];
             }
 
             // 4. Kredit ledger + cache atomik (helper C4; TANPA update manual
@@ -321,7 +321,7 @@ class User_model extends CI_Model {
 
             if (!$credited) {
                 $this->db->trans_rollback();
-                return ['success' => false, 'message' => 'Gagal memproses klaim. Coba lagi.'];
+                return ['success' => false, 'code' => 'error', 'message' => 'Gagal memproses klaim. Coba lagi.'];
             }
 
             $this->db->trans_commit();
@@ -337,7 +337,7 @@ class User_model extends CI_Model {
                 $this->db->trans_rollback();
             }
             log_message('error', 'User_model::claim_level1 user ' . $user_id . ' — ' . $e->getMessage());
-            return ['success' => false, 'message' => 'Gagal memproses klaim. Coba lagi.'];
+            return ['success' => false, 'code' => 'error', 'message' => 'Gagal memproses klaim. Coba lagi.'];
         }
     }
 
@@ -410,12 +410,19 @@ class User_model extends CI_Model {
                 // Klaim pekan lalu, interval 7 hari belum lewat → countdown.
                 $next_ts        = $last_ts + 7 * 86400;
                 $days_remaining = (int) max(1, ceil(($next_ts - $now_ts) / 86400));
-                $next_date      = date('d M Y', $next_ts);
+                // plan/103: tanggal TIDAK diformat di model (dulu 'd M Y' =
+                // nama bulan Inggris yang bocor ke mode id). Nilai mentah
+                // (epoch + hari) dikirim keluar; presentasi = controller/view
+                // lewat i18n_date() dengan idiom aktif.
                 $this->db->trans_rollback();
                 return $this->_wage_result(
                     'cycle_not_ready',
-                    "Cooldown aktif. Gaji berikutnya: {$days_remaining} hari lagi ({$next_date}).",
-                    ['next_claim_date' => $next_date]
+                    "Cooldown aktif. Gaji berikutnya: {$days_remaining} hari lagi.",
+                    [
+                        'next_claim_date'   => date('Y-m-d', $next_ts),
+                        'next_claim_ts'     => $next_ts,
+                        'days_remaining'    => $days_remaining,
+                    ]
                 );
             }
 

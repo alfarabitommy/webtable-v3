@@ -42,6 +42,18 @@ class Auth extends CI_Controller {
         return $digits;
     }
 
+    // ─── FORM VALIDATION MESSAGES (plan/103) ────────────────
+    // Pesan default CI3 (system/language/english/form_validation_lang.php)
+    // berbahasa INGGRIS dan bocor di mode `id`; sebaliknya label field dulu
+    // literal Indonesia dan bocor di mode `en`. Keduanya kini dari kamus.
+    private function _set_fv_messages() {
+        $this->form_validation->set_message(array(
+            'required'   => lang('fv_msg_required'),
+            'min_length' => lang('fv_msg_min_length'),
+            'matches'    => lang('fv_msg_matches'),
+        ));
+    }
+
     // ─── NATIVE SVG CAPTCHA LIFECYCLE (plan/72) ─────────────
     // Session-bound challenge with strict single-use + TTL 180s. No external
     // service, no disk I/O, no GD/Imagick — the challenge exists only in the
@@ -106,13 +118,14 @@ class Auth extends CI_Controller {
         // Phase 9A: Circuit Breaker — block registration if closed
         $this->load->model('Admin_model');
         if ($this->Admin_model->get_setting('is_registration_open') !== '1') {
-            $data['errors'] = ['Pendaftaran member baru sedang ditutup sementara untuk menjaga stabilitas ekosistem. Silakan coba lagi nanti.'];
+            $data['errors'] = [lang('auth_err_register_closed')];
             $data['values'] = [];
             $this->_render_auth_view('auth/register', $data);
             return;
         }
 
         $data['errors'] = [];
+        $this->_set_fv_messages();
 
         if ($this->input->post()) {
             // ─── RATE LIMIT (10B): burst limiter registrasi — key register:{ip}.
@@ -135,7 +148,7 @@ class Auth extends CI_Controller {
             // Single-use: whatever the outcome, the stored challenge is
             // flushed, so a fresh code is always required on the next POST.
             if (!$this->_verify_captcha($this->input->post('captcha', TRUE))) {
-                $data['errors'][] = 'Kode keamanan salah atau sudah kedaluwarsa.';
+                $data['errors'][] = lang('auth_err_captcha');
                 $data['values']   = $this->input->post();
                 $this->_render_auth_view('auth/register', $data);
                 return;
@@ -148,11 +161,11 @@ class Auth extends CI_Controller {
             $phone          = $this->_normalize_phone($this->input->post('phone', TRUE));
             $_POST['phone'] = $phone;
 
-            $this->form_validation->set_rules('phone', 'Nomor Telepon', 'required|is_unique[users.phone]', array(
-                'is_unique' => 'Nomor telepon sudah terdaftar. Silakan gunakan nomor lain atau login.',
+            $this->form_validation->set_rules('phone', lang('fv_label_phone'), 'required|is_unique[users.phone]', array(
+                'is_unique' => lang('auth_err_phone_taken'),
             ));
-            $this->form_validation->set_rules('password', 'Kata Sandi', 'required|min_length[8]');
-            $this->form_validation->set_rules('invite_code', 'Kode Undangan', 'required');
+            $this->form_validation->set_rules('password', lang('fv_label_password'), 'required|min_length[8]');
+            $this->form_validation->set_rules('invite_code', lang('fv_label_invite_code'), 'required');
 
             if ($this->form_validation->run()) {
                 $password    = $this->input->post('password', TRUE);
@@ -161,7 +174,7 @@ class Auth extends CI_Controller {
                 $parent = $this->db->get_where('users', ['invite_code' => $invite_code])->row();
 
                 if (!$parent) {
-                    $data['errors'][] = 'Kode Undangan tidak valid. Silakan periksa kembali.';
+                    $data['errors'][] = lang('auth_err_invite_invalid');
                     $data['values']   = $this->input->post();
                     $this->_render_auth_view('auth/register', $data);
                     return;
@@ -185,12 +198,12 @@ class Auth extends CI_Controller {
                 $this->db->db_debug = $prev_debug;
 
                 if ($user_id) {
-                    $this->session->set_flashdata('success', 'Pendaftaran berhasil! Silakan login.');
+                    $this->session->set_flashdata('success', lang('auth_ok_registered'));
                     redirect('login');
                 } elseif ((int) $db_error['code'] === 1062 && strpos((string) $db_error['message'], 'uk_phone') !== FALSE) {
-                    $data['errors'][] = 'Nomor telepon sudah terdaftar. Silakan gunakan nomor lain atau login.';
+                    $data['errors'][] = lang('auth_err_phone_taken');
                 } else {
-                    $data['errors'][] = 'Terjadi kesalahan sistem saat pendaftaran. Silakan coba lagi.';
+                    $data['errors'][] = lang('auth_err_register_failed');
                 }
             }
         }
@@ -206,6 +219,7 @@ class Auth extends CI_Controller {
         }
 
         $data['errors'] = [];
+        $this->_set_fv_messages();
 
         if ($this->input->post()) {
             // ─── RATE LIMIT (10B): fail-fast sebelum captcha — key login:{phone}:{ip}
@@ -226,14 +240,14 @@ class Auth extends CI_Controller {
             // Single-use: whatever the outcome, the stored challenge is
             // flushed, so a fresh code is always required on the next POST.
             if (!$this->_verify_captcha($this->input->post('captcha', TRUE))) {
-                $data['errors'][] = 'Kode keamanan salah atau sudah kedaluwarsa.';
+                $data['errors'][] = lang('auth_err_captcha');
                 $data['values']   = $this->input->post();
                 $this->_render_auth_view('auth/login', $data);
                 return;
             }
 
-            $this->form_validation->set_rules('phone', 'Nomor Telepon', 'required');
-            $this->form_validation->set_rules('password', 'Kata Sandi', 'required');
+            $this->form_validation->set_rules('phone', lang('fv_label_phone'), 'required');
+            $this->form_validation->set_rules('password', lang('fv_label_password'), 'required');
 
             if ($this->form_validation->run()) {
                 $phone    = $this->_normalize_phone($this->input->post('phone', TRUE));
@@ -253,7 +267,7 @@ class Auth extends CI_Controller {
                     // verification so ban status is not leaked to callers without
                     // valid credentials.
                     if ((int) $user->is_banned === 1) {
-                        $data['errors'][] = 'Akun Anda telah dinonaktifkan. Silakan hubungi admin.';
+                        $data['errors'][] = lang('auth_err_account_inactive');
                         $data['values']   = $this->input->post();
                         $this->_render_auth_view('auth/login', $data);
                         return;
@@ -277,7 +291,7 @@ class Auth extends CI_Controller {
                 } else {
                     // Rate limit (10B): kredensial salah → catat percobaan gagal
                     $this->Rate_limit_model->hit($rl_key, 900, 5);
-                    $data['errors'][] = 'Nomor telepon atau kata sandi salah.';
+                    $data['errors'][] = lang('auth_err_credentials');
                 }
             }
         }
@@ -299,15 +313,16 @@ class Auth extends CI_Controller {
         // Banned users cannot use the change-password flow either
         if ($user && (int) $user->is_banned === 1) {
             $this->session->unset_userdata('user_id');
-            $this->session->set_flashdata('error', 'Akun Anda telah dinonaktifkan. Silakan hubungi admin.');
+            $this->session->set_flashdata('error', lang('auth_err_account_inactive'));
             redirect('login');
         }
 
         $data['errors'] = [];
+        $this->_set_fv_messages();
 
         if ($this->input->post()) {
-            $this->form_validation->set_rules('new_password', 'Kata Sandi Baru', 'required|min_length[8]');
-            $this->form_validation->set_rules('confirm_password', 'Konfirmasi Kata Sandi', 'required|matches[new_password]');
+            $this->form_validation->set_rules('new_password', lang('fv_label_new_password'), 'required|min_length[8]');
+            $this->form_validation->set_rules('confirm_password', lang('fv_label_confirm_password'), 'required|matches[new_password]');
 
             if ($this->form_validation->run()) {
                 $new_password = $this->input->post('new_password', TRUE);
@@ -318,10 +333,10 @@ class Auth extends CI_Controller {
                 ]);
 
                 if ($updated) {
-                    $this->session->set_flashdata('success', 'Kata sandi berhasil diperbarui.');
+                    $this->session->set_flashdata('success', lang('auth_ok_password_updated'));
                     redirect('home');
                 } else {
-                    $data['errors'][] = 'Gagal memperbarui kata sandi. Silakan coba lagi.';
+                    $data['errors'][] = lang('profile_err_update_failed');
                 }
             }
         }

@@ -5,12 +5,12 @@
     <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
             <i class="fas fa-bell text-indigo-500 text-lg"></i>
-            <h2 class="text-base font-bold u-text">Riwayat Notifikasi</h2>
+            <h2 class="text-base font-bold u-text"><?= lang('notif_history_title') ?></h2>
         </div>
         <?php if (!empty($notifications)): ?>
             <button onclick="markAllRead()" id="mark-all-btn"
                     class="u-btn-ghost text-[11px] font-medium px-3 py-1.5 rounded-lg transition-colors active:scale-95">
-                Tandai Semua Sudah Dibaca
+                <?= lang('notif_mark_all_read') ?>
             </button>
         <?php endif; ?>
     </div>
@@ -23,8 +23,8 @@
                 <div class="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4">
                     <i class="fas fa-bell-slash text-slate-300 dark:text-slate-600 text-2xl"></i>
                 </div>
-                <p class="text-sm font-medium u-text-2">Belum ada notifikasi</p>
-                <p class="text-xs u-muted mt-1">Notifikasi akan muncul di sini</p>
+                <p class="text-sm font-medium u-text-2"><?= lang('notif_empty') ?></p>
+                <p class="text-xs u-muted mt-1"><?= lang('notif_empty_body') ?></p>
             </div>
         <?php else: ?>
             <?php
@@ -35,28 +35,32 @@
                 'error'       => ['border' => 'border-l-rose-500',    'dot' => 'bg-rose-500',    'icon' => 'fa-times-circle',  'icon_color' => 'text-rose-500 dark:text-rose-400',    'bg' => 'bg-rose-50 dark:bg-rose-500/10',    'pill' => 'bg-rose-100 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'],
                 'commission'  => ['border' => 'border-l-indigo-500',  'dot' => 'bg-indigo-500',  'icon' => 'fa-coins',         'icon_color' => 'text-indigo-500 dark:text-indigo-400',  'bg' => 'bg-indigo-50 dark:bg-indigo-500/10',  'pill' => 'bg-indigo-100 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400'],
             ];
+            // plan/103: label tipe dari kamus (dulu 5 literal Indonesia).
             $type_labels = [
-                'info'       => 'Info',
-                'success'    => 'Berhasil',
-                'warning'    => 'Peringatan',
-                'error'      => 'Gagal',
-                'commission' => 'Bonus',
+                'info'       => lang('notif_type_info'),
+                'success'    => lang('notif_type_success'),
+                'warning'    => lang('notif_type_warning'),
+                'error'      => lang('notif_type_error'),
+                'commission' => lang('notif_type_commission'),
             ];
             $current_date = '';
             foreach ($notifications as $n):
                 $style = $type_styles[$n['type']] ?? $type_styles['info'];
-                $label = $type_labels[$n['type']] ?? 'Info';
+                $label = $type_labels[$n['type']] ?? lang('notif_type_info');
+                // plan/103 W8: baris ber-title_key dirender dalam idiom
+                // PEMBACA saat ini; baris legacy memakai teks kolom DB.
+                $nt = i18n_notification_text($n);
                 $is_unread = !$n['is_read'];
 
                 // Date grouping
                 $dt = new DateTime($n['created_at']);
                 $today = new DateTime();
                 if ($dt->format('Y-m-d') === $today->format('Y-m-d')) {
-                    $date_label = 'Hari Ini';
+                    $date_label = lang('notif_today');
                 } elseif ($dt->format('Y-m-d') === $today->modify('-1 day')->format('Y-m-d')) {
-                    $date_label = 'Kemarin';
+                    $date_label = lang('notif_yesterday');
                 } else {
-                    $date_label = $dt->format('d M Y');
+                    $date_label = i18n_date($n['created_at']);
                 }
                 $today = new DateTime(); // reset
 
@@ -89,26 +93,30 @@
                                     <span class="w-1.5 h-1.5 rounded-full <?= $style['dot'] ?> flex-shrink-0"></span>
                                 <?php endif; ?>
                                 <h4 class="text-sm font-semibold <?= $is_unread ? 'text-slate-900 dark:text-slate-100' : 'text-slate-600 dark:text-slate-300' ?> leading-tight truncate">
-                                    <?= htmlspecialchars($n['title']) ?>
+                                    <?= htmlspecialchars($nt['title']) ?>
                                 </h4>
                                 <span class="<?= $style['pill'] ?> text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 uppercase">
                                     <?= $label ?>
                                 </span>
                             </div>
                             <p class="text-xs <?= $is_unread ? 'text-slate-600 dark:text-slate-300' : 'text-slate-400 dark:text-slate-500' ?> mt-0.5 leading-relaxed">
-                                <?= htmlspecialchars($n['message']) ?>
+                                <?= htmlspecialchars($nt['message']) ?>
                             </p>
                             <p class="text-[10px] u-muted mt-1.5 font-medium">
                                 <?php
                                 $diff = (new DateTime())->diff($dt);
-                                if ($diff->days === 0 && $diff->h === 0) {
-                                    echo $diff->i . ' menit lalu';
+                                // plan/103: satuan waktu dari kamus + tanggal
+                                // ber-lokalisasi (dulu 'menit/jam/hari lalu' literal).
+                                if ($diff->days === 0 && $diff->h === 0 && $diff->i < 1) {
+                                    echo lang('time_moments_ago');
+                                } elseif ($diff->days === 0 && $diff->h === 0) {
+                                    echo sprintf(lang('time_minutes_ago_short'), (int) $diff->i);
                                 } elseif ($diff->days === 0) {
-                                    echo $diff->h . ' jam lalu';
+                                    echo sprintf(lang('time_hours_ago_short'), (int) $diff->h);
                                 } elseif ($diff->days < 7) {
-                                    echo $diff->days . ' hari lalu';
+                                    echo sprintf(lang('time_days_ago_short'), (int) $diff->days);
                                 } else {
-                                    echo $dt->format('d M Y, H:i');
+                                    echo i18n_datetime($n['created_at']);
                                 }
                                 ?>
                             </p>
@@ -126,11 +134,17 @@
 </div>
 
 <script>
+/* plan/103: string JS halaman ini — diterjemahkan server-side. */
+var L_NOTIF = <?= json_encode([
+    'mark_all'   => lang('notif_mark_all_read'),
+    'marked_all' => lang('notif_marked_all'),
+], JSON_UNESCAPED_UNICODE) ?>;
+
 function markAllRead() {
     const btn = document.getElementById('mark-all-btn');
     if (btn) {
         btn.disabled = true;
-        btn.textContent = 'Memproses...';
+        btn.textContent = (window.SYNAPSE_I18N || {})['js_processing'];
     }
 
     csrfFetch('<?= base_url('notification/mark_all_read') ?>', {
@@ -165,7 +179,7 @@ function markAllRead() {
             });
 
             if (btn) {
-                btn.textContent = 'Semua Sudah Dibaca ✓';
+                btn.textContent = L_NOTIF.marked_all + ' \u2713';
                 btn.classList.remove('u-btn-ghost');
                 btn.classList.add('bg-emerald-50', 'dark:bg-emerald-500/10', 'text-emerald-600', 'dark:text-emerald-400');
             }
@@ -179,7 +193,7 @@ function markAllRead() {
     .catch(() => {
         if (btn) {
             btn.disabled = false;
-            btn.textContent = 'Tandai Semua Sudah Dibaca';
+            btn.textContent = L_NOTIF.mark_all;
         }
     });
 }

@@ -163,24 +163,86 @@
             <?php else: ?>
                 <div class="divide-y divide-[var(--t-border)]">
                     <?php foreach ($pending_deposits as $dep): ?>
+                    <?php
+                        // plan/102: nominal verifikasi = total_amount (dibekukan
+                        // saat create: pokok + [fee] + kode unik). Fallback ke
+                        // `amount` hanya untuk baris legacy pra-migrasi.
+                        $dep_total   = ((int) $dep->total_amount > 0) ? (int) $dep->total_amount : (int) $dep->amount;
+                        $dep_code    = ($dep->unique_code !== null) ? (int) $dep->unique_code : null;
+                        $dep_waiting = ($dep->status === 'waiting_approval');
+                        $dep_late    = ($dep_waiting && $dep->expires_at !== null && strtotime($dep->expires_at) <= time());
+                        $dep_confirm = $dep_waiting
+                            ? 'Approve deposit ' . $dep->invoice_number . '? Pastikan mutasi Rp ' . number_format($dep_total, 0, ',', '.') . ' sudah masuk.'
+                            : 'Member BELUM mengonfirmasi transfer. Tetap setujui deposit ' . $dep->invoice_number . '?';
+                    ?>
                     <div class="px-5 py-4 t-row-hover transition-colors">
-                        <div class="flex items-start justify-between mb-3">
-                            <div>
-                                <div class="text-sm font-semibold text-[var(--t-text)]"><?= $dep->invoice_number ?></div>
+                        <div class="flex items-start justify-between gap-3 mb-2">
+                            <div class="min-w-0">
+                                <div class="text-sm font-semibold text-[var(--t-text)] truncate"><?= $dep->invoice_number ?></div>
                                 <div class="text-xs text-[var(--t-muted)] mt-0.5"><?= $dep->phone ?></div>
+                                <div class="text-xs text-[var(--t-muted)] mt-0.5 font-mono">
+                                    Pokok Rp <?= number_format($dep->amount, 0, ',', '.') ?>
+                                    <?php if ($dep_code !== null): ?>
+                                        + kode <span class="font-bold text-[var(--t-text)]"><?= $dep_code ?></span>
+                                    <?php endif; ?>
+                                </div>
                             </div>
-                            <div class="text-right">
-                                <div class="text-sm font-bold text-[var(--t-text)] font-mono">Rp <?= number_format($dep->amount, 0, ',', '.') ?></div>
-                                <div class="text-[11px] text-[var(--t-muted)] mt-0.5"><?= date('d M Y H:i', strtotime($dep->created_at)) ?></div>
+                            <div class="text-right shrink-0">
+                                <div class="text-[10px] uppercase tracking-widest text-[var(--t-muted)] font-bold">Verifikasi</div>
+                                <div class="text-base font-extrabold text-[var(--t-text)] font-mono">Rp <?= number_format($dep_total, 0, ',', '.') ?></div>
                             </div>
                         </div>
-                        <?= form_open('admin/approve_deposit/' . $dep->id, ['data-guard-submit' => '1', 'onsubmit' => "return confirm('Approve deposit {$dep->invoice_number}?')"]) ?>
-                            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-                                <i class="fas fa-check mr-1"></i> Approve
-                            </button>
-                        <?= form_close() ?>
+
+                        <!-- Chip status + jejak waktu -->
+                        <div class="flex items-center gap-2 flex-wrap mb-3">
+                            <?php if ($dep_waiting): ?>
+                                <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                                    <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> Siap diverifikasi
+                                </span>
+                            <?php else: ?>
+                                <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-[var(--t-surface-3)] text-[var(--t-text-2)]">
+                                    <span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span> Belum konfirmasi
+                                </span>
+                            <?php endif; ?>
+                            <?php if ($dep_late): ?>
+                                <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                                    <i class="fas fa-hourglass-half text-[9px]"></i> Konfirmasi terlambat
+                                </span>
+                            <?php endif; ?>
+                            <span class="text-[10px] text-[var(--t-muted)] font-mono">
+                                dibuat <?= date('d M Y H:i', strtotime($dep->created_at)) ?>
+                                <?php if ($dep->confirmed_at !== null): ?>
+                                    &middot; konfirmasi <?= date('d M Y H:i', strtotime($dep->confirmed_at)) ?>
+                                <?php endif; ?>
+                                <?php if ($dep->expires_at !== null): ?>
+                                    &middot; batas <?= date('d M Y H:i', strtotime($dep->expires_at)) ?>
+                                <?php endif; ?>
+                            </span>
+                        </div>
+
+                        <div class="flex gap-2 items-start">
+                            <?= form_open('admin/approve_deposit/' . $dep->id, ['class' => 'flex-1', 'data-guard-submit' => '1', 'onsubmit' => "return confirm('" . str_replace("'", "\\'", $dep_confirm) . "')"]) ?>
+                                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
+                                    <i class="fas fa-check mr-1"></i> Approve
+                                </button>
+                            <?= form_close() ?>
+                            <?= form_open('admin/decline_deposit/' . $dep->id, ['class' => 'flex-1 flex flex-col gap-1.5', 'data-guard-submit' => '1', 'onsubmit' => "return confirm('Tolak deposit {$dep->invoice_number}? Reservasi kode unik akan dilepas.')"]) ?>
+                                <input type="text" name="reason" maxlength="255" placeholder="Alasan penolakan (opsional)"
+                                       class="t-input w-full bg-[var(--t-surface-2)] border border-[var(--t-border)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--t-text)] placeholder-[var(--t-muted)] focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500">
+                                <button type="submit" class="w-full t-btn-ghost px-3 py-2 rounded-lg text-sm transition-colors">
+                                    <i class="fas fa-times mr-1"></i> Decline
+                                </button>
+                            <?= form_close() ?>
+                        </div>
                     </div>
                     <?php endforeach; ?>
+                </div>
+
+                <!-- plan/102: runbook operator untuk kasus di luar antrean normal -->
+                <div class="px-5 py-3 border-t border-[var(--t-border)] text-[11px] text-[var(--t-muted)] leading-relaxed">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    Deposit yang sudah <span class="font-semibold">kedaluwarsa</span> tidak dapat di-approve (kode uniknya sudah dilepas).
+                    Untuk transfer yang telanjur masuk, gunakan <span class="font-semibold">Inject Balance</span> di detail user (teraudit).
                 </div>
             <?php endif; ?>
         </div>

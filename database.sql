@@ -39,6 +39,12 @@ CREATE TABLE IF NOT EXISTS `users` (
 CREATE TABLE IF NOT EXISTS `gpu_products` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(100) NOT NULL,
+  -- plan/104: nama berkas gambar produk (BASENAME saja, tanpa path) di
+  -- `uploads/products/`. NULL atau berkas hilang di disk → marketplace
+  -- merender fallback banner gelap (resolusi via product_image_helper:
+  -- product_image_url() === null). Berkas fisik bersifat runtime &
+  -- di-gitignore (lihat .gitignore blok plan/104); kolom ini hanya nama.
+  `image` VARCHAR(255) NULL DEFAULT NULL,
   `type` ENUM('short_term', 'long_term') NOT NULL,
   `price` DECIMAL(15,2) NOT NULL,
   `daily_rate` DECIMAL(15,2) NOT NULL,
@@ -166,22 +172,43 @@ CREATE TABLE IF NOT EXISTS `wallet_ledger` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------
--- Table `deposits` (transaction invoices)
+-- Table `deposits` (transaction invoices; plan/102 = manual QRIS gateway)
 -- -----------------------------------------------------
 CREATE TABLE IF NOT EXISTS `deposits` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` BIGINT UNSIGNED NOT NULL,
   `invoice_number` VARCHAR(50) NOT NULL,
   `amount` DECIMAL(15,2) NOT NULL,
-  `status` ENUM('pending', 'success', 'failed') NOT NULL DEFAULT 'pending',
+  -- plan/102: kode unik 3 digit (100–999) gateway QRIS manual. Disimpan
+  -- permanen sebagai jejak audit (tidak dibuang setelah deposit selesai).
+  `unique_code` SMALLINT UNSIGNED NULL DEFAULT NULL,
+  -- plan/102: nominal bayar yang DIBEKUKAN saat create = pokok + [fee] + kode.
+  -- Otoritatif untuk verifikasi admin DAN nilai kredit (Option A). TIDAK pernah
+  -- dihitung ulang saat render (menutup celah G1 plan/102).
+  `total_amount` DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+  -- plan/102: `"{pokok}-{kode}"` selama reservasi HIDUP; NULL saat baris keluar
+  -- dari pending/waiting_approval. UNIQUE + semantik "banyak NULL" InnoDB =
+  -- jaminan tingkat DB: maksimal satu pemilik hidup per (pokok, kode), dan kode
+  -- bebas dipakai ulang setelah expired/rejected. Sekaligus index scan tabrakan
+  -- via prefix `LIKE '150000-%'` (tanpa index tambahan).
+  `reserved_code_key` VARCHAR(24) NULL DEFAULT NULL,
+  `expires_at` TIMESTAMP NULL DEFAULT NULL,
+  `confirmed_at` TIMESTAMP NULL DEFAULT NULL,
+  `processed_at` TIMESTAMP NULL DEFAULT NULL,
+  `decline_reason` VARCHAR(255) DEFAULT NULL,
+  `status` ENUM('pending', 'waiting_approval', 'success', 'failed', 'rejected', 'expired') NOT NULL DEFAULT 'pending',
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_invoice_number` (`invoice_number`),
+  -- plan/102: eksklusivitas reservasi kode unik per (pokok, kode).
+  UNIQUE KEY `uk_reserved_code_key` (`reserved_code_key`),
   INDEX `idx_user_status` (`user_id`, `status`),
   -- Plan 94 (F2): leading-status untuk COUNT antrean pending + listing
   -- dashboard ORDER BY created_at. Live DB: ALTER one-time (lihat bawah).
   INDEX `idx_status_created` (`status`, `created_at`),
+  -- plan/102: sweep expiry lazy (leading status) — pola sama idx_status_created.
+  INDEX `idx_status_expires` (`status`, `expires_at`),
   CONSTRAINT `fk_deposits_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -231,11 +258,18 @@ CREATE TABLE IF NOT EXISTS `admins` (
 -- -----------------------------------------------------
 -- Table `user_notifications` (in-app notifications)
 -- -----------------------------------------------------
+-- plan/103 (W8): `title_key` + `params` menyimpan KUNCI kamus dan
+-- PARAMETER-nya, sehingga notifikasi dirender dalam idiom PEMBACA
+-- (i18n_notification_text()) — bukan prosa beku satu bahasa.
+-- Kolom `title`/`message` dipertahankan sebagai retensi + fallback baris
+-- legacy (title_key NULL) dan TIDAK pernah dihapus.
 CREATE TABLE IF NOT EXISTS `user_notifications` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` BIGINT UNSIGNED NOT NULL,
   `title` VARCHAR(100) NOT NULL,
   `message` TEXT NOT NULL,
+  `title_key` VARCHAR(64) NULL COMMENT 'plan/103: key kamus dasar (tanpa _title/_body)',
+  `params` JSON NULL COMMENT 'plan/103: argumen vsprintf untuk <key>_body',
   `type` ENUM('info', 'warning', 'success', 'commission') NOT NULL DEFAULT 'info',
   `is_read` TINYINT(1) NOT NULL DEFAULT 0,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -243,6 +277,17 @@ CREATE TABLE IF NOT EXISTS `user_notifications` (
   INDEX `idx_user_read` (`user_id`, `is_read`),
   CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------
+-- MIGRASI LIVE ONE-TIME (plan/103) — untuk DB yang sudah berjalan:
+--   php scripts/migrate_103_notification_i18n.php --dry-run
+--   php scripts/migrate_103_notification_i18n.php --apply    (idempotent)
+--
+-- DDL ekuivalen bila dijalankan manual:
+--   ALTER TABLE `user_notifications`
+--     ADD COLUMN `title_key` VARCHAR(64) NULL AFTER `message`,
+--     ADD COLUMN `params` JSON NULL AFTER `title_key`;
+-- -----------------------------------------------------
 
 -- -----------------------------------------------------
 -- Table `promoter_claims` (plan/91 — klaim reward promotor, omzet burn)
@@ -301,7 +346,16 @@ INSERT IGNORE INTO `system_settings` (`key_name`, `key_value`) VALUES
 ('rebate_enabled', '1'),
 ('rebate_l1_percent', '5'),
 ('rebate_l2_percent', '3'),
-('rebate_l3_percent', '1');
+('rebate_l3_percent', '1'),
+-- plan/102: gateway deposit QRIS manual — identitas pembayaran (konten tampilan
+-- member) + kebijakan deposit (dipakai jalur uang; fallback di
+-- application/config/withdrawal_fees.php bila baris hilang/rusak).
+('qris_image', ''),
+('qris_merchant_name', 'Synapse'),
+('qris_payment_instructions', 'Scan QRIS di atas menggunakan aplikasi bank/e-wallet Anda, lalu transfer sejumlah TEPAT nominal yang tertera (termasuk 3 digit kode unik). Deposit diverifikasi manual oleh admin pada jam kerja.'),
+('deposit_expiry_minutes', '60'),
+('deposit_min_amount', '10000'),
+('deposit_max_amount', '50000000');
 
 -- -----------------------------------------------------
 -- Table `system_audit_logs` — Phase 10 baseline (ERD §6)
@@ -391,4 +445,81 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- Tujuan: COUNT antrean pending (Admin_model::get_alert_counts) memakai
 -- leading-status → index-scan sub-ms; listing Command Center yang memakai
 -- ORDER BY created_at ASC juga terlayani index yang sama.
+-- -----------------------------------------------------
+
+-- -----------------------------------------------------
+-- Plan 102 — MIGRASI LIVE (one-time; jalankan manual di DB aktif).
+-- Kolom/enum/index di atas sudah masuk CREATE TABLE (instalasi baru otomatis).
+-- Untuk DB yang SUDAH ADA, gunakan tool yang sudah menyertakan BACKFILL dan
+-- verifikasi (JANGAN jalankan ALTER mentah tanpa backfill — baris lama akan
+-- kehilangan total_amount & expires_at):
+--
+--   php scripts/migrate_102_qris_deposits.php --dry-run   # inspeksi, tanpa tulis
+--   php scripts/migrate_102_qris_deposits.php --apply     # DDL + backfill + verify
+--
+-- Referensi SQL yang dijalankan tool tersebut (urutan wajib):
+--
+--   1) ALTER TABLE `deposits`
+--        MODIFY `status` ENUM('pending','waiting_approval','success','failed','rejected','expired')
+--               NOT NULL DEFAULT 'pending',
+--        ADD COLUMN `unique_code`       SMALLINT UNSIGNED NULL DEFAULT NULL AFTER `amount`,
+--        ADD COLUMN `total_amount`      DECIMAL(15,2)     NOT NULL DEFAULT 0.00 AFTER `unique_code`,
+--        ADD COLUMN `reserved_code_key` VARCHAR(24)       NULL DEFAULT NULL AFTER `total_amount`,
+--        ADD COLUMN `expires_at`        TIMESTAMP         NULL DEFAULT NULL AFTER `reserved_code_key`,
+--        ADD COLUMN `confirmed_at`      TIMESTAMP         NULL DEFAULT NULL AFTER `expires_at`,
+--        ADD COLUMN `processed_at`      TIMESTAMP         NULL DEFAULT NULL AFTER `confirmed_at`,
+--        ADD COLUMN `decline_reason`    VARCHAR(255)      NULL DEFAULT NULL AFTER `processed_at`,
+--        ADD UNIQUE KEY `uk_reserved_code_key` (`reserved_code_key`),
+--        ADD INDEX      `idx_status_expires`   (`status`, `expires_at`);
+--
+--   2) UPDATE `deposits` SET `total_amount` = `amount` WHERE `total_amount` = 0;
+--      -- parity kredit: sebelum plan/102 jalur approve mengkredit kolom `amount`.
+--
+--   3) UPDATE `deposits`
+--         SET `expires_at` = DATE_ADD('<WIB now>', INTERVAL 60 MINUTE)
+--       WHERE `status` = 'pending' AND `expires_at` IS NULL;
+--      -- jendela bayar baru untuk invoice produksi yang masih menggantung
+--      -- (tanpa ini baris lama langsung tersapu 'expired' oleh sweep).
+--
+--   4) Verifikasi invarian (WAJIB 0 baris / 0 inconsistent):
+--      SELECT COUNT(*) FROM `deposits`
+--       WHERE (status IN ('pending','waiting_approval')) <> (reserved_code_key IS NOT NULL);
+--
+-- Catatan: `ADD COLUMN` tidak idempoten di MySQL 8 (tanpa IF NOT EXISTS);
+-- MariaDB mendukung `ADD COLUMN IF NOT EXISTS`. Tool CLI sudah memeriksa
+-- information_schema lebih dulu sehingga aman dijalankan ulang.
+-- -----------------------------------------------------
+
+-- -----------------------------------------------------
+-- Plan 104 — MIGRASI LIVE (one-time; jalankan manual di DB aktif).
+-- Kolom `image` sudah masuk CREATE TABLE `gpu_products` di atas (instalasi
+-- baru otomatis). Untuk DB yang SUDAH ADA, gunakan tool yang sudah
+-- menyertakan BACKFILL + verifikasi:
+--
+--   php scripts/migrate_104_gpu_product_images.php --dry-run   # inspeksi
+--   php scripts/migrate_104_gpu_product_images.php --apply     # DDL + backfill + verify
+--   php scripts/migrate_104_gpu_product_images.php --verify    # read-only, 8/8
+--
+-- Referensi SQL yang dijalankan tool tersebut (urutan wajib):
+--
+--   1) ALTER TABLE `gpu_products`
+--        ADD COLUMN `image` VARCHAR(255) NULL DEFAULT NULL AFTER `name`;
+--      -- MariaDB (idempoten): ADD COLUMN IF NOT EXISTS `image` …
+--
+--   2) Backfill 8 paket kanonik — KEYED BY `name`, BUKAN `id` (id live
+--      bisa 5-12 sementara seed kanonik memakai id 1-8; prefix angka pada
+--      nama berkas = urutan lineup, bukan id):
+--        UPDATE `gpu_products` SET `image` = 'product1-rtx-3060-starter.jpeg'
+--         WHERE `name` = 'RTX 3060 Starter' AND `image` IS NULL;   -- … dst 8 baris
+--      -- Predikat `image IS NULL` menjaga gambar hasil upload admin TIDAK
+--      -- pernah ditimpa oleh re-run migrasi.
+--
+--   3) Verifikasi (harapan: 8 baris terisi, 0 baris rusak):
+--        SELECT COUNT(*) FROM `gpu_products` WHERE `image` IS NOT NULL;
+--        SELECT id, name, image FROM `gpu_products` WHERE `is_active` = 1 ORDER BY id;
+--
+-- Catatan: kolom hanya menyimpan BASENAME; prefix `uploads/products/`
+-- di-resolve application/helpers/product_image_helper.php. Berkas fisik
+-- bersifat runtime (di-gitignore) → instalasi bersih yang belum memiliki
+-- aset akan menampilkan fallback banner, bukan broken image.
 -- -----------------------------------------------------

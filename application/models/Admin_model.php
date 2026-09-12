@@ -36,8 +36,11 @@ class Admin_model extends CI_Model {
     // ===== HISTORY: COUNTS =====
 
     public function count_history_deposits() {
+        // plan/102: status terminal baru (rejected/expired) ikut terhitung;
+        // 'failed' dipertahankan untuk baris legacy. WAJIB sama persis dengan
+        // filter get_history_deposits() agar total paginasi = jumlah baris.
         return (int) $this->db
-            ->where_in('status', ['success', 'failed'])
+            ->where_in('status', ['success', 'failed', 'rejected', 'expired'])
             ->count_all_results('deposits');
     }
 
@@ -64,7 +67,14 @@ class Admin_model extends CI_Model {
      */
     public function get_alert_counts() {
         $counts = [
-            'pending_deposits'    => (int) $this->db->where('status', 'pending')->count_all_results('deposits'),
+            // plan/102: antrean deposit = pending (belum konfirmasi) +
+            // waiting_approval (member sudah menyatakan transfer, menunggu
+            // verifikasi admin). Badge HARUS sama dengan isi panel dashboard —
+            // kalau hanya 'pending', menyelesaikan konfirmasi member justru
+            // menurunkan badge padahal deposit masih menunggu aksi admin.
+            'pending_deposits'    => (int) $this->db
+                ->where_in('status', ['pending', 'waiting_approval'])
+                ->count_all_results('deposits'),
             'pending_withdrawals' => (int) $this->db->where('status', 'pending')->count_all_results('withdrawals'),
             'pending_promoter_claims' => (int) $this->db->where('status', 'pending')->count_all_results('promoter_claims'),
         ];
@@ -80,7 +90,8 @@ class Admin_model extends CI_Model {
         $this->db->select('d.*, u.phone');
         $this->db->from('deposits d');
         $this->db->join('users u', 'u.id = d.user_id', 'left');
-        $this->db->where_in('d.status', ['success', 'failed']);
+        // plan/102: parity dengan count_history_deposits().
+        $this->db->where_in('d.status', ['success', 'failed', 'rejected', 'expired']);
         $this->db->order_by('d.created_at', 'DESC');
         $this->db->limit($limit, $offset);
         return $this->db->get()->result();
@@ -380,7 +391,21 @@ class Admin_model extends CI_Model {
     // menampilkan flashdata/notifikasi TANPA query tambahan.
 
     /**
-     * W1 — Approve deposit: pending→success + kredit ledger & cache.
+     * W1 — Approve deposit: (pending|waiting_approval) → success + kredit
+     * ledger & cache. plan/102: nilai kredit = **pokok + kode unik** (D3:
+     * deposit fee ditahan platform; saat fee OFF = total_amount = Option A)
+     * dan reservasi kode dilepas.
+     *
+     * Guard status (keputusan D1/D4):
+     *   - status WAJIB masih hidup (pending atau waiting_approval) — replay/
+     *     double-click → 0 baris → tanpa kredit;
+     *   - `waiting_approval` **SELALU dapat di-approve**, termasuk setelah
+     *     jendela bayar lewat: member sudah menyatakan transfer, dan satu-
+     *     satunya otoritas adalah mutasi bank yang diverifikasi admin.
+     *     (Kalau baris ini ikut ditolak, D1 kehilangan maknanya — member yang
+     *     transfer di menit 59 akan kehilangan uangnya.)
+     *   - `pending` yang jendela bayarnya sudah lewat DITOLAK: kode uniknya
+     *     sudah dilepas sweep dan bisa dimiliki orang lain.
      *
      * @param int   $deposit_id
      * @param array|null $audit  Konteks audit dari _audit_ctx(); user_id & details
@@ -390,11 +415,22 @@ class Admin_model extends CI_Model {
     public function approve_deposit($deposit_id, $audit = null) {
         $deposit = $this->db->get_where('deposits', ['id' => (int) $deposit_id])->row();
 
-        if (!$deposit || $deposit->status !== 'pending') {
+        if (!$deposit || !in_array($deposit->status, ['pending', 'waiting_approval'], true)) {
             return ['success' => false, 'deposit' => null, 'message' => 'Deposit tidak valid atau sudah diproses.'];
         }
 
+        $now = date('Y-m-d H:i:s');
+        $pending_expired = ($deposit->status === 'pending'
+            && $deposit->expires_at !== null && $deposit->expires_at <= $now);
+
+        if ($pending_expired) {
+            return ['success' => false, 'deposit' => $deposit, 'message' => 'Deposit sudah kedaluwarsa dan tidak dapat disetujui.'];
+        }
+
         $this->load->model('Wallet_model');
+
+        // Nilai kredit otoritatif (pokok + kode; fallback amount utk legacy).
+        $credit_amount = $this->Wallet_model->deposit_credit_amount($deposit);
 
         $this->db->trans_begin();
 
@@ -405,20 +441,31 @@ class Admin_model extends CI_Model {
                 return ['success' => false, 'deposit' => $deposit, 'message' => 'Gagal memproses deposit.'];
             }
 
-            // 2. Transisi atomik kondisional (replay/double-click → 0 baris).
+            // 2. Transisi atomik kondisional (replay/double-click → 0 baris) +
+            //    pelepasan reservasi kode unik + cap waktu proses.
+            //    Guard jendela bayar HANYA berlaku untuk baris `pending` (D1).
             $this->db->where('id', (int) $deposit_id);
-            $this->db->where('status', 'pending');
-            $this->db->update('deposits', ['status' => 'success']);
+            $this->db->where(
+                "(status = 'waiting_approval'"
+                . " OR (status = 'pending' AND (expires_at IS NULL OR expires_at > " . $this->db->escape($now) . ")))",
+                null,
+                false
+            );
+            $this->db->update('deposits', [
+                'status'            => 'success',
+                'processed_at'      => $now,
+                'reserved_code_key' => null,
+            ]);
 
             if ($this->db->affected_rows() !== 1) {
                 $this->db->trans_rollback();
                 return ['success' => false, 'deposit' => $deposit, 'message' => 'Deposit tidak valid atau sudah diproses.'];
             }
 
-            // 3. Kredit ledger + cache atomik (helper C4).
+            // 3. Kredit ledger + cache atomik (helper C4) — nominal penuh (Option A).
             $credited = $this->Wallet_model->credit(
                 (int) $deposit->user_id,
-                (int) $deposit->amount,
+                $credit_amount,
                 $deposit->invoice_number,
                 'Top Up via ' . $deposit->invoice_number
             );
@@ -431,7 +478,14 @@ class Admin_model extends CI_Model {
             // 4. Audit di dalam TX yang sama.
             if (is_array($audit)) {
                 $audit['user_id'] = (int) $deposit->user_id;
-                $audit['details'] = ['invoice_number' => $deposit->invoice_number, 'amount' => $deposit->amount];
+                $audit['details'] = [
+                    'invoice_number' => $deposit->invoice_number,
+                    'amount'         => $deposit->amount,
+                    'unique_code'    => $deposit->unique_code,
+                    'total_amount'   => $deposit->total_amount,
+                    'credited'       => $credit_amount,
+                    'confirmed'      => ($deposit->status === 'waiting_approval'),
+                ];
                 $this->_write_audit($audit);
             }
 
@@ -444,6 +498,96 @@ class Admin_model extends CI_Model {
             log_message('error', 'Admin_model::approve_deposit — ' . $e->getMessage());
             return ['success' => false, 'deposit' => $deposit, 'message' => 'Gagal memproses deposit.'];
         }
+    }
+
+    /**
+     * plan/102 — Decline deposit: (pending|waiting_approval) → rejected,
+     * opsional alasan, TANPA mutasi uang (belum ada kredit yang terjadi).
+     *
+     * Reservasi kode dilepas di transisi yang sama sehingga kode bebas dipakai
+     * ulang. Refund (bila member terlanjur transfer dengan nominal/pokok salah)
+     * adalah keputusan operator di luar sistem → gunakan tool Inject Balance
+     * yang sudah teraudit.
+     *
+     * @param int         $deposit_id
+     * @param array|null  $audit
+     * @param string|null $reason  Alasan penolakan (opsional, ≤255).
+     * @return array{success:bool, deposit:object|null, message:string}
+     */
+    public function decline_deposit($deposit_id, $audit = null, $reason = null) {
+        $deposit = $this->db->get_where('deposits', ['id' => (int) $deposit_id])->row();
+
+        if (!$deposit || !in_array($deposit->status, ['pending', 'waiting_approval'], true)) {
+            return ['success' => false, 'deposit' => null, 'message' => 'Deposit tidak valid atau sudah diproses.'];
+        }
+
+        $reason = ($reason !== null && trim($reason) !== '')
+            ? mb_substr(trim($reason), 0, 255)
+            : null;
+
+        $now = date('Y-m-d H:i:s');
+
+        $this->db->trans_begin();
+
+        try {
+            // Transisi kondisional (anti double-submit M4): 0 baris → false.
+            // TIDAK ada lock users & TIDAK ada mutasi ledger — tidak ada uang
+            // yang bergerak pada penolakan deposit.
+            $this->db->where('id', (int) $deposit_id);
+            $this->db->where_in('status', ['pending', 'waiting_approval']);
+            $this->db->update('deposits', [
+                'status'            => 'rejected',
+                'decline_reason'    => $reason,
+                'processed_at'      => $now,
+                'reserved_code_key' => null,
+            ]);
+
+            if ($this->db->affected_rows() !== 1) {
+                $this->db->trans_rollback();
+                return ['success' => false, 'deposit' => $deposit, 'message' => 'Deposit tidak valid atau sudah diproses.'];
+            }
+
+            if (is_array($audit)) {
+                $audit['user_id'] = (int) $deposit->user_id;
+                $audit['details'] = [
+                    'invoice_number' => $deposit->invoice_number,
+                    'amount'         => $deposit->amount,
+                    'unique_code'    => $deposit->unique_code,
+                    'total_amount'   => $deposit->total_amount,
+                    'reason'         => $reason,
+                ];
+                $this->_write_audit($audit);
+            }
+
+            $this->db->trans_commit();
+
+            return ['success' => true, 'deposit' => $deposit, 'message' => ''];
+
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            log_message('error', 'Admin_model::decline_deposit — ' . $e->getMessage());
+            return ['success' => false, 'deposit' => $deposit, 'message' => 'Gagal menolak deposit.'];
+        }
+    }
+
+    /**
+     * plan/102 — Antrean deposit untuk Command Center: baris HIDUP
+     * (waiting_approval = uang sudah diklaim ditransfer, prioritas verifikasi
+     * lebih tinggi daripada `pending` yang belum dikonfirmasi member).
+     *
+     * Dipindah dari Admin::index() agar invariant "semua akses DB di model"
+     * (AGENTS.md) tetap berlaku.
+     *
+     * @return array<int,object>
+     */
+    public function get_deposit_queue() {
+        return $this->db->select('d.*, u.phone')
+            ->from('deposits d')
+            ->join('users u', 'u.id = d.user_id', 'left')
+            ->where_in('d.status', ['pending', 'waiting_approval'])
+            ->order_by("FIELD(d.status, 'waiting_approval', 'pending')", 'ASC', false)
+            ->order_by('d.created_at', 'ASC')
+            ->get()->result();
     }
 
     /**
@@ -802,18 +946,47 @@ class Admin_model extends CI_Model {
     }
 
     /**
+     * plan/104 — guard sebelum menghapus berkas gambar lama.
+     *
+     * TRUE bila nama berkas masih direferensikan baris produk LAIN. Berkas
+     * gambar normalnya unik (Upload library memakai encrypt_name), tetapi
+     * aset hasil backfill/seed manual bisa dipakai bersama > 1 baris —
+     * dalam kasus itu unlink akan merusak produk lain, jadi berkas
+     * dipertahankan (orphan yang aman > broken image).
+     *
+     * @param string $filename  basename di uploads/products/
+     * @param int    $except_id baris yang sedang di-update (dikecualikan)
+     * @return bool
+     */
+    public function is_product_image_referenced($filename, $except_id = 0) {
+        $filename = (string) $filename;
+        if ($filename === '') {
+            return false;
+        }
+
+        return $this->db
+            ->where('image', $filename)
+            ->where('id !=', (int) $except_id)
+            ->count_all_results('gpu_products') > 0;
+    }
+
+    /**
      * Normalisasi + koersi (int) kolom produk sebelum write (M8). Kolom
      * finansial & durasi sudah divalidasi regex di controller; model tetap
      * memaksa integer & whitelist kolom (anti mass-assignment).
      * plan/87: unlock_prerequisite_id TIDAK lagi di whitelist — kolom
      * dormant, tidak boleh tersentuh jalur write mana pun.
+     * plan/104: `image` masuk whitelist tetapi SELALU disanitasi lewat
+     * product_image_filename() (basename-only + allowlist ekstensi).
      *
      * @param array $data  subset kolom yang diizinkan.
      * @return array       kolom bersih siap insert/update.
      */
     private function _sanitize_product_fields(array $data) {
         $allowed = ['name', 'type', 'price', 'daily_rate', 'duration_days',
-                    'is_refundable', 'max_per_user', 'is_active'];
+                    'is_refundable', 'max_per_user', 'is_active',
+                    // plan/104: gambar produk (basename di uploads/products/).
+                    'image'];
         $clean = [];
         foreach ($allowed as $key) {
             if (!array_key_exists($key, $data)) {
@@ -822,6 +995,14 @@ class Admin_model extends CI_Model {
             switch ($key) {
                 case 'name':
                     $clean[$key] = trim((string) $data[$key]);
+                    break;
+                case 'image':
+                    // plan/104: choke-point anti mass-assignment — nilai apa pun
+                    // dari luar harus lewat product_image_filename() (basename-only
+                    // + allowlist jpg|jpeg|png|webp). Input liar → NULL, bukan
+                    // string mentah yang bisa jadi path traversal.
+                    // Kunci absen ⇒ kolom TIDAK tersentuh (gambar lama aman).
+                    $clean[$key] = product_image_filename($data[$key]);
                     break;
                 case 'type':
                     $clean[$key] = (in_array($data[$key], ['short_term', 'long_term'], true))

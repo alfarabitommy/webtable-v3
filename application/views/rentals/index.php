@@ -153,7 +153,7 @@
         <div class="relative flex items-start justify-between mb-4">
             <div class="flex-1 min-w-0">
                 <h3 class="text-base font-extrabold text-white truncate"><?= htmlspecialchars($rental->product_name ?? 'Node #' . $rental->product_id) ?></h3>
-                <p class="text-[10px] text-slate-500 mt-0.5 font-mono">ID: #<?= $rental->id ?> · <?= date('d M Y', strtotime($rental->created_at)) ?></p>
+                <p class="text-[10px] text-slate-500 mt-0.5 font-mono">ID: #<?= $rental->id ?> · <?= i18n_date($rental->created_at) ?></p>
             </div>
             <div class="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2.5 py-1 ml-3 flex-shrink-0">
                 <div class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></div>
@@ -175,7 +175,7 @@
 
         <!-- Expiry Info -->
         <div class="relative flex items-center justify-between text-[11px] text-slate-500 mb-2">
-            <span><i class="fas fa-clock mr-1"></i> <?= sprintf(lang('rental_expires_on'), date('d M Y', $expired)) ?></span>
+            <span><i class="fas fa-clock mr-1"></i> <?= sprintf(lang('rental_expires_on'), i18n_date($expired)) ?></span>
             <span class="font-mono <?= $days_left <= 3 ? 'text-rose-400' : 'text-slate-500' ?>"><?= sprintf(lang('rental_days_left'), $days_left) ?></span>
         </div>
 

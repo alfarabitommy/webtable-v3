@@ -351,7 +351,7 @@
                     <div class="u-card-inset rounded-xl px-3 py-2 flex items-center justify-between gap-2">
                         <div class="min-w-0">
                             <p class="text-xs u-text font-semibold truncate"><?= htmlspecialchars((string) ($h->product_name ?? 'Reward'), ENT_QUOTES, 'UTF-8') ?></p>
-                            <p class="text-[10px] u-muted">Rp <?= number_format((int) $h->omzet_cost, 0, ',', '.') ?> · <?= date('d M Y H:i', strtotime($h->created_at)) ?></p>
+                            <p class="text-[10px] u-muted">Rp <?= number_format((int) $h->omzet_cost, 0, ',', '.') ?> · <?= i18n_datetime($h->created_at) ?></p>
                             <?php if ($h->status === 'rejected' && !empty($h->admin_notes)): ?>
                                 <p class="text-[9px] text-amber-600 dark:text-amber-400 mt-0.5 truncate"><?= sprintf(lang('team_promo_reason_text'), htmlspecialchars($h->admin_notes, ENT_QUOTES, 'UTF-8')) ?></p>
                             <?php endif; ?>
@@ -500,7 +500,7 @@
                 <p class="text-[11px] u-text-2 leading-relaxed mb-2"><?= sprintf(lang('team_help_l1_body'), $l1_bonus_fmt) ?></p>
                 <ul class="text-[11px] u-text-2 space-y-1 ml-3 list-disc">
                     <li><?= lang('team_help_l1_li1') ?></li>
-                    <li><?= lang('team_help_l1_li2') ?></li>
+                    <li><?= sprintf(lang('team_help_l1_li2'), 'Rp ' . number_format(330000, 0, ',', '.')) ?></li>
                 </ul>
                 <p class="text-[10px] text-indigo-400 mt-2 font-semibold"><?= lang('team_help_l1_note') ?></p>
             </div>
@@ -566,7 +566,7 @@ function copyRef() {
     var copyHtml = btn ? btn.innerHTML : '';
     if (navigator.clipboard) {
         navigator.clipboard.writeText(url).then(function() {
-            btn.innerHTML = '<i class="fas fa-check mr-1"></i>' + ((window.SYNAPSE_I18N || {})['js_copied'] || 'Tersalin!');
+            btn.innerHTML = '<i class="fas fa-check mr-1"></i>' + window.SYNAPSE_I18N['js_copied'];
             btn.classList.add('bg-emerald-500');
             btn.classList.remove('bg-indigo-500');
             setTimeout(function() {
@@ -583,7 +583,7 @@ function copyRef() {
         t.select();
         document.execCommand('copy');
         document.body.removeChild(t);
-        btn.innerHTML = '<i class="fas fa-check mr-1"></i>' + ((window.SYNAPSE_I18N || {})['js_copied'] || 'Tersalin!');
+        btn.innerHTML = '<i class="fas fa-check mr-1"></i>' + window.SYNAPSE_I18N['js_copied'];
         setTimeout(function() { btn.innerHTML = copyHtml; }, 2000);
     }
 }

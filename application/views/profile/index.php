@@ -329,7 +329,7 @@
     }
 
     function showSuccess() {
-        toast.textContent = (window.SYNAPSE_I18N || {})['js_copied'] || 'Tersalin!';
+        toast.textContent = window.SYNAPSE_I18N['js_copied'];
         toast.className = 'text-[10px] font-bold text-emerald-600 text-center opacity-100 transition-opacity';
         btn.innerHTML = '<i class="fas fa-check"></i>';
         btn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
@@ -337,7 +337,7 @@
     }
 
     function showError() {
-        toast.textContent = (window.SYNAPSE_I18N || {})['js_copy_failed'] || 'Gagal menyalin';
+        toast.textContent = window.SYNAPSE_I18N['js_copy_failed'];
         toast.className = 'text-[10px] font-bold text-rose-600 text-center opacity-100 transition-opacity';
     }
 

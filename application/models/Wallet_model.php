@@ -6,6 +6,17 @@ class Wallet_model extends CI_Model {
     /** @var array|null Per-request cache of merged financial config (M1, plan/56). */
     private static $_fin_cfg = null;
 
+    /** @var array|null Per-request cache of deposit policy (plan/102). */
+    private static $_dep_policy = null;
+
+    /**
+     * plan/102: rentang kode unik 3 digit (keputusan pemilik repositori D2).
+     * Tanpa leading zero → tidak ada ambiguitas "045" vs "+45" saat member
+     * mengetik nominal transfer. 900 kode per nominal pokok.
+     */
+    const UNIQUE_CODE_MIN = 100;
+    const UNIQUE_CODE_MAX = 999;
+
     public function __construct() {
         parent::__construct();
 
@@ -328,6 +339,114 @@ class Wallet_model extends CI_Model {
         return ['ok' => count($errors) === 0, 'errors' => $errors, 'values' => $values];
     }
 
+    // =====================================================================
+    // plan/102: KEBIJAKAN DEPOSIT QRIS MANUAL
+    // =====================================================================
+    // Sumber: `system_settings` (dinamis, dapat dioperasikan admin) di atas
+    // fallback application/config/withdrawal_fees.php — semantik identik M1:
+    // nilai dinamis hilang/rusak TIDAK pernah membuat request gagal, hanya
+    // di-log lalu fallback dipakai.
+
+    /**
+     * Kebijakan deposit (per-request static cache).
+     *
+     * @return array{expiry_minutes:int, min_amount:int, max_amount:int}
+     */
+    public function get_deposit_policy() {
+        if (self::$_dep_policy !== null) {
+            return self::$_dep_policy;
+        }
+
+        $fallback = require APPPATH . 'config/withdrawal_fees.php';
+
+        $map = [];
+        foreach ($this->db->select('key_name, key_value')->get('system_settings')->result() as $row) {
+            $map[$row->key_name] = $row->key_value;
+        }
+
+        $policy = [
+            'expiry_minutes' => (int) (isset($fallback['deposit_expiry_minutes']) ? $fallback['deposit_expiry_minutes'] : 60),
+            'min_amount'     => (int) (isset($fallback['deposit_min_amount'])     ? $fallback['deposit_min_amount']     : 10000),
+            'max_amount'     => (int) (isset($fallback['deposit_max_amount'])     ? $fallback['deposit_max_amount']     : 50000000),
+        ];
+
+        // Jendela bayar: 5–1440 menit.
+        if (isset($map['deposit_expiry_minutes'])) {
+            $exp = $this->_norm_int($map['deposit_expiry_minutes'], 5);
+            if ($exp !== null && $exp <= 1440) {
+                $policy['expiry_minutes'] = $exp;
+            } else {
+                log_message('error', 'Wallet_model: deposit_expiry_minutes tidak valid — fallback dipakai (plan/102)');
+            }
+        }
+
+        // Batas nominal: bundle koheren (min < max, max ≤ 1e9) — pelanggaran
+        // mengembalikan KEDUANYA ke fallback sekaligus (atomik).
+        $min = isset($map['deposit_min_amount']) ? $this->_norm_int($map['deposit_min_amount'], 1) : null;
+        $max = isset($map['deposit_max_amount']) ? $this->_norm_int($map['deposit_max_amount'], 1) : null;
+        if ($min !== null && $max !== null && $min < $max && $max <= 1000000000) {
+            $policy['min_amount'] = $min;
+            $policy['max_amount'] = $max;
+        } elseif ($min !== null || $max !== null) {
+            log_message('error', 'Wallet_model: deposit_min_amount/deposit_max_amount tidak koheren — fallback dipakai (plan/102)');
+        }
+
+        self::$_dep_policy = $policy;
+        return $policy;
+    }
+
+    /**
+     * Validasi input admin untuk kartu "Pembayaran QRIS Manual"
+     * (plan/102 §7.2) — all-or-nothing, pesan error eksplisit per field.
+     *
+     * Cakupan: konten QRIS (nama merchant, instruksi) + kebijakan deposit
+     * (expiry, min, max). Nama file gambar TIDAK divalidasi di sini (ditangani
+     * controller setelah upload sukses).
+     *
+     * @param array $raw Map key system_settings → nilai mentah dari $_POST.
+     * @return array{ok:bool, errors:string[], values:array<string,string>}
+     */
+    public function validate_deposit_settings(array $raw) {
+        $errors = [];
+        $values = [];
+
+        // ── Nama merchant: wajib, 1–100 karakter.
+        $merchant = isset($raw['qris_merchant_name']) ? trim((string) $raw['qris_merchant_name']) : '';
+        if ($merchant === '' || mb_strlen($merchant) > 100) {
+            $errors[] = 'Nama merchant QRIS wajib diisi (1–100 karakter).';
+        } else {
+            $values['qris_merchant_name'] = $merchant;
+        }
+
+        // ── Instruksi pembayaran: opsional, ≤ 2000 karakter.
+        $instructions = isset($raw['qris_payment_instructions']) ? trim((string) $raw['qris_payment_instructions']) : '';
+        if (mb_strlen($instructions) > 2000) {
+            $errors[] = 'Instruksi pembayaran maksimal 2000 karakter.';
+        } else {
+            $values['qris_payment_instructions'] = $instructions;
+        }
+
+        // ── Jendela bayar: 5–1440 menit.
+        $expiry = isset($raw['deposit_expiry_minutes']) ? $this->_norm_int((string) $raw['deposit_expiry_minutes'], 5) : null;
+        if ($expiry === null || $expiry > 1440) {
+            $errors[] = 'Masa berlaku deposit harus angka bulat 5–1440 menit.';
+        } else {
+            $values['deposit_expiry_minutes'] = (string) $expiry;
+        }
+
+        // ── Batas nominal deposit.
+        $min = isset($raw['deposit_min_amount']) ? $this->_norm_int((string) $raw['deposit_min_amount'], 1) : null;
+        $max = isset($raw['deposit_max_amount']) ? $this->_norm_int((string) $raw['deposit_max_amount'], 1) : null;
+        if ($min === null || $max === null || $min >= $max || $max > 1000000000) {
+            $errors[] = 'Minimal & maksimal deposit tidak valid (min harus lebih kecil dari max, maksimal Rp 1.000.000.000).';
+        } else {
+            $values['deposit_min_amount'] = (string) $min;
+            $values['deposit_max_amount'] = (string) $max;
+        }
+
+        return ['ok' => count($errors) === 0, 'errors' => $errors, 'values' => $values];
+    }
+
     /**
      * PRD fee tier calculation (plan/52 §1.4, dec-30928987d7ae1c74) —
      * reads the DYNAMIC merged config (plan/56 M1).
@@ -590,7 +709,7 @@ class Wallet_model extends CI_Model {
     }
 
     /**
-     * Buat invoice deposit pending (W2).
+     * Buat invoice deposit pending + RESERVASI KODE UNIK 3 digit (W2 / plan102).
      *
      * M4 (plan/62 S2/H2): idempoten & aman-bentrok. Invoice lama
      * 'INV-YmdHis-userId' deterministik per detik → dua submit bersamaan bisa
@@ -598,47 +717,298 @@ class Wallet_model extends CI_Model {
      * memuat sufiks acak 6-hex; hasil insert diverifikasi, dan collision tak
      * terduga di-retry maksimal 3x (sufiks baru tiap percobaan).
      *
+     * plan/102: satu transaksi per attempt dengan URUTAN yang mengikat:
+     *   1. kunci anchor `users` (serialisasi per-user; pola C5/plan48),
+     *   2. baca kode yang sedang direservasi untuk pokok ini
+     *      (prefix scan `reserved_code_key LIKE '{amount}-%'`),
+     *   3. GUARD deposit aktif tunggal (pending|waiting_approval) milik user,
+     *   4. pilih kode dari himpunan bebas (CSPRNG),
+     *   5. INSERT invoice + unique_code + total_amount + reserved_code_key
+     *      + expires_at.
+     *
+     * Jaminan anti-tabrakan lintas-user ada di INDEX UNIQUE
+     * `uk_reserved_code_key` (bukan di SELECT): insert yang kalah balapan
+     * mendapat duplicate key 1062 → rollback → attempt berikutnya membaca
+     * ulang himpunan kode. Karena langkah 2/3 adalah consistent read PERTAMA
+     * setelah lock wait selesai, TX yang menunggu lock PASTI melihat insert
+     * yang sudah di-commit pesaingnya (alasan identik lock_and_get_balance,
+     * plan/48 §3.1) — sehingga `pending_exists` bebas race double-submit.
+     *
      * @param int $user_id
-     * @param int $amount Nominal IDR bulat positif (M8: di-(int) kan di boundary model).
-     * @return array{success:bool, invoice_number:string|null}
+     * @param int $amount Nominal pokok IDR bulat positif (M8: di-(int) kan di boundary model).
+     * @return array{success:bool, code:string, message:string, invoice_number:string|null,
+     *               unique_code:int|null, total_amount:int, expires_at:string|null}
+     *   code: 'ok' | 'invalid_amount' | 'below_min' | 'above_max'
+     *         | 'pending_exists' | 'code_exhausted' | 'code_conflict' | 'error'
      */
     public function create_deposit($user_id, $amount) {
         $amount = (int) $amount;
+        $policy = $this->get_deposit_policy();
+
+        $fail = function ($code, $message) {
+            return [
+                'success' => false, 'code' => $code, 'message' => $message,
+                'invoice_number' => null, 'unique_code' => null,
+                'total_amount' => 0, 'expires_at' => null,
+            ];
+        };
+
+        if ($amount <= 0) {
+            return $fail('invalid_amount', 'Nominal deposit tidak valid.');
+        }
+        if ($amount < $policy['min_amount']) {
+            return $fail('below_min', 'Minimal deposit adalah Rp ' . number_format($policy['min_amount'], 0, ',', '.'));
+        }
+        if ($amount > $policy['max_amount']) {
+            return $fail('above_max', 'Maksimal deposit adalah Rp ' . number_format($policy['max_amount'], 0, ',', '.'));
+        }
+
         for ($attempt = 0; $attempt < 3; $attempt++) {
-            $invoice = 'INV-' . date('YmdHis') . '-' . (int) $user_id . '-'
-                     . strtoupper(bin2hex(random_bytes(3))); // 6-hex suffix acak
+            $this->db->trans_begin();
 
-            $inserted = $this->db->insert('deposits', [
-                'user_id'        => (int) $user_id,
-                'invoice_number' => $invoice,
-                'amount'         => $amount,
-                'status'         => 'pending',
-            ]);
+            try {
+                // 1. Anchor lock users — juga memvalidasi baris user ada.
+                if ($this->lock_and_get_balance($user_id) === false) {
+                    $this->db->trans_rollback();
+                    return $fail('error', 'Gagal membuat invoice. Silakan coba lagi.');
+                }
 
-            if ($inserted) {
-                return ['success' => true, 'invoice_number' => $invoice];
+                // 2. Kode yang sedang direservasi untuk pokok ini (reservasi
+                //    hidup saja yang punya reserved_code_key non-NULL).
+                $used = [];
+                $rows = $this->db->query(
+                    "SELECT unique_code FROM deposits
+                      WHERE reserved_code_key LIKE ?
+                        AND unique_code IS NOT NULL",
+                    [$amount . '-%']
+                )->result();
+                foreach ($rows as $r) {
+                    $used[(int) $r->unique_code] = true;
+                }
+
+                // 3. Guard deposit aktif tunggal (otoritatif, di dalam lock).
+                $active = (int) $this->db->query(
+                    "SELECT COUNT(*) AS c FROM deposits
+                      WHERE user_id = ? AND status IN ('pending','waiting_approval')",
+                    [(int) $user_id]
+                )->row()->c;
+                if ($active > 0) {
+                    $this->db->trans_rollback();
+                    return $fail('pending_exists', 'Anda masih memiliki deposit aktif. Selesaikan atau tunggu kedaluwarsa terlebih dahulu.');
+                }
+
+                // 4. Alokasi kode unik dari himpunan bebas.
+                $code = $this->_pick_unique_code($used);
+                if ($code === null) {
+                    $this->db->trans_rollback();
+                    log_message('error', 'Wallet_model::create_deposit — kode unik habis untuk pokok ' . $amount);
+                    return $fail('code_exhausted', 'Kuota kode unik untuk nominal ini sedang penuh. Coba nominal lain atau hubungi admin.');
+                }
+
+                // 5. Persist: total_amount DIBEKUKAN di sini (pokok + fee + kode).
+                $fee         = $this->calculate_deposit_fee($amount);
+                $total       = $amount + $fee + $code;
+                $invoice     = 'INV-' . date('YmdHis') . '-' . (int) $user_id . '-'
+                             . strtoupper(bin2hex(random_bytes(3)));
+                $expires_at  = date('Y-m-d H:i:s', time() + ((int) $policy['expiry_minutes'] * 60));
+
+                $inserted = $this->db->insert('deposits', [
+                    'user_id'          => (int) $user_id,
+                    'invoice_number'   => $invoice,
+                    'amount'           => $amount,
+                    'unique_code'      => $code,
+                    'total_amount'     => $total,
+                    'reserved_code_key' => $amount . '-' . $code,
+                    'expires_at'       => $expires_at,
+                    'status'           => 'pending',
+                ]);
+
+                if (!$inserted) {
+                    $err = $this->db->error();
+                    $this->db->trans_rollback();
+
+                    // Duplicate key = invoice ATAU kode unik sudah direbut TX
+                    // lain → ulangi attempt (baca ulang himpunan kode).
+                    if (in_array((int) $err['code'], [1062, 23000], true)) {
+                        continue;
+                    }
+                    log_message('error', 'Wallet_model::create_deposit — insert gagal (user=' . (int) $user_id
+                        . ', code=' . $err['code'] . ', msg=' . $err['message'] . ')');
+                    return $fail('error', 'Gagal membuat invoice. Silakan coba lagi.');
+                }
+
+                $this->db->trans_commit();
+
+                return [
+                    'success'        => true,
+                    'code'           => 'ok',
+                    'message'        => '',
+                    'invoice_number' => $invoice,
+                    'unique_code'    => $code,
+                    'total_amount'   => $total,
+                    'expires_at'     => $expires_at,
+                ];
+
+            } catch (Throwable $e) {
+                $this->db->trans_rollback();
+                log_message('error', 'Wallet_model::create_deposit — ' . $e->getMessage());
+                return $fail('error', 'Gagal membuat invoice. Silakan coba lagi.');
             }
-
-            // Hanya duplicate key (uk_invoice_number) yang layak di-retry;
-            // error lain (mis. FK) → stop & log.
-            $err = $this->db->error();
-            if (in_array((int) $err['code'], [1062, 23000], true)) {
-                continue;
-            }
-            log_message('error', 'Wallet_model::create_deposit — insert gagal (user=' . (int) $user_id
-                . ', code=' . $err['code'] . ', msg=' . $err['message'] . ')');
-            break;
         }
 
         log_message('error', 'Wallet_model::create_deposit — gagal setelah retry (user=' . (int) $user_id . ')');
-        return ['success' => false, 'invoice_number' => null];
+        return $fail('code_conflict', 'Sistem sedang sibuk mengalokasikan kode unik. Silakan coba lagi.');
     }
 
-    public function get_pending_deposits($user_id) {
-        return $this->db->get_where('deposits', [
-            'user_id' => $user_id,
-            'status'  => 'pending',
-        ])->result();
+    /**
+     * Pilih kode unik bebas dari rentang 100–999 (CSPRNG, tanpa modulo bias).
+     *
+     * Murni/tanpa I/O agar mudah ditelaah: input himpunan kode terpakai,
+     * output kode bebas acak atau null bila rentang habis.
+     *
+     * @param array<int,bool> $used Kode terpakai (key = nilai kode).
+     * @return int|null
+     */
+    private function _pick_unique_code(array $used) {
+        $free = [];
+        for ($c = self::UNIQUE_CODE_MIN; $c <= self::UNIQUE_CODE_MAX; $c++) {
+            if (!isset($used[$c])) {
+                $free[] = $c;
+            }
+        }
+        if (count($free) === 0) {
+            return null;
+        }
+        return $free[random_int(0, count($free) - 1)];
+    }
+
+    /**
+     * plan/102: apakah user punya deposit hidup (pending | waiting_approval)?
+     * Dipakai untuk mirror UX guard aktif-tunggal — otoritasnya tetap
+     * create_deposit() di dalam TX terkunci.
+     */
+    public function has_active_deposit($user_id) {
+        return (int) $this->db
+            ->where('user_id', (int) $user_id)
+            ->where_in('status', ['pending', 'waiting_approval'])
+            ->count_all_results('deposits') > 0;
+    }
+
+    /**
+     * plan/102: deposit HIDUP milik user (pending | waiting_approval).
+     * Rename + perluas dari get_pending_deposits() lama.
+     */
+    public function get_active_deposits($user_id) {
+        return $this->db
+            ->where('user_id', (int) $user_id)
+            ->where_in('status', ['pending', 'waiting_approval'])
+            ->order_by('created_at', 'DESC')
+            ->get('deposits')
+            ->result();
+    }
+
+    /**
+     * plan/102: konfirmasi transfer member — pending → waiting_approval.
+     *
+     * Member TIDAK mengunggah bukti; ia menyatakan sudah transfer. Reservasi
+     * kode TETAP ditahan (D1: waiting_approval tidak pernah auto-expire),
+     * sehingga tidak ada risiko kode direbut orang lain setelah member bayar.
+     *
+     * @return array{success:bool, code:string, message:string}
+     *   code: 'ok' | 'not_found' | 'not_pending' | 'expired' | 'error'
+     */
+    public function confirm_deposit($invoice_number, $user_id) {
+        $deposit = $this->get_deposit_by_invoice($invoice_number);
+
+        if (!$deposit) {
+            return ['success' => false, 'code' => 'not_found', 'message' => 'Invoice tidak ditemukan.'];
+        }
+
+        // Otoritas jendela bayar = PHP WIB (bukan NOW() MySQL — invarian M2/M3).
+        $now = date('Y-m-d H:i:s');
+        if ($deposit->expires_at !== null && $deposit->expires_at <= $now) {
+            return ['success' => false, 'code' => 'expired', 'message' => 'Invoice sudah kedaluwarsa. Silakan buat deposit baru.'];
+        }
+        if ($deposit->status !== 'pending') {
+            return ['success' => false, 'code' => 'not_pending', 'message' => 'Deposit ini sudah dikonfirmasi atau tidak lagi menunggu pembayaran.'];
+        }
+
+        // Transisi kondisional: hanya menang bila masih pending DAN milik user
+        // DAN jendela bayar masih terbuka. affected_rows() === 1 = gerbang.
+        $this->db->where('invoice_number', $invoice_number);
+        $this->db->where('user_id', (int) $user_id);
+        $this->db->where('status', 'pending');
+        $this->db->where('expires_at >', $now);
+        $this->db->update('deposits', [
+            'status'       => 'waiting_approval',
+            'confirmed_at' => $now,
+        ]);
+
+        if ($this->db->affected_rows() !== 1) {
+            return ['success' => false, 'code' => 'not_pending', 'message' => 'Deposit ini sudah dikonfirmasi atau tidak lagi menunggu pembayaran.'];
+        }
+
+        return ['success' => true, 'code' => 'ok', 'message' => ''];
+    }
+
+    /**
+     * plan/102: sweep expiry lazy per-user (M3 plan/60) — pending → expired,
+     * melepas reservasi kode (reserved_code_key = NULL) agar kode bebas
+     * dipakai ulang. Satu UPDATE ber-index (idx_status_expires), autocommit,
+     * idempotent. `waiting_approval` SENGAJA tidak disentuh (keputusan D1).
+     *
+     * @return int Jumlah baris yang ditutup.
+     */
+    public function expire_user_deposits($user_id) {
+        $now = date('Y-m-d H:i:s');
+
+        $this->db->where('user_id', (int) $user_id);
+        $this->db->where('status', 'pending');
+        $this->db->where('expires_at <=', $now);
+        $this->db->update('deposits', [
+            'status'            => 'expired',
+            'processed_at'      => $now,
+            'reserved_code_key' => null,
+        ]);
+
+        return (int) $this->db->affected_rows();
+    }
+
+    /**
+     * plan/102: sweep expiry GLOBAL (entry admin + CLI). Batch dibatasi agar
+     * tidak pernah mengunci tabel lama. `waiting_approval` tidak disentuh (D1).
+     *
+     * @param int $limit Maksimum baris per panggilan.
+     * @return int Jumlah baris yang ditutup.
+     */
+    public function expire_stale_deposits($limit = 500) {
+        $now   = date('Y-m-d H:i:s');
+        $limit = max(1, (int) $limit);
+
+        $ids = $this->db->query(
+            "SELECT id FROM deposits
+              WHERE status = 'pending' AND expires_at <= ?
+              ORDER BY expires_at ASC
+              LIMIT " . $limit,
+            [$now]
+        )->result();
+
+        if (count($ids) === 0) {
+            return 0;
+        }
+
+        $id_list = array_map(function ($r) { return (int) $r->id; }, $ids);
+
+        $this->db->where_in('id', $id_list);
+        $this->db->where('status', 'pending');
+        $this->db->where('expires_at <=', $now);
+        $this->db->update('deposits', [
+            'status'            => 'expired',
+            'processed_at'      => $now,
+            'reserved_code_key' => null,
+        ]);
+
+        return (int) $this->db->affected_rows();
     }
 
     public function get_ledger_history($user_id) {
@@ -651,14 +1021,20 @@ class Wallet_model extends CI_Model {
         return $this->db->get_where('deposits', ['invoice_number' => $invoice_number])->row();
     }
 
+    /**
+     * Simulator pelunasan deposit (DEV/UAT ONLY — di-gate ENVIRONMENT oleh
+     * controller). plan/102: menerima `pending` MAUPUN `waiting_approval`,
+     * mengkredit pokok + kode unik (D3 — fee deposit ditahan platform),
+     * dan melepas reservasi kode.
+     */
     public function approve_deposit_simulator($invoice_number, $user_id) {
         $this->db->trans_begin();
 
         try {
             // C1 (plan 38) + C4 (plan/54): transisi atomik kondisional — hanya
-            // menang jika invoice masih 'pending' DAN milik user session;
-            // affected_rows() === 1 adalah satu-satunya gerbang kredit.
-            // replay/duplicate → 0 baris → 0 kredit.
+            // menang jika invoice masih hidup (pending|waiting_approval) DAN
+            // milik user session; affected_rows() === 1 adalah satu-satunya
+            // gerbang kredit. replay/duplicate → 0 baris → 0 kredit.
 
             // 1. Kunci anchor users (W2 credit path — serialisasi kredit
             //    per-user sebelum mutasi cache; pola C5/plan/48).
@@ -667,11 +1043,15 @@ class Wallet_model extends CI_Model {
                 return false;
             }
 
-            // 2. Transisi pending→success bersyarat.
+            // 2. Transisi → success bersyarat + lepas reservasi kode unik.
             $this->db->where('invoice_number', $invoice_number);
-            $this->db->where('status', 'pending');
+            $this->db->where_in('status', ['pending', 'waiting_approval']);
             $this->db->where('user_id', $user_id);
-            $this->db->update('deposits', ['status' => 'success']);
+            $this->db->update('deposits', [
+                'status'            => 'success',
+                'processed_at'      => date('Y-m-d H:i:s'),
+                'reserved_code_key' => null,
+            ]);
 
             if ($this->db->affected_rows() !== 1) {
                 $this->db->trans_rollback();
@@ -685,9 +1065,14 @@ class Wallet_model extends CI_Model {
                 return false;
             }
 
+            // plan/102 Option A: kredit = total_amount (pokok + kode, +fee bila
+            // fee deposit aktif). Fallback defensif ke `amount` untuk baris
+            // yang belum ter-backfill.
+            $credit_amount = $this->deposit_credit_amount($deposit);
+
             if (!$this->credit(
                 (int) $deposit->user_id,
-                (int) $deposit->amount,
+                $credit_amount,
                 $deposit->invoice_number,
                 'Top Up via ' . $deposit->invoice_number
             )) {
@@ -703,6 +1088,45 @@ class Wallet_model extends CI_Model {
             log_message('error', 'Wallet_model::approve_deposit_simulator — ' . $e->getMessage());
             return false;
         }
+    }
+
+    /**
+     * plan/102: nilai kredit otoritatif sebuah deposit (keputusan D3).
+     *
+     * Komposisi `total_amount` yang dibekukan saat create:
+     *   total_amount = pokok + [fee] + kode unik
+     *
+     * Kredit ke dompet = **pokok + kode unik**:
+     *   - deposit fee (bila aktif) DITAHAN platform — semantik M1 plan/56
+     *     "wallet credit stays pure principal" (zero dilution);
+     *   - saat `deposit_fee_enabled = '0'` → total_amount == pokok + kode,
+     *     sehingga kredit = total_amount = **Option A persis** (seluruh nominal
+     *     transfer dikreditkan).
+     *
+     * Baris legacy pra-migrasi (total_amount = 0) dikredit sebesar `amount` —
+     * parity perilaku lama.
+     *
+     * @param object $deposit Baris deposits.
+     * @return int Nominal kredit IDR bulat (>= 0).
+     */
+    public function deposit_credit_amount($deposit) {
+        $total  = (int) (isset($deposit->total_amount) ? $deposit->total_amount : 0);
+        $amount = (int) (isset($deposit->amount) ? $deposit->amount : 0);
+        $code   = (isset($deposit->unique_code) && $deposit->unique_code !== null)
+            ? (int) $deposit->unique_code : 0;
+
+        if ($total <= 0) {
+            return $amount; // baris legacy (belum ter-backfill): parity kredit lama
+        }
+
+        $credit = $amount + $code;
+
+        // Guard defensif: kredit tidak pernah melebihi nominal yang dibekukan.
+        if ($credit <= 0 || $credit > $total) {
+            return $total;
+        }
+
+        return $credit;
     }
 
     // ===== WITHDRAWAL =====

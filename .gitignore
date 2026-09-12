@@ -20,6 +20,16 @@ user_guide_src/cilexer/pycilexer.egg-info/*
 # Database seed backups
 /backups/
 
+# plan/102: konten unggahan runtime (gambar QRIS admin) — direktori tetap
+# ada di clone bersih lewat placeholder yang di-track.
+uploads/qris/*
+!uploads/qris/index.html
+
+# plan/104: konten unggahan runtime (gambar produk GPU admin) — direktori tetap
+# ada di clone bersih lewat placeholder yang di-track.
+uploads/products/*
+!uploads/products/index.html
+
 # IDE Files
 #-------------------------
 /nbproject/

@@ -420,7 +420,7 @@
                 <label for="new_password" class="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block"><?= lang('auth_new_password_label') ?></label>
                 <input type="password" id="new_password" name="new_password"
                        class="u-input h-14 px-5 rounded-2xl text-sm focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all w-full"
-                       placeholder="Minimal 8 karakter" autocomplete="new-password">
+                       placeholder="<?= lang('common_min8_placeholder') ?>" autocomplete="new-password">
                 <?= form_error('new_password', '<p class="text-xs text-rose-500 mt-1.5">', '</p>') ?>
             </div>
 

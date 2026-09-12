@@ -280,6 +280,108 @@ $day_labels = [1 => 'Senin', 2 => 'Selasa', 3 => 'Rabu', 4 => 'Kamis', 5 => 'Jum
     </div>
 
     <?= form_close() ?>
+
+    <!-- =================================================================
+         plan/102: PEMBAYARAN QRIS MANUAL
+         Form TERPISAH dari form finansial/kontak di atas agar jalur POST
+         yang sudah ada tidak tersentuh (risiko regresi minimum). Wajib
+         enctype multipart untuk unggah gambar QRIS.
+         ================================================================= -->
+    <div class="mt-6 t-card p-6">
+        <h4 class="text-sm font-semibold text-[var(--t-text)] mb-1 flex items-center gap-2">
+            <i class="fas fa-qrcode text-indigo-500"></i> Pembayaran QRIS Manual
+        </h4>
+        <p class="text-xs text-[var(--t-muted)] mb-5">
+            Konfigurasi deposit manual: member mentransfer nominal <span class="font-semibold">TEPAT</span>
+            (pokok + 3 digit kode unik) ke QRIS di bawah, lalu menekan "Saya Sudah Transfer".
+            Admin memverifikasi mutasi dan menyetujuinya di Command Center.
+            <span class="font-semibold">Selama gambar QRIS kosong, pembuatan deposit ditolak (fail-closed).</span>
+        </p>
+
+        <?= form_open_multipart('admin/settings/qris', ['id' => 'qrisForm', 'data-guard-submit' => '1']) ?>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+
+            <!-- Gambar QRIS -->
+            <div>
+                <label for="qris_image" class="t-label text-sm mb-1.5 block">Gambar QRIS</label>
+                <div class="rounded-xl border border-[var(--t-border)] bg-[var(--t-surface-2)] p-3 flex items-center justify-center min-h-[180px]">
+                    <?php if ($qris_image !== ''): ?>
+                        <img src="<?= base_url('uploads/qris/' . $qris_image) ?>"
+                             alt="QRIS merchant" class="max-h-[200px] w-auto object-contain rounded-lg bg-white p-1">
+                    <?php else: ?>
+                        <div class="text-center text-[var(--t-muted)] text-xs">
+                            <i class="fas fa-qrcode text-3xl block mb-2 opacity-40"></i>
+                            Belum ada gambar QRIS
+                        </div>
+                    <?php endif; ?>
+                </div>
+                <input type="file" id="qris_image" name="qris_image"
+                       accept="image/png,image/jpeg"
+                       class="t-input w-full mt-3 px-3 py-2 rounded-lg text-xs file:mr-2 file:px-2 file:py-1 file:rounded file:border-0 file:text-xs file:bg-indigo-600 file:text-white">
+                <p class="text-xs text-[var(--t-muted)] mt-1">
+                    Format PNG/JPG, maksimal 2 MB. Nama merchant &amp; instruksi juga dapat diubah kapan saja.
+                </p>
+            </div>
+
+            <!-- Identitas + instruksi -->
+            <div class="lg:col-span-2 space-y-4">
+                <div>
+                    <label for="qris_merchant_name" class="t-label text-sm mb-1.5 block">Nama Merchant QRIS</label>
+                    <input type="text" id="qris_merchant_name" name="qris_merchant_name"
+                           value="<?= htmlspecialchars($qris_merchant_name) ?>"
+                           maxlength="100" required placeholder="Synapse"
+                           class="t-input w-full px-3 py-2.5 rounded-lg text-sm">
+                </div>
+
+                <div>
+                    <label for="qris_payment_instructions" class="t-label text-sm mb-1.5 block">Instruksi Pembayaran (ditampilkan ke member)</label>
+                    <textarea id="qris_payment_instructions" name="qris_payment_instructions"
+                              rows="4" maxlength="2000"
+                              class="t-input w-full px-3 py-2.5 rounded-lg text-sm"><?= htmlspecialchars($qris_instructions) ?></textarea>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                        <label for="deposit_expiry_minutes" class="t-label text-sm mb-1.5 block">Masa Berlaku (menit)</label>
+                        <input type="number" id="deposit_expiry_minutes" name="deposit_expiry_minutes"
+                               value="<?= (int) $deposit_expiry_minutes ?>" min="5" max="1440" required
+                               class="t-input w-full px-3 py-2.5 rounded-lg text-sm font-mono">
+                    </div>
+                    <div>
+                        <label for="deposit_min_amount" class="t-label text-sm mb-1.5 block">Min Deposit (Rp)</label>
+                        <input type="number" id="deposit_min_amount" name="deposit_min_amount"
+                               value="<?= (int) $deposit_min_amount ?>" min="1" step="1" required
+                               class="t-input w-full px-3 py-2.5 rounded-lg text-sm font-mono">
+                    </div>
+                    <div>
+                        <label for="deposit_max_amount" class="t-label text-sm mb-1.5 block">Max Deposit (Rp)</label>
+                        <input type="number" id="deposit_max_amount" name="deposit_max_amount"
+                               value="<?= (int) $deposit_max_amount ?>" min="1" step="1" required
+                               class="t-input w-full px-3 py-2.5 rounded-lg text-sm font-mono">
+                    </div>
+                </div>
+
+                <p class="text-xs text-[var(--t-muted)]">
+                    Kode unik 3 digit (100–999) dialokasikan otomatis per nominal pokok dan dilepas kembali saat
+                    deposit kedaluwarsa/ditolak. Setelah member menekan "Saya Sudah Transfer", deposit tidak
+                    kedaluwarsa otomatis dan menunggu keputusan admin.
+                </p>
+            </div>
+        </div>
+
+        <div class="pt-6 mt-6 border-t border-[var(--t-border)] flex justify-end">
+            <button type="submit"
+                    class="px-5 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium
+                           hover:bg-indigo-700 active:bg-indigo-800 transition-colors
+                           flex items-center gap-2">
+                <i class="fas fa-qrcode text-xs"></i>
+                Simpan Konfigurasi QRIS
+            </button>
+        </div>
+
+        <?= form_close() ?>
+    </div>
 </div>
 
 <script>

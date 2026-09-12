@@ -27,6 +27,15 @@ class Admin extends CI_Controller {
         // global_balance di MY_Controller). Tanpa ini Admin_model tetap
         // bisa di-load per-method di bawah (load->model idempotent).
         $this->load->model('Admin_model');
+
+        // plan/102: sweep expiry GLOBAL sebelum menghitung alert — deposit
+        // pending yang sudah lewat jendela bayar ditutup (status expired +
+        // reservasi kode dilepas) supaya badge antrean tidak menghitung baris
+        // basi. Satu UPDATE ber-index (idx_status_expires), autocommit,
+        // idempotent; pola lazy M3 tanpa cron.
+        $this->load->model('Wallet_model');
+        $this->Wallet_model->expire_stale_deposits();
+
         $this->load->vars(array('global_admin_alerts' => $this->Admin_model->get_alert_counts()));
     }
 
@@ -80,12 +89,10 @@ class Admin extends CI_Controller {
     public function index() {
         $this->load->model('Admin_model');
 
-        $pending_deposits = $this->db->select('d.*, u.phone')
-            ->from('deposits d')
-            ->join('users u', 'u.id = d.user_id', 'left')
-            ->where('d.status', 'pending')
-            ->order_by('d.created_at', 'ASC')
-            ->get()->result();
+        // plan/102: antrean deposit (pending + waiting_approval) kini disediakan
+        // model — invariant "semua akses DB di model" (AGENTS.md) tetap terjaga.
+        // Urutan: waiting_approval (member sudah menyatakan transfer) lebih dulu.
+        $pending_deposits = $this->Admin_model->get_deposit_queue();
 
         $pending_withdrawals = $this->db->select('w.*, u.phone, ba.bank_name, ba.account_number, ba.account_holder AS account_name')
             ->from('withdrawals w')
@@ -136,6 +143,9 @@ class Admin extends CI_Controller {
         // C4 (plan/54): seluruh mutasi uang pindah ke Admin_model (ACID: anchor
         // lock + transisi kondisional + Wallet_model::credit + audit). Controller
         // hanya menangani HTTP/flashdata/notifikasi — tanpa $this->db langsung.
+        // plan/102: model menerima status pending MAUPUN waiting_approval,
+        // menolak baris kedaluwarsa, mengkredit `total_amount`, dan melepas
+        // reservasi kode unik.
         $this->load->model('Admin_model');
 
         $result = $this->Admin_model->approve_deposit(
@@ -144,13 +154,20 @@ class Admin extends CI_Controller {
         );
 
         if ($result['success'] && $result['deposit']) {
-            // Notify user — fire-and-forget after committed TX
-            $deposit = $result['deposit'];
+            // Notify user — fire-and-forget after committed TX.
+            // plan/102: nominal notifikasi = nilai kredit otoritatif
+            // (pokok + kode unik; fee deposit ditahan platform — D3).
+            $deposit  = $result['deposit'];
+            $this->load->model('Wallet_model');
+            $credited = $this->Wallet_model->deposit_credit_amount($deposit);
+
             $this->load->model('Notification_model');
-            $this->Notification_model->insert(
+            // plan/103 W8: key + params (bukan prosa beku) — dirender dalam
+            // idiom pembaca oleh i18n_notification_text().
+            $this->Notification_model->insert_keyed(
                 $deposit->user_id,
-                'Deposit Berhasil',
-                'Top Up sebesar Rp ' . number_format($deposit->amount, 0, ',', '.') . ' telah masuk ke saldo Anda.',
+                'notif_deposit_approved',
+                [number_format($credited, 0, ',', '.')],
                 'success'
             );
             $this->session->set_flashdata('success', 'Deposit #' . $deposit->invoice_number . ' berhasil disetujui.');
@@ -158,7 +175,51 @@ class Admin extends CI_Controller {
             $this->session->set_flashdata('error', $result['message']);
         }
 
-        redirect('admin');
+        redirect('admin#pending-deposits');
+    }
+
+    /**
+     * plan/102: tolak deposit (pending|waiting_approval → rejected) dengan
+     * alasan opsional. TIDAK ada mutasi uang — reservasi kode dilepas di
+     * transisi yang sama sehingga kode bebas dipakai ulang.
+     */
+    public function decline_deposit($deposit_id) {
+        // M4 (plan/62 S1): POST-only — fail-closed.
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
+        }
+
+        $this->load->model('Admin_model');
+
+        $reason = trim((string) $this->input->post('reason', TRUE));
+
+        $result = $this->Admin_model->decline_deposit(
+            (int) $deposit_id,
+            $this->_audit_ctx(null, 'decline_deposit'),
+            ($reason === '') ? null : $reason
+        );
+
+        if ($result['success'] && $result['deposit']) {
+            $deposit = $result['deposit'];
+
+            // BUGFIX M5 (parity decline_withdrawal): alasan dibaca dari variabel
+            // POST lokal — objek $deposit adalah snapshot SEBELUM update,
+            // sehingga decline_reason di dalamnya masih NULL.
+            // plan/103 W8: alasan menjadi PARAMETER, bukan bagian prosa beku.
+            $this->load->model('Notification_model');
+            $this->Notification_model->insert_keyed(
+                $deposit->user_id,
+                'notif_deposit_declined',
+                [$reason],
+                'warning' // 'error' bukan anggota ENUM user_notifications.type (bug senyap M5)
+            );
+            $this->session->set_flashdata('success', 'Deposit #' . $deposit->invoice_number . ' ditolak.');
+        } else {
+            $this->session->set_flashdata('error', $result['message']);
+        }
+
+        redirect('admin#pending-deposits');
     }
 
     public function approve_withdrawal($wd_id) {
@@ -181,10 +242,10 @@ class Admin extends CI_Controller {
         if ($result['success'] && $result['withdrawal']) {
             $wd = $result['withdrawal'];
             $this->load->model('Notification_model');
-            $this->Notification_model->insert(
+            $this->Notification_model->insert_keyed(
                 $wd->user_id,
-                'Penarikan Berhasil',
-                'Penarikan sebesar Rp ' . number_format($wd->amount, 0, ',', '.') . ' telah diproses.',
+                'notif_wd_approved',
+                [number_format($wd->amount, 0, ',', '.')],
                 'success'
             );
             $this->session->set_flashdata('success', 'Penarikan #' . $wd->wd_number . ' berhasil disetujui.');
@@ -223,16 +284,13 @@ class Admin extends CI_Controller {
             // BUGFIX M5: JANGAN baca alasan dari $wd->decline_reason — objek
             // $wd adalah snapshot baris SEBELUM update (decline_reason masih
             // NULL saat di-read), sehingga gate itu selalu false → alasan
-            // hilang dari notifikasi. Bangun pesan dari variabel lokal $reason
-            // (nilai POST ter-santasi yang sama dengan yang dipersist + diaudit).
-            $message = 'Penarikan sebesar Rp ' . number_format($wd->amount, 0, ',', '.') . ' ditolak. Dana telah dikembalikan ke saldo.';
-            if ($reason !== '') {
-                $message .= ' Alasan: ' . $reason;
-            }
-            $this->Notification_model->insert(
+            // hilang dari notifikasi. Alasan diambil dari variabel lokal
+            // $reason (nilai POST ter-santasi, sama dengan yang dipersist).
+            // plan/103 W8: nominal + alasan menjadi PARAMETER kamus.
+            $this->Notification_model->insert_keyed(
                 $wd->user_id,
-                'Penarikan Ditolak',
-                $message,
+                'notif_wd_declined',
+                [number_format($wd->amount, 0, ',', '.'), $reason],
                 'warning' // M5: 'error' bukan anggota ENUM user_notifications.type → di-koersi '' oleh MySQL (bug senyap)
             );
             $this->session->set_flashdata('success', 'Penarikan #' . $wd->wd_number . ' ditolak & dana dikembalikan.');
@@ -406,6 +464,10 @@ class Admin extends CI_Controller {
 
         $contact = $this->Admin_model->get_settings_map(['wa_number', 'support_email']);
         $cfg     = $this->Wallet_model->get_financial_config();
+        // plan/102: konfigurasi pembayaran QRIS manual + kebijakan deposit
+        // (form TERPISAH dari form finansial di halaman yang sama).
+        $qris      = $this->Admin_model->get_settings_map(['qris_image', 'qris_merchant_name', 'qris_payment_instructions']);
+        $depPolicy = $this->Wallet_model->get_deposit_policy();
 
         $data = [
             'page_title'          => 'Pengaturan',
@@ -421,6 +483,13 @@ class Admin extends CI_Controller {
             'deposit_fee_enabled' => (int) $cfg['deposit_fee_enabled'],
             'deposit_fee_type'    => $cfg['deposit_fee_type'],
             'deposit_fee_value'   => $cfg['deposit_fee_value'],
+            // plan/102
+            'qris_image'          => (string) ($qris['qris_image'] ?? ''),
+            'qris_merchant_name'  => (string) ($qris['qris_merchant_name'] ?? ''),
+            'qris_instructions'   => (string) ($qris['qris_payment_instructions'] ?? ''),
+            'deposit_expiry_minutes' => (int) $depPolicy['expiry_minutes'],
+            'deposit_min_amount'     => (int) $depPolicy['min_amount'],
+            'deposit_max_amount'     => (int) $depPolicy['max_amount'],
         ];
 
         // Plan 89: nilai rebate dari merged dynamic config (fallback-safe).
@@ -435,6 +504,117 @@ class Admin extends CI_Controller {
         $this->load->view('admin/templates/topbar', $data);
         $this->load->view('admin/settings', $data);
         $this->load->view('admin/templates/footer');
+    }
+
+    // ===================================================================
+    //  plan/102: PEMBAYARAN QRIS MANUAL (gambar + identitas + kebijakan deposit)
+    //  Form terpisah dari /admin/settings agar jalur POST finansial/kontak/
+    //  rebate yang sudah ada tidak tersentuh (risiko regresi minimum).
+    //  Panel admin tetap 100% Indonesia (invarian L1) — tanpa key i18n.
+    // ===================================================================
+
+    /**
+     * POST /admin/settings/qris — simpan konfigurasi QRIS manual + kebijakan
+     * deposit. Urutan WAJIB: validasi → upload → persist (all-or-nothing),
+     * supaya berkas tidak pernah tersimpan saat ada field tidak valid.
+     */
+    public function qris_settings() {
+        // M4 (plan/62 S1): POST-only — selain POST ditolak 404.
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
+        }
+
+        $this->load->model('Admin_model');
+        $this->load->model('Wallet_model');
+
+        // ── 1. Validasi seluruh field teks/angka LEBIH DULU (all-or-nothing).
+        $v = $this->Wallet_model->validate_deposit_settings([
+            'qris_merchant_name'        => $this->input->post('qris_merchant_name', TRUE),
+            'qris_payment_instructions' => $this->input->post('qris_payment_instructions'),
+            'deposit_expiry_minutes'    => $this->input->post('deposit_expiry_minutes'),
+            'deposit_min_amount'        => $this->input->post('deposit_min_amount'),
+            'deposit_max_amount'        => $this->input->post('deposit_max_amount'),
+        ]);
+
+        if (!$v['ok']) {
+            $this->session->set_flashdata('error', 'Validasi QRIS gagal: ' . implode(' ', $v['errors']));
+            redirect('admin/settings');
+            return;
+        }
+
+        $final = $v['values'];
+
+        // ── 2. Upload gambar QRIS (opsional). Security Engineer checklist:
+        //    allowlist ekstensi + true-MIME (detect_mime), nama acak
+        //    (encrypt_name → tanpa path traversal), batas 2 MB, dan SVG
+        //    SENGAJA ditolak (vektor stored XSS).
+        $old_image = (string) $this->Admin_model->get_setting('qris_image');
+        $new_image = null;
+
+        if (!empty($_FILES['qris_image']['name'])) {
+            $config = [
+                'upload_path'   => './uploads/qris/',
+                'allowed_types' => 'png|jpg|jpeg',
+                'max_size'      => 2048,
+                'encrypt_name'  => TRUE,
+                'remove_spaces' => TRUE,
+                'detect_mime'   => TRUE,
+            ];
+
+            $this->load->library('upload', $config);
+
+            if (!$this->upload->do_upload('qris_image')) {
+                $this->session->set_flashdata('error', 'Upload gambar QRIS gagal: ' . $this->upload->display_errors('', ''));
+                redirect('admin/settings');
+                return;
+            }
+
+            $upload_data = $this->upload->data();
+            $new_image   = $upload_data['file_name'];
+            $final['qris_image'] = $new_image;
+        }
+
+        // ── 3. Snapshot before→after per key (audit M5/A1).
+        $keys   = array_keys($final);
+        $before = [];
+        foreach ($keys as $key) {
+            $before[$key] = $this->Admin_model->get_setting($key);
+        }
+
+        $changed = [];
+        foreach ($final as $key => $value) {
+            if ((string) ($before[$key] ?? null) !== (string) $value) {
+                $changed[$key] = $value;
+            }
+        }
+
+        $audit_ctx = $this->_audit_ctx(null, 'admin_update_qris_settings', [
+            'keys'           => array_keys($changed),
+            'before'         => array_intersect_key($before, $changed),
+            'after'          => $changed,
+            'image_replaced' => ($new_image !== null),
+        ]);
+
+        if (!$this->Admin_model->update_system_settings($final, $audit_ctx)) {
+            // Persist gagal → buang berkas baru agar tidak menjadi orphan dan
+            // gambar lama tetap menjadi acuan (tidak ada jendela "gambar hilang").
+            if ($new_image !== null && file_exists('./uploads/qris/' . $new_image)) {
+                @unlink('./uploads/qris/' . $new_image);
+            }
+            $this->session->set_flashdata('error', 'Gagal menyimpan konfigurasi QRIS.');
+            redirect('admin/settings');
+            return;
+        }
+
+        // ── 4. Hapus berkas LAMA hanya setelah persist sukses.
+        if ($new_image !== null && $old_image !== '' && $old_image !== $new_image
+            && file_exists('./uploads/qris/' . $old_image)) {
+            @unlink('./uploads/qris/' . $old_image);
+        }
+
+        $this->session->set_flashdata('success', 'Konfigurasi pembayaran QRIS berhasil disimpan.');
+        redirect('admin/settings');
     }
 
     // ===================================================================
@@ -673,10 +853,10 @@ class Admin extends CI_Controller {
             // M5/N3: beri tahu user bahwa akunnya aktif kembali (post-commit —
             // sesi lama sudah diakhiri saat ban, notifikasi terbaca saat login).
             $this->load->model('Notification_model');
-            $this->Notification_model->insert(
+            $this->Notification_model->insert_keyed(
                 (int) $id,
-                'Akun Diaktifkan Kembali',
-                'Akun Anda telah dibuka blokirnya oleh admin. Silakan login kembali.',
+                'notif_unbanned',
+                [],
                 'info'
             );
         }
@@ -720,12 +900,10 @@ class Admin extends CI_Controller {
         // M5/N3: user wajib tahu perubahan status (post-commit).
         if ($new_state !== FALSE) {
             $this->load->model('Notification_model');
-            $this->Notification_model->insert(
+            $this->Notification_model->insert_keyed(
                 (int) $id,
-                $new_state ? 'Status Promotor Aktif' : 'Status Promotor Dicabut',
-                $new_state
-                    ? 'Selamat! Anda kini promotor — kode undangan terbuka. Kumpulkan omzet L1 untuk reward GPU.'
-                    : 'Status promotor Anda dicabut oleh admin. Pengajuan klaim baru ditutup; klaim pending tetap diproses.',
+                $new_state ? 'notif_promoter_on' : 'notif_promoter_off',
+                [],
                 'info'
             );
         }
@@ -762,12 +940,18 @@ class Admin extends CI_Controller {
             $this->session->set_flashdata('success', "Balance {$label}: Rp " . number_format($amount, 0, ',', '.') . " berhasil.");
             // M5/N3: user wajib tahu perubahan saldo sepihak oleh admin (post-commit).
             $this->load->model('Notification_model');
-            $this->Notification_model->insert(
+            // plan/103 W8: suffix keterangan menjadi PARAMETER (kata sambung
+            // sudah tidak dirangkai manual), sehingga kalimat dapat dirender
+            // ulang dalam idiom pembaca.
+            $this->Notification_model->insert_keyed(
                 (int) $id,
-                ($type === 'credit') ? 'Saldo Ditambahkan Admin' : 'Saldo Dipotong Admin',
-                'Saldo sebesar Rp ' . number_format($amount, 0, ',', '.') . ' telah '
-                    . (($type === 'credit') ? 'ditambahkan ke' : 'dipotong dari') . ' saldo Anda oleh admin.'
-                    . (($desc !== '' && $desc !== 'Admin Manual Adjustment') ? ' Keterangan: ' . $desc : ''),
+                ($type === 'credit') ? 'notif_balance_credit' : 'notif_balance_debit',
+                [
+                    number_format($amount, 0, ',', '.'),
+                    ($desc !== '' && $desc !== 'Admin Manual Adjustment')
+                        ? sprintf(lang('notif_balance_note_suffix'), $desc)
+                        : '',
+                ],
                 'info'
             );
         } else {
@@ -798,10 +982,10 @@ class Admin extends CI_Controller {
             $this->session->set_flashdata('success', 'Rental berhasil di-inject (BYPASS balance).');
             // M5/N3: user wajib tahu kontrak sewa diaktifkan sepihak oleh admin (post-commit).
             $this->load->model('Notification_model');
-            $this->Notification_model->insert(
+            $this->Notification_model->insert_keyed(
                 (int) $id,
-                'Sewa Diaktifkan Admin',
-                'Kontrak sewa (produk #' . $product_id . ') telah diaktifkan untuk akun Anda oleh admin.',
+                'notif_rental_injected',
+                [(int) $product_id],
                 'info'
             );
         } else {
@@ -1393,6 +1577,18 @@ class Admin extends CI_Controller {
             return;
         }
 
+        // plan/104: validasi teks DULU, baru upload (all-or-nothing) — tidak
+        // pernah ada berkas tersimpan untuk payload yang tidak valid.
+        $upload = $this->_handle_product_image_upload(false);
+        if (!$upload['ok']) {
+            $this->session->set_flashdata('error', $upload['error']);
+            redirect('admin/products');
+            return;
+        }
+        if ($upload['set']) {
+            $v['fields']['image'] = $upload['image'];
+        }
+
         $this->db->trans_start();
         $new_id = $this->Admin_model->create_product($v['fields']);
         if ($new_id !== false) {
@@ -1409,6 +1605,8 @@ class Admin extends CI_Controller {
         $this->db->trans_complete();
 
         if (!$this->db->trans_status() || $new_id === false) {
+            // plan/104: persist gagal → berkas baru dibuang (anti-orphan).
+            $this->_discard_uploaded_product_image($upload);
             $this->session->set_flashdata('error', 'Gagal menyimpan paket baru.');
         } else {
             $this->session->set_flashdata('success', 'Paket "' . $v['fields']['name'] . '" berhasil dibuat.');
@@ -1442,6 +1640,19 @@ class Admin extends CI_Controller {
             return;
         }
 
+        // plan/104: gambar — urutan wajib validasi teks → upload → persist.
+        // `remove_image` hanya berlaku bila tidak ada berkas baru (upload menang).
+        $remove_requested = ($this->input->post('remove_image') !== null);
+        $upload           = $this->_handle_product_image_upload($remove_requested);
+        if (!$upload['ok']) {
+            $this->session->set_flashdata('error', $upload['error']);
+            redirect('admin/products');
+            return;
+        }
+        if ($upload['set']) {
+            $v['fields']['image'] = $upload['image'];
+        }
+
         // Payload audit simetris: BEFORE (semua kolom) vs AFTER (BEFORE +
         // field yang diedit; is_active tidak diedit via form → tetap).
         $before_payload = $this->_product_payload_from_row($before);
@@ -1464,8 +1675,13 @@ class Admin extends CI_Controller {
         $this->db->trans_complete();
 
         if (!$this->db->trans_status() || !$updated) {
+            // plan/104: persist gagal → berkas BARU dibuang; gambar lama tetap
+            // menjadi acuan (tidak ada jendela "gambar hilang").
+            $this->_discard_uploaded_product_image($upload);
             $this->session->set_flashdata('error', 'Gagal memperbarui paket.');
         } else {
+            // plan/104: hapus berkas LAMA hanya setelah persist sukses.
+            $this->_delete_replaced_product_image($before, $upload, $v['fields'], $id);
             $this->session->set_flashdata('success', 'Paket "' . $before->name . '" berhasil diperbarui.');
         }
         redirect('admin/products');
@@ -1516,6 +1732,126 @@ class Admin extends CI_Controller {
             $this->session->set_flashdata('success', 'Paket "' . $before->name . '" berhasil dinonaktifkan.');
         }
         redirect('admin/products');
+    }
+
+    /**
+     * plan/104 — Upload gambar produk (Security Engineer checklist).
+     *
+     * allowlist ekstensi + true-MIME (detect_mime, WAJIB ada entry `webp`
+     * di config/mimes.php) + nama acak (encrypt_name → tanpa path traversal)
+     * + batas 2048 KB (selaras upload_max_filesize=2M host). SVG SENGAJA
+     * ditolak (vektor stored XSS). Pesan galat SELALU prosa Indonesia —
+     * detail asli dari Upload library (bahasa Inggris) hanya masuk log
+     * (invariant L1; pola plan/103 Profile::update).
+     *
+     * @param bool $remove_requested  checkbox "Hapus gambar saat ini"
+     * @return array{ok:bool, error:string, set:bool, image:?string}
+     *   set=false → gambar lama DIPERTAHANKAN (tidak ada berkas baru,
+     *   tidak ada permintaan hapus).
+     */
+    private function _handle_product_image_upload($remove_requested) {
+        $no_change = ['ok' => TRUE, 'error' => '', 'set' => FALSE, 'image' => NULL];
+
+        // Tidak ada berkas baru diunggah.
+        if (empty($_FILES['image']['name'])) {
+            if ($remove_requested) {
+                return ['ok' => TRUE, 'error' => '', 'set' => TRUE, 'image' => NULL];
+            }
+            return $no_change;
+        }
+
+        $config = [
+            'upload_path'      => './uploads/products/',
+            'allowed_types'    => 'jpg|jpeg|png|webp',
+            'max_size'         => 2048,
+            'encrypt_name'     => TRUE,
+            'remove_spaces'    => TRUE,
+            'file_ext_tolower' => TRUE,
+            'detect_mime'      => TRUE,
+        ];
+
+        $this->load->library('upload', $config);
+
+        if (!$this->upload->do_upload('image')) {
+            log_message('error', 'Admin::_handle_product_image_upload — ' . $this->upload->display_errors('', ''));
+
+            return [
+                'ok'    => FALSE,
+                'error' => 'Upload gambar gagal: berkas harus berformat JPG, PNG, atau WebP dengan ukuran maksimal 2 MB.',
+                'set'   => FALSE,
+                'image' => NULL,
+            ];
+        }
+
+        $upload_data = $this->upload->data();
+
+        return [
+            'ok'    => TRUE,
+            'error' => '',
+            'set'   => TRUE,
+            'image' => (string) $upload_data['file_name'],
+        ];
+    }
+
+    /**
+     * plan/104 — Buang berkas BARU saat persist DB gagal (anti-orphan).
+     * Hanya menyentuh berkas yang baru saja diunggah; gambar lama tidak
+     * pernah tersentuh di sini.
+     *
+     * @param array $upload  hasil _handle_product_image_upload()
+     */
+    private function _discard_uploaded_product_image(array $upload) {
+        if (empty($upload['set']) || empty($upload['image'])) {
+            return;
+        }
+        $path = './uploads/products/' . $upload['image'];
+        if (file_exists($path)) {
+            @unlink($path);
+        }
+    }
+
+    /**
+     * plan/104 — Hapus berkas LAMA setelah persist sukses (deletion
+     * lifecycle). Guard berlapis:
+     *   1. hanya bila ada perubahan gambar (upload baru ATAU remove_image);
+     *   2. nama lama tidak kosong & berbeda dari nama baru;
+     *   3. tidak direferensikan baris produk lain (Admin_model);
+     *   4. berkas benar-benar ada di disk.
+     *
+     * @param object $before   baris BEFORE (memuat ->image)
+     * @param array  $upload   hasil _handle_product_image_upload()
+     * @param array  $fields   field yang dipersist ($v['fields'])
+     * @param int    $id       id produk
+     */
+    private function _delete_replaced_product_image($before, array $upload, array $fields, $id) {
+        if (empty($upload['set'])) {
+            return; // tidak ada perubahan gambar
+        }
+
+        $old = isset($before->image) ? (string) $before->image : '';
+        if ($old === '') {
+            return;
+        }
+
+        $new = array_key_exists('image', $fields) && $fields['image'] !== null
+            ? (string) $fields['image']
+            : '';
+
+        if ($old === $new) {
+            return; // nama sama (update no-op) → jangan hapus
+        }
+
+        $this->load->model('Admin_model');
+        if ($this->Admin_model->is_product_image_referenced($old, $id)) {
+            // Masih dipakai baris lain — berkas dipertahankan.
+            log_message('info', 'Admin::_delete_replaced_product_image — berkas ' . $old . ' masih direferensikan produk lain; tidak dihapus.');
+            return;
+        }
+
+        $path = './uploads/products/' . $old;
+        if (file_exists($path)) {
+            @unlink($path);
+        }
     }
 
     /**
@@ -1591,7 +1927,9 @@ class Admin extends CI_Controller {
     /**
      * Payload audit simetris dari baris gpu_products (BEFORE snapshot).
      * M8: nominal & boolean di-(int) kan. plan/87: unlock_prerequisite_id
-     * tidak disertakan (kolom dormant).
+     * tidak disertakan (kolom dormant). plan/104: `image` (nama berkas
+     * gambar produk) disertakan — `??` menjaga kompatibilitas bila kolom
+     * belum ada (deploy kode mendahului DDL).
      *
      * @param object $row  hasil Admin_model::get_product_row()
      * @return array
@@ -1599,6 +1937,7 @@ class Admin extends CI_Controller {
     private function _product_payload_from_row($row) {
         return [
             'name'                   => $row->name,
+            'image'                  => $row->image ?? null,
             'type'                   => $row->type,
             'price'                  => (int) $row->price,
             'daily_rate'             => (int) $row->daily_rate,

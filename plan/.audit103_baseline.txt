@@ -1,0 +1,218 @@
+=== plan/103 i18n hardcoded-string audit ===
+File dipindai : 72
+Total temuan  : 158
+  R1-set_flashdata   41
+  R1-show_error      3
+  R2-literal-prose   102
+  R3-date-format     8
+  R4-js-fallback     4
+
+--- Temuan (file:line | rule | snippet) ---
+
+application/controllers/Auth.php
+    138 | R2-literal-prose   | Kode keamanan salah atau sudah kedaluwarsa.
+    151 | R2-literal-prose   | Nomor Telepon
+    152 | R2-literal-prose   | Nomor telepon sudah terdaftar. Silakan gunakan nomor lain atau login.
+    154 | R2-literal-prose   | Kata Sandi
+    155 | R2-literal-prose   | Kode Undangan
+    188 | R1-set_flashdata   | $this->session->set_flashdata('success', 'Pendaftaran berhasil! Silakan login.');
+    191 | R2-literal-prose   | Nomor telepon sudah terdaftar. Silakan gunakan nomor lain atau login.
+    229 | R2-literal-prose   | Kode keamanan salah atau sudah kedaluwarsa.
+    235 | R2-literal-prose   | Nomor Telepon
+    236 | R2-literal-prose   | Kata Sandi
+    280 | R2-literal-prose   | Nomor telepon atau kata sandi salah.
+    302 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Akun Anda telah dinonaktifkan. Silakan hubungi admin.');
+    309 | R2-literal-prose   | Kata Sandi Baru
+    310 | R2-literal-prose   | Konfirmasi Kata Sandi
+    321 | R1-set_flashdata   | $this->session->set_flashdata('success', 'Kata sandi berhasil diperbarui.');
+    321 | R2-literal-prose   | Kata sandi berhasil diperbarui.
+    324 | R2-literal-prose   | Gagal memperbarui kata sandi. Silakan coba lagi.
+
+application/controllers/Help.php
+     11 | R2-literal-prose   | Bantuan
+
+application/controllers/Notification.php
+     87 | R2-literal-prose   | Sesi habis. Silakan login ulang.
+
+application/controllers/Profile.php
+     30 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Nama 1-50 karakter');
+     30 | R2-literal-prose   | Nama 1-50 karakter
+     63 | R1-set_flashdata   | $this->session->set_flashdata('success', 'Profil diperbarui');
+     63 | R2-literal-prose   | Profil diperbarui
+     65 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Gagal memperbarui');
+     65 | R2-literal-prose   | Gagal memperbarui
+     80 | R1-set_flashdata   | $this->session->set_flashdata('success', 'Foto dihapus');
+     80 | R2-literal-prose   | Foto dihapus
+     94 | R2-literal-prose   | Kata Sandi Saat Ini
+     97 | R2-literal-prose   | Kata Sandi Baru
+    100 | R2-literal-prose   | Konfirmasi Kata Sandi
+    105 | R2-literal-prose   | {field} wajib diisi.
+    106 | R2-literal-prose   | {field} minimal {param} karakter.
+    116 | R1-set_flashdata   | $this->session->set_flashdata('success', 'Kata sandi berhasil diperbarui.');
+    116 | R2-literal-prose   | Kata sandi berhasil diperbarui.
+    120 | R2-literal-prose   | Gagal memperbarui kata sandi. Silakan coba lagi.
+    136 | R2-literal-prose   | Kata sandi saat ini salah.
+
+application/controllers/Rentals.php
+     56 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Sistem: ID Produk tidak terbaca dari form.');
+     63 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Sistem: Produk tidak ditemukan di database.');
+     73 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Sistem: Saldo USC/IDR Anda tidak mencukupi.');
+     90 | R1-set_flashdata   | $this->session->set_flashdata('success', 'Sewa berhasil diaktifkan! Infrastruktur sedang online.');
+    108 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Sistem: ID Sewa tidak valid.');
+    143 | R2-literal-prose   | telah masuk ke saldo (kontrak #
+
+application/controllers/Team.php
+    116 | R2-literal-prose   | Sesi habis. Silakan login ulang.
+    137 | R2-literal-prose   | telah masuk ke saldo.
+    178 | R2-literal-prose   | Sesi habis. Silakan login ulang.
+    214 | R2-literal-prose   | telah masuk ke saldo.
+    257 | R2-literal-prose   | Sesi habis. Silakan login ulang.
+
+application/controllers/User.php
+     24 | R2-literal-prose   | Sesi habis. Silakan login ulang.
+
+application/controllers/Wallet.php
+     59 | R2-literal-prose   | deposit:
+     76 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Nominal tidak valid.');
+     86 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Pembayaran QRIS belum dikonfigurasi admin. Silakan hubungi admin.');
+    167 | R1-set_flashdata   | $this->session->set_flashdata('success', 'Konfirmasi diterima. Deposit Anda sedang menunggu verifikasi admin.'
+    192 | R2-literal-prose   | attempted to access deposit
+    193 | R1-show_error      | show_error('Akses ditolak: invoice milik pengguna lain.', 403);
+    219 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Invoice tidak ditemukan.');
+    225 | R1-show_error      | show_error('Akses ditolak: invoice milik pengguna lain.', 403);
+    232 | R1-set_flashdata   | $this->session->set_flashdata('success', 'Pembayaran berhasil disimulasikan! Dana sudah masuk.');
+    234 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Gagal memproses simulasi: invoice sudah diproses atau tidak valid.');
+    247 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Anda masih memiliki penarikan yang sedang diproses.');
+    254 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Anda harus memiliki minimal 1 produk sewa aktif untuk melakukan penari
+    261 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Batas penarikan harian tercapai. Anda sudah melakukan penarikan hari i
+    269 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Anda belum mengikat rekening bank. Silakan ikat rekening terlebih dahu
+    325 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Anda masih memiliki penarikan yang sedang diproses.');
+    331 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Anda harus memiliki minimal 1 produk sewa aktif untuk melakukan penari
+    337 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Batas penarikan harian tercapai.');
+    345 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Anda belum mengikat rekening bank.');
+    356 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Nominal penarikan tidak valid.');
+    385 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Minimal penarikan adalah Rp ' . number_format($min_wd, 0, ',', '.'));
+    391 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Maksimal penarikan adalah Rp ' . number_format($max_wd, 0, ',', '.'));
+    397 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Saldo tidak mencukupi untuk penarikan');
+    406 | R1-set_flashdata   | $this->session->set_flashdata('success', 'Permintaan penarikan berhasil diajukan');
+    436 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Penarikan tidak ditemukan.');
+    442 | R1-show_error      | show_error('Akses ditolak: penarikan milik pengguna lain.', 403);
+    449 | R1-set_flashdata   | $this->session->set_flashdata('success', 'Simulasi: Penarikan berhasil disetujui.');
+    451 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Gagal memproses simulasi: penarikan sudah diproses atau tidak valid.')
+    466 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Rekening sudah terikat dan tidak dapat diubah.');
+    477 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Semua field wajib diisi.');
+    477 | R2-literal-prose   | Semua field wajib diisi.
+    483 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Nomor rekening harus numeric minimal 8 digit.');
+    497 | R1-set_flashdata   | $this->session->set_flashdata('success', 'Rekening berhasil diikat.');
+    499 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Gagal menyimpan data rekening.');
+
+application/core/MY_Controller.php
+     52 | R1-set_flashdata   | $this->session->set_flashdata('error', 'Akun Anda telah dinonaktifkan. Silakan hubungi admin.');
+
+application/helpers/ratelimit_helper.php
+     28 | R2-literal-prose   | Terlalu banyak percobaan gagal. Silakan coba lagi dalam
+
+application/models/Promoter_model.php
+    315 | R2-literal-prose   | Sistem: Akun Anda dinonaktifkan.
+    341 | R2-literal-prose   | Sistem: Omzet L1 tersedia belum cukup untuk tier ini.
+    443 | R2-literal-prose   | Rasio reward di luar 8–10% (harga produk berubah). Sesuaikan dahulu.
+    475 | R2-literal-prose   | Klaim sudah diproses.
+    498 | R2-literal-prose   | (reward, tanpa biaya) telah diaktifkan.
+    519 | R2-literal-prose   | Klaim #
+    595 | R2-literal-prose   | Klaim sudah diproses.
+    609 | R2-literal-prose   | Klaim Reward Ditolak
+    610 | R2-literal-prose   | Klaim
+    630 | R2-literal-prose   | Klaim #
+
+application/models/Rental_model.php
+    137 | R2-literal-prose   | Sistem: Gagal memproses sewa. Coba lagi.
+    145 | R2-literal-prose   | Sistem: Batas maksimal sewa paket ini telah tercapai (Maks.
+    162 | R2-literal-prose   | Sewa
+    313 | R2-literal-prose   | Sistem: Masa sewa Anda telah berakhir (kontrak ditutup).
+    315 | R2-literal-prose   | Sistem: Masa kontrak Anda telah habis.
+    343 | R2-literal-prose   | Sistem: Gagal memproses klaim. Coba lagi.
+    359 | R2-literal-prose   | Hari
+    371 | R2-literal-prose   | hari klaim).
+    377 | R2-literal-prose   | Sistem: Gagal memproses klaim. Coba lagi.
+    665 | R2-literal-prose   | gagal (upline
+    671 | R2-literal-prose   | Komisi Rebate Cair
+    673 | R2-literal-prose   | telah masuk ke saldo Anda.
+    740 | R2-literal-prose   | Kontrak Sewa Selesai
+    741 | R2-literal-prose   | Masa sewa kontrak #
+    793 | R2-literal-prose   | Kontrak Sewa Selesai
+    794 | R2-literal-prose   | Masa sewa kontrak #
+
+application/models/User_model.php
+    324 | R2-literal-prose   | Gagal memproses klaim. Coba lagi.
+    340 | R2-literal-prose   | Gagal memproses klaim. Coba lagi.
+    388 | R2-literal-prose   | Sistem: Akun Anda telah dinonaktifkan.
+    407 | R2-literal-prose   | Gaji mingguan sudah diklaim untuk minggu ini.
+    413 | R3-date-format     | $next_date = date('d M Y', $next_ts);
+    417 | R2-literal-prose   | Cooldown aktif. Gaji berikutnya: {$days_remaining} hari lagi ({$next_date}).
+    428 | R2-literal-prose   | Minimal 9 downline aktif untuk klaim gaji mingguan.
+    442 | R2-literal-prose   | C6 guard: klaim gaji user
+    444 | R2-literal-prose   | (race tak terduga walau baris sudah dikunci)
+    445 | R2-literal-prose   | Gaji mingguan sudah diklaim untuk minggu ini.
+    462 | R2-literal-prose   | C4 guard: kredit gaji gagal user
+    463 | R2-literal-prose   | Sistem: Gagal memproses klaim. Coba lagi.
+    485 | R2-literal-prose   | Sistem: Gagal memproses klaim. Coba lagi.
+
+application/models/Wallet_model.php
+    268 | R2-literal-prose   | Jam operasional harus berformat HH:MM (contoh: 07:00).
+    270 | R2-literal-prose   | Jam buka harus lebih awal dari jam tutup.
+    797 | R2-literal-prose   | Anda masih memiliki deposit aktif. Selesaikan atau tunggu kedaluwarsa terlebih dahulu.
+
+application/views/auth/change_password.php
+    423 | R2-literal-prose   | Minimal 8 karakter
+
+application/views/help/index.php
+     68 | R2-literal-prose   | "Sewa Sekarang"
+    104 | R2-literal-prose   | Kode Undangan
+    121 | R2-literal-prose   | Jam operasional
+    122 | R2-literal-prose   | — Jumlah minimum adalah
+    142 | R2-literal-prose   | Pilih nominal cepat atau masukkan nominal custom.
+
+application/views/home/index.php
+    219 | R2-literal-prose   | Salin
+    273 | R4-js-fallback     | labelEl.textContent = (window.SYNAPSE_I18N || {})['js_copied'] || 'Tersalin!';
+    273 | R2-literal-prose   | Tersalin!
+
+application/views/marketplace/index.php
+    211 | R2-literal-prose   | .btn-sewa
+
+application/views/notification/index.php
+      8 | R2-literal-prose   | Riwayat Notifikasi
+     26 | R2-literal-prose   | Belum ada notifikasi
+     40 | R2-literal-prose   | Berhasil
+     41 | R2-literal-prose   | Peringatan
+     42 | R2-literal-prose   | Gagal
+     55 | R2-literal-prose   | Hari Ini
+    107 | R2-literal-prose   | jam lalu
+    109 | R2-literal-prose   | hari lalu
+    168 | R2-literal-prose   | Semua Sudah Dibaca ✓
+    182 | R2-literal-prose   | Tandai Semua Sudah Dibaca
+
+application/views/profile/index.php
+    332 | R4-js-fallback     | toast.textContent = (window.SYNAPSE_I18N || {})['js_copied'] || 'Tersalin!';
+    332 | R2-literal-prose   | Tersalin!
+
+application/views/rentals/index.php
+    156 | R3-date-format     | <p class="text-[10px] text-slate-500 mt-0.5 font-mono">ID: #<?= $rental->id ?> · <?= date('d M Y', strtotime(
+    178 | R3-date-format     | <span><i class="fas fa-clock mr-1"></i> <?= sprintf(lang('rental_expires_on'), date('d M Y', $expired)) ?></sp
+
+application/views/team/index.php
+    354 | R3-date-format     | <p class="text-[10px] u-muted">Rp <?= number_format((int) $h->omzet_cost, 0, ',', '.') ?> · <?= date('d M Y H
+    569 | R4-js-fallback     | btn.innerHTML = '<i class="fas fa-check mr-1"></i>' + ((window.SYNAPSE_I18N || {})['js_copied'] || 'Tersalin!'
+    569 | R2-literal-prose   | Tersalin!
+    586 | R4-js-fallback     | btn.innerHTML = '<i class="fas fa-check mr-1"></i>' + ((window.SYNAPSE_I18N || {})['js_copied'] || 'Tersalin!'
+    586 | R2-literal-prose   | Tersalin!
+
+application/views/wallet/index.php
+    194 | R3-date-format     | <?= date('d M Y H:i', $exp_ts) ?> WIB
+    282 | R3-date-format     | <div class="text-[10px] u-muted font-mono"><?= date('d M Y, H:i', strtotime($row->created_at)) ?></div>
+
+application/views/wallet/pay.php
+     37 | R3-date-format     | ? date('d M Y H:i', strtotime($deposit->expires_at)) . ' WIB'
+     91 | R3-date-format     | <?= lang('wallet_pay_confirmed_at') ?> <?= date('d M Y H:i', strtotime($deposit->confirmed_at)) ?> WIB
+
+[FAIL] 158 temuan — masih ada string hardcoded.

@@ -59,6 +59,33 @@
             <i class="fas fa-wallet text-blue-500"></i> <?= lang('wallet_topup_title') ?>
         </h3>
 
+        <?php if (empty($qris_configured)): ?>
+            <!-- plan/102: fail-closed — tanpa gambar QRIS, pembuatan deposit ditolak backend. -->
+            <div class="mb-4 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 rounded-xl p-3">
+                <p class="text-[11px] font-semibold text-rose-700 dark:text-rose-300 leading-relaxed">
+                    <i class="fas fa-exclamation-triangle mr-1"></i> <?= lang('wallet_pay_not_configured') ?>
+                </p>
+            </div>
+        <?php endif; ?>
+
+        <!-- plan/102: aturan deposit manual QRIS (kode unik + batas nominal + single-active) -->
+        <div class="mb-4 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 rounded-xl p-3 space-y-1.5">
+            <p class="text-[11px] font-semibold text-blue-700 dark:text-blue-300 leading-relaxed">
+                <?php /* plan/103: nominal contoh = ARGUMEN, bukan isi kamus (L6). */ ?>
+                <i class="fas fa-qrcode mr-1"></i> <?= sprintf(
+                    lang('wallet_deposit_code_note'),
+                    'Rp ' . number_format(150000, 0, ',', '.'),
+                    'Rp ' . number_format(150234, 0, ',', '.')
+                ) ?>
+            </p>
+            <p class="text-[11px] text-blue-700/80 dark:text-blue-300/80 leading-relaxed">
+                <?= sprintf(lang('wallet_deposit_min_note'), 'Rp ' . number_format((int) $deposit_policy['min_amount'], 0, ',', '.')) ?>
+                &middot;
+                <?= sprintf(lang('wallet_deposit_max_note'), 'Rp ' . number_format((int) $deposit_policy['max_amount'], 0, ',', '.')) ?>
+            </p>
+            <p class="text-[10px] text-blue-700/70 dark:text-blue-300/70 leading-relaxed"><?= lang('wallet_deposit_single_active') ?></p>
+        </div>
+
         <?= form_open('wallet/topup', ['id' => 'topupForm', 'data-guard-submit' => '1']); ?>
 
             <!-- Quick Amount Grid -->
@@ -95,7 +122,7 @@
         <?= form_close(); ?>
     </div>
 
-    <!-- ===== PENDING TRANSACTIONS ===== -->
+    <!-- ===== ACTIVE DEPOSITS (plan/102: pending + waiting_approval) ===== -->
     <?php if (!empty($pending)): ?>
     <div class="u-card rounded-2xl p-5 shadow-sm">
         <h3 class="text-sm font-bold u-text mb-3 flex items-center gap-2">
@@ -104,23 +131,33 @@
         <div class="space-y-2">
             <?php foreach ($pending as $row): ?>
             <?php
-                // M1 (plan/56 §4.3) + invoice hierarchy fix: angka PRIMER yang
-                // ditampilkan besar adalah total yang HARUS ditransfer
-                // (total_payable), bukan pokok — mencegah underpayment.
-                $has_fee  = !empty($deposit_fee_enabled) && !empty($row->deposit_fee);
-                // M8: nilai finansial sudah integer di sumbernya (controller/
-                // model) — tampilkan & salin sebagai int, tanpa cast float.
-                $primary  = (int) ($has_fee ? $row->total_payable : $row->amount);
-                $copy_val = $primary;
+                // plan/102: nominal PRIMER = `total_amount` yang DIBEKUKAN saat
+                // invoice dibuat (pokok + [fee] + kode unik). TIDAK dihitung
+                // ulang di sini — perubahan setting fee di tengah siklus tidak
+                // boleh mengubah nominal yang diverifikasi admin.
+                $primary    = (int) $row->total_amount > 0 ? (int) $row->total_amount : (int) $row->amount;
+                $copy_val   = $primary;
+                $ucode      = ($row->unique_code !== null) ? (int) $row->unique_code : null;
+                $is_waiting = ($row->status === 'waiting_approval');
+                $exp_ts     = ($row->expires_at !== null) ? strtotime($row->expires_at) : null;
+                $exp_late   = ($is_waiting && $exp_ts !== null && $exp_ts <= $now_ts);
             ?>
-            <div class="bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-xl p-4">
-                <!-- Header: invoice + copy nominal -->
+            <div class="<?= $is_waiting ? 'bg-indigo-50 dark:bg-indigo-500/10 border-indigo-100 dark:border-indigo-500/20' : 'bg-amber-50 dark:bg-amber-500/10 border-amber-100 dark:border-amber-500/20' ?> border rounded-xl p-4">
+                <!-- Header: invoice + kode unik + copy nominal -->
                 <div class="flex items-start justify-between gap-2">
-                    <div class="text-xs font-mono u-text-2 truncate min-w-0"><?= $row->invoice_number ?></div>
+                    <div class="min-w-0">
+                        <div class="text-xs font-mono u-text-2 truncate"><?= $row->invoice_number ?></div>
+                        <?php if ($ucode !== null): ?>
+                            <div class="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-white/70 dark:bg-black/20 border border-amber-200 dark:border-amber-500/20 px-2 py-0.5 rounded-lg font-mono tracking-widest">
+                                <?= lang('wallet_pay_code_label') ?> <?= $ucode ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
                     <button type="button"
                             class="btn-copy-nominal shrink-0 flex items-center gap-1.5 text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-white/70 dark:bg-black/20 border border-amber-200 dark:border-amber-500/20 px-2 py-1 rounded-lg hover:bg-white dark:hover:bg-black/30 transition active:scale-95"
                             data-copy="<?= $copy_val ?>"
-                            title="<?= lang('wallet_copy_amount_title') ?>">
+                            title="<?= lang('common_copy_title') ?>"
+                            aria-label="<?= lang('wallet_copy_aria') ?>">
                         <i class="fas fa-copy text-[9px]"></i> <?= lang('wallet_copy_amount') ?>
                     </button>
                 </div>
@@ -131,21 +168,48 @@
                     <div class="text-2xl font-extrabold u-text font-mono tracking-tight leading-tight">Rp <?= number_format($primary, 0, ',', '.') ?></div>
                 </div>
 
-                <!-- Breakdown (hanya saat fee > 0; fee 0/non-aktif → tanpa baris redundan) -->
-                <?php if ($has_fee): ?>
+                <!-- Breakdown (pokok + kode; fee hanya saat aktif) -->
                 <div class="mt-2 rounded-lg bg-white/70 dark:bg-black/20 border border-amber-200/80 dark:border-amber-500/15 px-3 py-2 space-y-1">
                     <div class="flex items-center justify-between text-[11px]">
-                        <span class="u-muted"><?= lang('wallet_principal_in') ?></span>
+                        <span class="u-muted"><?= lang('wallet_pay_principal_label') ?></span>
                         <span class="font-mono font-bold u-text">Rp <?= number_format((int) $row->amount, 0, ',', '.') ?></span>
                     </div>
+                    <?php $fee_part = $primary - (int) $row->amount - ($ucode === null ? 0 : $ucode); ?>
+                    <?php if ($ucode !== null): ?>
+                    <div class="flex items-center justify-between text-[11px]">
+                        <span class="u-muted"><?= lang('wallet_pay_code_label') ?></span>
+                        <span class="font-mono font-extrabold text-amber-600 dark:text-amber-400">+ <?= $ucode ?></span>
+                    </div>
+                    <?php endif; ?>
+                    <?php if ($fee_part > 0): ?>
                     <div class="flex items-center justify-between text-[11px]">
                         <span class="u-muted"><?= lang('wallet_service_fee') ?></span>
-                        <span class="font-mono font-bold u-text">Rp <?= number_format((int) $row->deposit_fee, 0, ',', '.') ?></span>
+                        <span class="font-mono font-bold u-text">Rp <?= number_format($fee_part, 0, ',', '.') ?></span>
                     </div>
+                    <?php endif; ?>
                 </div>
+
+                <!-- Status + tenggat -->
+                <div class="flex items-center gap-2 flex-wrap mt-2">
+                    <span class="inline-block text-[10px] font-bold <?= $is_waiting ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-500/10' : 'text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/10' ?> px-2 py-0.5 rounded-full uppercase">
+                        <?= $is_waiting ? lang('wallet_status_waiting') : lang('wallet_status_pending') ?>
+                    </span>
+                    <?php if ($exp_ts !== null): ?>
+                        <span class="text-[10px] font-mono <?= $exp_late ? 'text-rose-500' : 'u-muted' ?>">
+                            <?= $exp_late ? lang('wallet_pay_conf_late') : lang('wallet_pay_expires_at') ?>
+                            <?= i18n_datetime($exp_ts) ?> WIB
+                        </span>
+                    <?php endif; ?>
+                </div>
+
+                <!-- CTA: halaman pembayaran QRIS -->
+                <?php if (!$is_waiting): ?>
+                    <a href="<?= site_url('wallet/pay/' . $row->invoice_number) ?>"
+                       class="mt-3 block w-full text-center u-btn-cyber text-white text-xs font-bold py-2.5 rounded-lg transition">
+                        <i class="fas fa-qrcode mr-1"></i> <?= lang('wallet_pay_now_btn') ?>
+                    </a>
                 <?php endif; ?>
 
-                <span class="inline-block mt-2 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/10 px-2 py-0.5 rounded-full uppercase"><?= lang('wallet_pending_pay_title') ?></span>
                 <?php if (ENVIRONMENT !== 'production'): ?>
                 <!-- C1 (plan 38): simulasi pembayaran HANYA untuk development/UAT —
                      tidak pernah dirender di production. POST + CSRF (form_open). -->
@@ -176,7 +240,8 @@
                             </div>
                             <div class="text-right">
                                 <p class="text-sm font-bold u-text">Rp <?= number_format($wd->amount, 0, ',', '.') ?></p>
-                                <p class="text-xs font-semibold text-orange-500 dark:text-orange-400">Pending</p>
+                                <?php /* plan/103: dulu literal "Pending" — bocor di mode id. */ ?>
+                                <p class="text-xs font-semibold text-orange-500 dark:text-orange-400"><?= lang('wallet_status_pending') ?></p>
                             </div>
                         </div>
                         <span class="inline-block text-[10px] font-bold text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-500/10 px-2 py-0.5 rounded-full uppercase"><?= lang('wallet_wd_pending_btn') ?></span>
@@ -220,8 +285,11 @@
                             <i class="fas fa-<?= $row->type === 'credit' ? 'arrow-down' : 'arrow-up' ?> text-xs"></i>
                         </div>
                         <div>
-                            <div class="text-xs font-medium u-text truncate max-w-[220px]"><?= $row->description ?></div>
-                            <div class="text-[10px] u-muted font-mono"><?= date('d M Y, H:i', strtotime($row->created_at)) ?></div>
+                            <?php /* plan/103: deskripsi ledger dirender dalam idiom
+                                     aktif (helper memetakan format kanonik; entri
+                                     tak dikenal ditampilkan apa adanya). */ ?>
+                            <div class="text-xs font-medium u-text truncate max-w-[220px]"><?= html_escape(i18n_ledger_description($row->description)) ?></div>
+                            <div class="text-[10px] u-muted font-mono"><?= i18n_datetime($row->created_at) ?></div>
                         </div>
                     </div>
                     <div class="text-sm font-bold font-mono <?= $row->type === 'credit' ? 'text-emerald-600 dark:text-emerald-400' : 'u-text' ?>">

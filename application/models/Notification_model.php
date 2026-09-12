@@ -69,4 +69,51 @@ class Notification_model extends CI_Model {
             'type'    => $type,
         ]);
     }
+
+    // =================================================================
+    //  plan/103 (W8) — NOTIFIKASI DWIBAHASA
+    //
+    //  Jalur tulis kanonik: simpan KEY + PARAMETER, bukan prosa beku.
+    //  Kolom `title`/`message` TETAP diisi (retensi, fallback baris legacy,
+    //  dan konsumen non-member) — dirender dalam idiom saat insert,
+    //  sedangkan pembacaan member memakai i18n_notification_text() sehingga
+    //  bahasa notifikasi mengikuti pilihan pembaca saat itu juga.
+    //
+    //  Param TIDAK pernah berisi kalimat ber-terjemahan; hanya nominal yang
+    //  sudah diformat (Rp …, L6) dan nilai domain (angka, nama produk,
+    //  catatan admin) yang sengaja dibiarkan apa adanya.
+    // =================================================================
+
+    /**
+     * Insert notifikasi ber-key (plan/103).
+     *
+     * @param  int    $user_id
+     * @param  string $key    Key dasar kamus TANPA suffix (_title/_body)
+     * @param  array  $params Argumen vsprintf untuk key `<key>_body`
+     * @param  string $type   info|success|warning|commission
+     * @return bool
+     */
+    public function insert_keyed($user_id, $key, array $params = [], $type = 'info') {
+        $title = lang($key . '_title');
+        $body  = lang($key . '_body');
+
+        // Idiom belum dimuat (konteks tanpa i18n_apply) → aman string kosong;
+        // renderer saat dibaca yang menentukan teks final.
+        $title = is_string($title) ? $title : '';
+        $body  = is_string($body) ? $body : '';
+
+        if ($body !== '' && $params) {
+            $rendered = @vsprintf($body, array_values($params));
+            $body = ($rendered === FALSE) ? $body : $rendered;
+        }
+
+        return $this->db->insert($this->table, [
+            'user_id'   => $user_id,
+            'title_key' => $key,
+            'params'    => $params ? json_encode(array_values($params), JSON_UNESCAPED_UNICODE) : NULL,
+            'title'     => $title,
+            'message'   => $body,
+            'type'      => $type,
+        ]);
+    }
 }

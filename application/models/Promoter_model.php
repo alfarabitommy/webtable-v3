@@ -346,7 +346,7 @@ class Promoter_model extends CI_Model {
             $max    = (int) $product->max_per_user;
             if ($max > 0 && $counts['reward'] >= $max) {
                 $this->db->trans_rollback();
-                return ['success' => false, 'code' => 'quota_exceeded',
+                return ['success' => false, 'code' => 'quota_exceeded', 'max' => (int) $max,
                     'message' => 'Sistem: Kuota reward paket ini telah tercapai (Maks. ' . $max . ').', 'claim_id' => null];
             }
 
@@ -492,11 +492,10 @@ class Promoter_model extends CI_Model {
 
             // 8. Notifikasi member (M5/N2 — dalam TX).
             $this->load->model('Notification_model');
-            $this->Notification_model->insert(
+            $this->Notification_model->insert_keyed(
                 $uid,
-                'Reward Promotor Cair',
-                'Kontrak ' . (string) $product->name . ' (reward, tanpa biaya) telah diaktifkan. '
-                    . 'Klaim ROI harian dimulai H+1.',
+                'notif_promoter_approved',
+                [(string) $product->name],
                 'success'
             );
 
@@ -604,11 +603,10 @@ class Promoter_model extends CI_Model {
             $product_name = ($product_row && $product_row->name !== null && $product_row->name !== '')
                 ? (string) $product_row->name
                 : 'Reward';
-            $this->Notification_model->insert(
+            $this->Notification_model->insert_keyed(
                 $uid,
-                'Klaim Reward Ditolak',
-                'Klaim ' . $product_name . ' ditolak' . ($notes ? ': ' . $notes : '')
-                    . '. Omzet Anda telah dikembalikan ke saldo redeemable.',
+                'notif_promoter_rejected',
+                [$product_name, (string) $notes],
                 'warning'
             );
 
@@ -654,5 +652,55 @@ class Promoter_model extends CI_Model {
             isset($audit['details'])    ? $audit['details']    : null,
             isset($audit['ip_address']) ? $audit['ip_address'] : ''
         );
+    }
+
+    // =====================================================================
+    //  plan/103 — PEMETAAN HASIL → KAMUS (member-facing)
+    //
+    //  Model mengembalikan {success, code, message}; `code` adalah OTORITAS
+    //  presentasi dan `message` (prosa Indonesia historis) hanya dipakai
+    //  sebagai diagnostik log. Controller (Team) memanggil localize_result()
+    //  sehingga pesan yang sampai ke member mengikuti idiom aktif.
+    //
+    //  Catatan: jalur ADMIN (approve_claim/decline_claim) sengaja TIDAK
+    //  dipetakan — panel admin 100% Indonesian (invariant L1).
+    // =====================================================================
+    private const RESULT_KEYS = [
+        'not_promoter'        => 'promo_err_not_available',
+        'quota_exceeded'      => 'promo_err_quota',
+        'insufficient_omzet'  => 'promo_err_omzet',
+        'ratio_invalid'       => 'promo_err_ratio',
+        'product_unavailable' => 'promo_err_product_inactive',
+        'invalid_product'     => 'promo_err_not_available',
+        'already_processed'   => 'promo_err_claim_done',
+        'user_unavailable'    => 'team_err_user_unavailable',
+        'banned'              => 'auth_err_account_inactive',
+        'error'               => 'promo_err_submit_failed',
+    ];
+
+    /**
+     * Terjemahkan hasil submit_claim() ke idiom aktif.
+     *
+     * @param  array $result {success, code, message, ...}
+     * @return string
+     */
+    public function localize_result(array $result) {
+        $code = (string) ($result['code'] ?? 'error');
+
+        if (!empty($result['message'])) {
+            log_message('error', 'plan/103 promoter claim ' . $code . ': ' . $result['message']);
+        }
+
+        if (!empty($result['success'])) {
+            return lang('promo_ok_submitted');
+        }
+
+        $key = self::RESULT_KEYS[$code] ?? 'promo_err_submit_failed';
+
+        if ($key === 'promo_err_quota') {
+            return sprintf(lang($key), (int) ($result['max'] ?? 0));
+        }
+
+        return lang($key);
     }
 }

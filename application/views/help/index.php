@@ -3,31 +3,31 @@
 
     <!-- ═══ Header ═══ -->
     <div>
-        <h2 class="text-lg font-extrabold u-text">Bantuan & FAQ</h2>
-        <p class="text-xs u-text-2 mt-1">Temukan jawaban atas pertanyaan umum seputar Synapse.</p>
+        <h2 class="text-lg font-extrabold u-text"><?= lang('help_page_title') ?></h2>
+        <p class="text-xs u-text-2 mt-1"><?= lang('help_page_sub') ?></p>
     </div>
 
     <!-- ═══ Contact CTA ═══ -->
     <div class="u-card rounded-2xl p-5 shadow-sm">
         <h3 class="text-sm font-bold u-text mb-3 flex items-center gap-2">
             <i class="fas fa-headset text-indigo-500"></i>
-            Hubungi Support
+            <?= lang('help_contact_title') ?>
         </h3>
-        <p class="text-xs u-text-2 mb-4">Belum menemukan jawaban? Tim kami siap membantu Anda.</p>
+        <p class="text-xs u-text-2 mb-4"><?= lang('help_contact_sub') ?></p>
         <div class="grid grid-cols-2 gap-3">
-            <!-- WhatsApp Button -->
-            <a href="https://wa.me/<?= urlencode($wa_number) ?>?text=Halo%20Synapse%2C%20saya%20butuh%20bantuan..."
+            <!-- WhatsApp Button — plan/103: pesan pra-isi dari kamus -->
+            <a href="https://wa.me/<?= urlencode($wa_number) ?>?text=<?= rawurlencode(lang('help_wa_prefill')) ?>"
                target="_blank"
                rel="noopener"
                class="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white text-sm font-bold py-3 px-4 rounded-xl transition-all duration-200 active:scale-95 shadow-sm">
                 <i class="fab fa-whatsapp text-lg"></i>
-                <span>WhatsApp</span>
+                <span><?= lang('help_contact_wa') ?></span>
             </a>
             <!-- Email Button -->
-            <a href="mailto:<?= urlencode($support_email) ?>?subject=Bantuan%20Synapse"
+            <a href="mailto:<?= urlencode($support_email) ?>?subject=<?= rawurlencode(lang('help_email_subject')) ?>"
                class="flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white text-sm font-bold py-3 px-4 rounded-xl transition-all duration-200 active:scale-95 shadow-sm">
                 <i class="fas fa-envelope text-lg"></i>
-                <span>Email</span>
+                <span><?= lang('help_contact_email') ?></span>
             </a>
         </div>
     </div>
@@ -36,19 +36,19 @@
     <div class="space-y-3" id="faq-container">
         <h3 class="text-sm font-bold u-text flex items-center gap-2">
             <i class="fas fa-question-circle text-indigo-500"></i>
-            Pertanyaan Umum
+            <?= lang('help_faq_title') ?>
         </h3>
 
         <!-- FAQ Item 1 -->
         <div class="faq-item u-card rounded-2xl shadow-sm overflow-hidden">
             <button onclick="toggleFaq(this)"
                     class="w-full flex items-center justify-between p-4 text-left gap-3">
-                <span class="text-sm font-semibold u-text">Apa itu Synapse?</span>
+                <span class="text-sm font-semibold u-text"><?= lang('help_q_what_title') ?></span>
                 <i class="fas fa-chevron-down u-muted text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
             </button>
             <div class="faq-answer max-h-0 overflow-hidden transition-all duration-300 ease-in-out">
                 <div class="px-4 pb-4 text-xs u-text-2 leading-relaxed">
-                    Synapse adalah platform digital penyewaan GPU (Graphics Processing Unit) untuk komputasi AI dan mining. Pengguna bisa menyewa node GPU secara online, menerima pendapatan harian (ROI), dan menarik dana kapan saja selama jam operasional.
+                    <?= lang('help_q_what_body') ?>
                 </div>
             </div>
         </div>
@@ -57,17 +57,12 @@
         <div class="faq-item u-card rounded-2xl shadow-sm overflow-hidden">
             <button onclick="toggleFaq(this)"
                     class="w-full flex items-center justify-between p-4 text-left gap-3">
-                <span class="text-sm font-semibold u-text">Bagaimana cara menyewa?</span>
+                <span class="text-sm font-semibold u-text"><?= lang('help_q_rent_title') ?></span>
                 <i class="fas fa-chevron-down u-muted text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
             </button>
             <div class="faq-answer max-h-0 overflow-hidden transition-all duration-300 ease-in-out">
                 <div class="px-4 pb-4 text-xs u-text-2 leading-relaxed">
-                    <ol class="list-decimal list-inside space-y-1">
-                        <li>Buka menu <strong>Marketplace</strong> dari navigasi bawah.</li>
-                        <li>Pilih paket GPU yang ingin disewa.</li>
-                        <li>Klik <strong>"Sewa Sekarang"</strong> dan konfirmasi pembayaran dari saldo wallet Anda.</li>
-                        <li>Node akan aktif otomatis dan mulai menghasilkan ROI harian.</li>
-                    </ol>
+                    <?= lang('help_q_rent_body') ?>
                 </div>
             </div>
         </div>
@@ -76,18 +71,12 @@
         <div class="faq-item u-card rounded-2xl shadow-sm overflow-hidden">
             <button onclick="toggleFaq(this)"
                     class="w-full flex items-center justify-between p-4 text-left gap-3">
-                <span class="text-sm font-semibold u-text">Bagaimana cara withdraw (penarikan)?</span>
+                <span class="text-sm font-semibold u-text"><?= lang('help_q_wd_title') ?></span>
                 <i class="fas fa-chevron-down u-muted text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
             </button>
             <div class="faq-answer max-h-0 overflow-hidden transition-all duration-300 ease-in-out">
                 <div class="px-4 pb-4 text-xs u-text-2 leading-relaxed">
-                    <ul class="list-disc list-inside space-y-1">
-                        <li>Masuk ke menu <strong>Wallet</strong> → <strong>Penarikan</strong>.</li>
-                        <li>Pilih rekening bank yang sudah terikat.</li>
-                        <li>Masukkan jumlah penarikan (min Rp 100.000).</li>
-                        <li>Penarikan diproses pada jam operasional: <strong>07:00 – 19:00 WIB</strong>.</li>
-                        <li>Biaya admin (fee) akan dipotong otomatis sesuai tier nominal.</li>
-                    </ul>
+                    <?= sprintf(lang('help_q_wd_body'), 'Rp ' . number_format(100000, 0, ',', '.')) ?>
                 </div>
             </div>
         </div>
@@ -96,12 +85,12 @@
         <div class="faq-item u-card rounded-2xl shadow-sm overflow-hidden">
             <button onclick="toggleFaq(this)"
                     class="w-full flex items-center justify-between p-4 text-left gap-3">
-                <span class="text-sm font-semibold u-text">Apa itu referral?</span>
+                <span class="text-sm font-semibold u-text"><?= lang('help_q_ref_title') ?></span>
                 <i class="fas fa-chevron-down u-muted text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
             </button>
             <div class="faq-answer max-h-0 overflow-hidden transition-all duration-300 ease-in-out">
                 <div class="px-4 pb-4 text-xs u-text-2 leading-relaxed">
-                    Setiap pengguna memiliki <strong>Kode Undangan</strong> unik. Bagikan kode tersebut ke teman atau keluarga. Ketika mereka mendaftar menggunakan kode Anda, mereka menjadi downline (Level 1 / Agen B). Anda akan menerima bonus komisi dari aktivitas transaksi downline. Lihat detail lengkapnya di menu <strong>Tim &amp; Afiliasi</strong>.
+                    <?= lang('help_q_ref_body') ?>
                 </div>
             </div>
         </div>
@@ -110,18 +99,18 @@
         <div class="faq-item u-card rounded-2xl shadow-sm overflow-hidden">
             <button onclick="toggleFaq(this)"
                     class="w-full flex items-center justify-between p-4 text-left gap-3">
-                <span class="text-sm font-semibold u-text">Mengapa saya tidak bisa melakukan penarikan dana?</span>
+                <span class="text-sm font-semibold u-text"><?= lang('help_q_wd_fail_title') ?></span>
                 <i class="fas fa-chevron-down u-muted text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
             </button>
             <div class="faq-answer max-h-0 overflow-hidden transition-all duration-300 ease-in-out">
                 <div class="px-4 pb-4 text-xs u-text-2 leading-relaxed">
-                    Ada beberapa syarat yang harus dipenuhi sebelum bisa melakukan penarikan:
+                    <?= lang('help_q_wd_fail_intro') ?>
                     <ul class="list-disc list-inside space-y-1 mt-2">
-                        <li><strong>Rekening Bank wajib diikat terlebih dahulu</strong> — Buka menu Profil → Rekening Bank untuk mengikat nomor rekening Anda.</li>
-                        <li><strong>Jam operasional</strong> — Penarikan hanya diproses pada jam <strong>07:00 – 19:00 WIB</strong>.</li>
-                        <li><strong>Minimal penarikan</strong> — Jumlah minimum adalah <strong>Rp 100.000</strong>.</li>
-                        <li><strong>Saldo mencukupi</strong> — Pastikan saldo wallet Anda cukup setelah dipotong biaya admin.</li>
-                        <li><strong>Tidak ada penarikan pending</strong> — Jika Anda memiliki penarikan yang belum diproses, tunggu hingga selesai terlebih dahulu.</li>
+                        <li><?= lang('help_q_wd_fail_req1') ?></li>
+                        <li><?= lang('help_q_wd_fail_req2') ?></li>
+                        <li><?= sprintf(lang('help_q_wd_fail_req3'), 'Rp ' . number_format(100000, 0, ',', '.')) ?></li>
+                        <li><?= lang('help_q_wd_fail_req4') ?></li>
+                        <li><?= lang('help_q_wd_fail_req5') ?></li>
                     </ul>
                 </div>
             </div>
@@ -131,18 +120,12 @@
         <div class="faq-item u-card rounded-2xl shadow-sm overflow-hidden">
             <button onclick="toggleFaq(this)"
                     class="w-full flex items-center justify-between p-4 text-left gap-3">
-                <span class="text-sm font-semibold u-text">Bagaimana cara isi saldo (top up)?</span>
+                <span class="text-sm font-semibold u-text"><?= lang('help_q_topup_title') ?></span>
                 <i class="fas fa-chevron-down u-muted text-xs transition-transform duration-300 shrink-0 faq-icon"></i>
             </button>
             <div class="faq-answer max-h-0 overflow-hidden transition-all duration-300 ease-in-out">
                 <div class="px-4 pb-4 text-xs u-text-2 leading-relaxed">
-                    <ol class="list-decimal list-inside space-y-1">
-                        <li>Buka menu <strong>Wallet</strong>.</li>
-                        <li>Klik tombol <strong>"Top Up"</strong>.</li>
-                        <li>Pilih nominal cepat atau masukkan nominal custom.</li>
-                        <li>Klik <strong>"Kirim Top Up"</strong> dan ikuti instruksi pembayaran.</li>
-                        <li>Saldo akan masuk setelah pembayaran terkonfirmasi oleh sistem.</li>
-                    </ol>
+                    <?= lang('help_q_topup_body') ?>
                 </div>
             </div>
         </div>
@@ -150,7 +133,7 @@
 
     <!-- ═══ Footer Note ═══ -->
     <div class="text-center pb-4">
-        <p class="text-[10px] u-muted">Synapse Support · v1.0</p>
+        <p class="text-[10px] u-muted"><?= lang('help_footer_version') ?></p>
     </div>
 
 </div>

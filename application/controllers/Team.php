@@ -113,15 +113,18 @@ class Team extends MY_Controller {
 
         $user_id = $this->session->userdata('user_id');
         if ( ! $user_id) {
-            $message = 'Sesi habis. Silakan login ulang.';
+            $message = lang('common_session_expired');
             api_error($message, 401, [], 'unauthenticated', ['message' => $message]);
         }
 
         $result = $this->User_model->claim_level1($user_id);
 
         if ( ! $result['success']) {
-            // Legacy body lama {success:false, message} + envelope additive.
-            api_error($result['message'], 200, [], null, ['message' => $result['message']]);
+            // plan/103 W8/D1: `code` → key kamus; prosa model hanya diagnostik.
+            $message = $this->_claim_message($result, 'rental_err_claim_failed');
+            $legacy  = array_merge($result, ['message' => $message]);
+            unset($legacy['success']);
+            api_error($message, 200, [], null, $legacy);
         }
 
         // C4 (plan/54): saldo segar dari wallet_ledger — bukan
@@ -130,11 +133,10 @@ class Team extends MY_Controller {
 
         // Notify user — jumlah dinamis dari $result['amount'] (P5, plan/80):
         // parity gaya claim_wage, tier berubah → notifikasi ikut berubah.
-        $this->Notification_model->insert(
+        $this->Notification_model->insert_keyed(
             $user_id,
-            'Bonus Level 1 Cair',
-            'Selamat! Bonus Level 1 sebesar Rp ' . number_format((int) $result['amount'], 0, ',', '.')
-                . ' telah masuk ke saldo.',
+            'notif_bonus_l1',
+            [number_format((int) $result['amount'], 0, ',', '.')],
             'commission'
         );
 
@@ -175,7 +177,7 @@ class Team extends MY_Controller {
 
         $user_id = $this->session->userdata('user_id');
         if ( ! $user_id) {
-            $message = 'Sesi habis. Silakan login ulang.';
+            $message = lang('common_session_expired');
             api_error($message, 401, [], 'unauthenticated', ['code' => 'unauthenticated', 'message' => $message]);
         }
 
@@ -196,22 +198,25 @@ class Team extends MY_Controller {
         unset($legacy['success']);
 
         // Internal error -> HTTP 500 (parity lama: set_status_header(500)).
+        // plan/103: pesan diterjemahkan dari `code` dalam idiom aktif.
+        $localized = $this->_wage_message($result);
+        $legacy['message'] = $localized;
+
         if ($result['code'] === 'error') {
-            api_error($result['message'], 500, [], 'error', $legacy);
+            api_error($localized, 500, [], 'error', $legacy);
         }
 
         if ($result['success']) {
             // Saldo segar dari wallet_ledger — bukan users.balance yang basi (C4).
             $result['new_balance'] = $this->Wallet_model->get_balance($user_id);
             $legacy['new_balance'] = $result['new_balance'];
+            $localized = lang('team_js_wage_success');
 
             // Notifikasi (parity claim_level1).
-            $this->Notification_model->insert(
+            $this->Notification_model->insert_keyed(
                 $user_id,
-                'Gaji Mingguan Cair',
-                'Selamat! Gaji mingguan Level ' . $result['level']
-                    . ' sebesar Rp ' . number_format((int) $result['amount'], 0, ',', '.')
-                    . ' telah masuk ke saldo.',
+                'notif_wage',
+                [number_format((int) $result['amount'], 0, ',', '.')],
                 'commission'
             );
 
@@ -223,7 +228,7 @@ class Team extends MY_Controller {
                     'cycle'          => $result['cycle'],
                     'transaction_id' => $result['transaction_id'],
                 ],
-                $result['message'],
+                $localized,
                 200,
                 $legacy
             );
@@ -232,7 +237,7 @@ class Team extends MY_Controller {
         // Business rejection (already_claimed / cycle_not_ready /
         // not_qualified / user_unavailable) — HTTP 200 {success:false}
         // + key `code` untuk branching JS claimWage().
-        api_error($result['message'], 200, [], $result['code'], $legacy);
+        api_error($localized, 200, [], $result['code'], $legacy);
     }
 
     /**
@@ -254,7 +259,7 @@ class Team extends MY_Controller {
 
         $user_id = $this->session->userdata('user_id');
         if ( ! $user_id) {
-            $message = 'Sesi habis. Silakan login ulang.';
+            $message = lang('common_session_expired');
             api_error($message, 401, [], 'unauthenticated', ['message' => $message]);
         }
 
@@ -263,8 +268,9 @@ class Team extends MY_Controller {
         $product_id  = (is_string($product_raw) && preg_match('/^[1-9][0-9]*$/', $product_raw))
             ? (int) $product_raw : 0;
         if ($product_id <= 0) {
-            api_error('Sistem: Data klaim tidak valid.', 200, [], 'invalid_request',
-                ['message' => 'Sistem: Data klaim tidak valid.']);
+            // plan/103: pesan validasi input dari kamus (idiom aktif).
+            $bad_input = lang('promo_err_invalid_request');
+            api_error($bad_input, 200, [], 'invalid_request', ['message' => $bad_input]);
         }
 
         // Rate limit (pola claim_wage, plan/50 §3.7): promoter_claim:{uid}, 5/60 dtk.
@@ -282,9 +288,13 @@ class Team extends MY_Controller {
         $legacy = $result;
         unset($legacy['success']);
 
+        // plan/103: `code` → key kamus (idiom aktif); prosa model diagnostik.
+        $pmsg = $this->Promoter_model->localize_result($result);
+        $legacy['message'] = $pmsg;
+
         // Internal error -> HTTP 500 (parity claim_wage).
         if ($result['code'] === 'error') {
-            api_error($result['message'], 500, [], 'error', $legacy);
+            api_error($pmsg, 500, [], 'error', $legacy);
         }
 
         if ($result['success']) {
@@ -293,7 +303,7 @@ class Team extends MY_Controller {
                     'claim_id' => $result['claim_id'],
                     'summary'  => $this->Promoter_model->get_omzet_summary($user_id),
                 ],
-                $result['message'],
+                $pmsg,
                 200,
                 $legacy
             );
@@ -302,7 +312,7 @@ class Team extends MY_Controller {
         // Business rejection (not_promoter / banned / insufficient_omzet /
         // quota_exceeded / product_unavailable / ratio_invalid ...) —
         // HTTP 200 {success:false} + key `code`.
-        api_error($result['message'], 200, [], $result['code'], $legacy);
+        api_error($pmsg, 200, [], $result['code'], $legacy);
     }
 
     /**
@@ -317,5 +327,52 @@ class Team extends MY_Controller {
             $phone = '62' . $phone;
         }
         return $phone;
+    }
+
+    /**
+     * Plan 103: hasil User_model::claim_level1() → pesan idiom aktif.
+     *
+     * @param  array  $result
+     * @param  string $fallback_key
+     * @return string
+     */
+    private function _claim_message(array $result, $fallback_key) {
+        log_message('error', 'plan/103 claim ' . ($result['code'] ?? '?') . ': ' . ($result['message'] ?? ''));
+
+        $map = [
+            'already_claimed' => 'team_js_weekly_already',
+            'not_qualified'   => 'team_err_not_qualified',
+            'user_unavailable'=> 'team_err_user_unavailable',
+        ];
+        $key = $map[$result['code'] ?? 'error'] ?? $fallback_key;
+
+        return lang($key);
+    }
+
+    /**
+     * Plan 103: hasil User_model::claim_wage() → pesan idiom aktif.
+     * Kode `cycle_not_ready` menyisipkan jumlah hari + tanggal WIB
+     * ber-lokalisasi (i18n_date) — bukan prosa `hari lagi` di model.
+     *
+     * @param  array $result
+     * @return string
+     */
+    private function _wage_message(array $result) {
+        $map = [
+            'already_claimed' => 'team_js_weekly_already',
+            'not_qualified'   => 'team_err_wage_not_qualified',
+            'user_unavailable'=> 'team_err_user_unavailable',
+            'cycle_not_ready' => 'team_err_wage_cooldown',
+            'error'           => 'rental_err_claim_failed',
+        ];
+        $key = $map[$result['code'] ?? 'error'] ?? 'rental_err_claim_failed';
+
+        if ($result['code'] === 'cycle_not_ready') {
+            $days = (int) ($result['days_remaining'] ?? 0);
+            $when = i18n_date($result['next_claim_ts'] ?? null);
+            return sprintf(lang($key), $days, $when);
+        }
+
+        return lang($key);
     }
 }

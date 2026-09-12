@@ -10,6 +10,7 @@ class Rentals extends MY_Controller {
         $this->load->model('Wallet_model');
         $this->load->model('Product_model');
         $this->load->model('Rate_limit_model');
+        $this->load->model('Notification_model');
         $this->load->helper('ratelimit');
     }
 
@@ -53,14 +54,14 @@ class Rentals extends MY_Controller {
 
         // 1. Validate product_id from form
         if (empty($product_id) || !is_numeric($product_id)) {
-            $this->session->set_flashdata('error', 'Sistem: ID Produk tidak terbaca dari form.');
+            $this->session->set_flashdata('error', lang('rental_err_product_id'));
             redirect('marketplace');
         }
 
         // 2. Fetch product via model (DB canonical — P4, plan/80: no mock fallback)
         $product = $this->Product_model->get_product($product_id);
         if (!$product) {
-            $this->session->set_flashdata('error', 'Sistem: Produk tidak ditemukan di database.');
+            $this->session->set_flashdata('error', lang('rental_err_product_missing'));
             redirect('marketplace');
         }
 
@@ -70,7 +71,7 @@ class Rentals extends MY_Controller {
         //    plan/48.
         $user_balance = $this->Wallet_model->get_balance($user_id);
         if ($user_balance < $product['price']) {
-            $this->session->set_flashdata('error', 'Sistem: Saldo USC/IDR Anda tidak mencukupi.');
+            $this->session->set_flashdata('error', lang('rental_err_insufficient'));
             redirect('marketplace');
         }
 
@@ -82,13 +83,36 @@ class Rentals extends MY_Controller {
         $result = $this->Rental_model->checkout_rental($user_id, $product);
 
         if (!$result['success']) {
-            $this->session->set_flashdata('error', $result['message']);
+            // plan/103 D1/D3: `code` → key kamus; prosa model hanya diagnostik.
+            log_message('error', 'plan/103 checkout_rental ' . ($result['code'] ?? '?') . ': ' . ($result['message'] ?? ''));
+            $this->session->set_flashdata('error', $this->_checkout_message($result));
             redirect('marketplace');
         }
 
         // 5. Success
-        $this->session->set_flashdata('success', 'Sewa berhasil diaktifkan! Infrastruktur sedang online.');
+        $this->session->set_flashdata('success', lang('rental_ok_activated'));
         redirect('rentals');
+    }
+
+    /**
+     * Plan 103: kode hasil Rental_model::checkout_rental() → pesan idiom aktif.
+     *
+     * @param  array $result {success, code, message}
+     * @return string
+     */
+    private function _checkout_message(array $result) {
+        $map = [
+            'product_unavailable' => 'rental_err_product_missing',
+            'insufficient'        => 'rental_err_insufficient',
+            'max_per_user'        => 'rental_err_max_per_user',
+        ];
+        $key = $map[$result['code'] ?? 'error'] ?? 'rental_err_checkout_failed';
+
+        if ($key === 'rental_err_max_per_user') {
+            return sprintf(lang($key), (int) ($result['max'] ?? $result['limit'] ?? 0));
+        }
+
+        return lang($key);
     }
 
     /**
@@ -105,7 +129,7 @@ class Rentals extends MY_Controller {
         }
 
         if (!$rental_id) {
-            $this->session->set_flashdata('error', 'Sistem: ID Sewa tidak valid.');
+            $this->session->set_flashdata('error', lang('rental_err_rental_id'));
             redirect('rentals');
         }
 
@@ -132,19 +156,26 @@ class Rentals extends MY_Controller {
         $result = $this->Rental_model->claim_roi($rental_id, $user_id);
 
         if ($result['code'] === 'claimed') {
-            $this->session->set_flashdata('success', $result['message']);
+            // plan/103: nilai kredit = nominal, bukan prosa model (uang tetap
+            // diformat PHP — L6) → kalimat dibangun dari kamus + argumen.
+            $this->session->set_flashdata('success', sprintf(
+                lang('notif_roi_body'),
+                number_format((int) $result['amount'], 0, ',', '.'),
+                (int) $rental_id
+            ));
             // M5/N1: notifikasi ROI cair (parity claim level1/wage) — hanya pada
             // code 'claimed' (satu-satunya jalur payout sukses C2), sehingga
             // replay/klaim ganda tidak pernah menghasilkan notifikasi dobel.
-            $this->Notification_model->insert(
+            // plan/103 W8: disimpan sebagai key + params (bukan prosa beku).
+            $this->Notification_model->insert_keyed(
                 $user_id,
-                'ROI Harian Cair',
-                'ROI sebesar Rp ' . number_format((int) $result['amount'], 0, ',', '.')
-                    . ' telah masuk ke saldo (kontrak #' . (int) $rental_id . ').',
+                'notif_roi',
+                [number_format((int) $result['amount'], 0, ',', '.'), (int) $rental_id],
                 'commission'
             );
         } else {
-            $this->session->set_flashdata('error', $result['message']);
+            log_message('error', 'plan/103 claim_roi ' . ($result['code'] ?? '?') . ': ' . ($result['message'] ?? ''));
+            $this->session->set_flashdata('error', lang('rental_err_claim_failed'));
         }
 
         redirect('rentals');

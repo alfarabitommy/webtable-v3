@@ -12,6 +12,12 @@ $route['auth/change-password'] = 'auth/change_password';
 // Phase 5: Wallet Routes
 $route['wallet/simulate_payment/(:any)'] = 'wallet/simulate_payment/$1';
 
+// plan/102: gateway deposit manual QRIS — halaman pembayaran (GET) dan
+// konfirmasi "Saya Sudah Transfer" (POST). Invoice memuat karakter non-numerik
+// → segmen (:any).
+$route['wallet/pay/(:any)']             = 'wallet/pay/$1';
+$route['wallet/confirm_payment/(:any)'] = 'wallet/confirm_payment/$1';
+
 // C7 (plan 42): dev/UAT-only WD simulator — production-inert (gate in controller).
 $route['wallet/simulate_wd_approve/(:any)'] = 'wallet/simulate_wd_approve/$1';
 
@@ -74,3 +80,8 @@ $route['admin/alerts/poll'] = 'admin/alerts_poll';
 // plan/95: maintenance mode toggle (POST-only; dash di URL butuh route
 // eksplisit karena translate_uri_dashes=FALSE).
 $route['admin/toggle-maintenance'] = 'admin/toggle_maintenance';
+
+// plan/102: simpan konfigurasi pembayaran QRIS manual. WAJIB route eksplisit:
+// tanpa ini CI3 memetakan /admin/settings/qris sebagai Admin::settings('qris')
+// (segmen tambahan diperlakukan sebagai argumen method).
+$route['admin/settings/qris'] = 'admin/qris_settings';

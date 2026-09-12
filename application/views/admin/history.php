@@ -82,16 +82,35 @@
                         </td>
                         <?php endif; ?>
                         <td class="px-5 py-3.5 text-right font-mono font-semibold text-[var(--t-text)] whitespace-nowrap">
-                            Rp <?= number_format($row->amount, 0, ',', '.') ?>
+                            <?php
+                                // plan/102: baris deposit menampilkan NOMINAL
+                                // TRANSFER (total_amount = pokok + [fee] + kode
+                                // unik) yang menjadi dasar verifikasi & kredit;
+                                // pokok ditampilkan kecil bila berbeda.
+                                $row_total = ((int) ($row->total_amount ?? 0) > 0) ? (int) $row->total_amount : (int) $row->amount;
+                            ?>
+                            Rp <?= number_format($row_total, 0, ',', '.') ?>
+                            <?php if ($type === 'deposit' && $row_total !== (int) $row->amount): ?>
+                                <div class="text-[10px] font-normal text-[var(--t-muted)]">
+                                    pokok Rp <?= number_format($row->amount, 0, ',', '.') ?>
+                                    <?php if (($row->unique_code ?? null) !== null): ?>
+                                        + kode <?= (int) $row->unique_code ?>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endif; ?>
                         </td>
                         <td class="px-5 py-3.5 text-center">
                             <?php if ($row->status === 'success'): ?>
                                 <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
                                     <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1.5"></span>Success
                                 </span>
-                            <?php elseif ($row->status === 'failed'): ?>
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-500/10 text-red-600 dark:text-red-400">
-                                    <span class="w-1.5 h-1.5 bg-red-500 rounded-full mr-1.5"></span>Failed
+                            <?php elseif ($row->status === 'rejected' || $row->status === 'failed'): ?>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-500/10 text-red-600 dark:text-red-400"<?= ($row->status === 'rejected' && !empty($row->decline_reason)) ? ' title="' . html_escape($row->decline_reason) . '"' : '' ?>>
+                                    <span class="w-1.5 h-1.5 bg-red-500 rounded-full mr-1.5"></span><?= $row->status === 'rejected' ? 'Rejected' : 'Failed' ?>
+                                </span>
+                            <?php elseif ($row->status === 'expired'): ?>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-500/10 text-slate-600 dark:text-slate-300">
+                                    <span class="w-1.5 h-1.5 bg-slate-400 rounded-full mr-1.5"></span>Expired
                                 </span>
                             <?php else: ?>
                                 <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[var(--t-surface-3)] text-[var(--t-text-2)]">

@@ -86,6 +86,10 @@ return array(
 	'mj2'	=>	array('image/jp2', 'video/mj2', 'image/jpx', 'image/jpm'),
 	'mjp2'	=>	array('image/jp2', 'video/mj2', 'image/jpx', 'image/jpm'),
 	'png'	=>	array('image/png', 'image/x-png'),
+	// plan/104: WAJIB ada — Upload::is_allowed_filetype() melakukan lookup
+	// $this->_mimes[$ext]; ekstensi tanpa entry SELALU ditolak (FALSE) walau
+	// sudah masuk allowed_types. Tanpa baris ini dukungan WebP mustahil.
+	'webp'	=>	array('image/webp'),
 	'tiff'	=>	'image/tiff',
 	'tif'	=>	'image/tiff',
 	'heic' 	=>	'image/heic',

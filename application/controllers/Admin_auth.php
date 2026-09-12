@@ -28,10 +28,13 @@ class Admin_auth extends CI_Controller {
             $rl_key   = 'admin_login:' . $username . ':' . $this->input->ip_address();
             $throttle = $this->Rate_limit_model->check($rl_key, 5, 900);
             if (!$throttle['allowed']) {
+                // plan/103: panel admin 100% Indonesian (L1) — idiom
+                // diteruskan EKSPLISIT karena Admin_auth tidak pernah
+                // memanggil i18n_apply() (idiom aktif = config default).
                 if ($this->input->is_ajax_request()) {
-                    rate_limit_json_response($throttle);
+                    rate_limit_json_response($throttle, 'id');
                 }
-                $this->session->set_flashdata('error', 'SYSTEM HALTED: ' . rate_limit_message($throttle['remaining_seconds']));
+                $this->session->set_flashdata('error', 'SYSTEM HALTED: ' . rate_limit_message($throttle['remaining_seconds'], 'id'));
                 redirect('control-panel');
             }
 

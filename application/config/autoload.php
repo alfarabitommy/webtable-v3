@@ -92,7 +92,10 @@ $autoload['drivers'] = array();
 // Plan 94 (F1): 'language' = helper core CI lang() utk view member;
 // 'i18n' = helper kustom Plan 94 (i18n_resolve/apply/idom…). Admin tidak
 // pernah memuat app_lang, jadi helper ini netral bagi admin.
-$autoload['helper'] = array('url', 'file', 'form', 'security', 'language', 'i18n', 'maintenance');
+// Plan 104: 'product_image' = resolver tunggal gambar produk (nama → path
+// → URL + kontrak fallback null). Fungsi murni tanpa efek samping →
+// netral bagi member maupun admin (dipakai marketplace + panel admin).
+$autoload['helper'] = array('url', 'file', 'form', 'security', 'language', 'i18n', 'maintenance', 'product_image');
 
 /*
 | -------------------------------------------------------------------

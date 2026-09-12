@@ -8,7 +8,7 @@ class Help extends MY_Controller {
         // M7 (plan/70): kontak support dibaca dari system_settings
         // (store tunggal); fallback nilai lama dipertahankan.
         $data = [
-            'page_title'   => 'Bantuan',
+            'page_title'   => lang('help_page_title'),
             'wa_number'    => $this->Admin_model->get_setting('wa_number') ?: '628000000000',
             'support_email'=> $this->Admin_model->get_setting('support_email') ?: 'support@synapse.id',
         ];
