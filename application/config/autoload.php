@@ -99,7 +99,10 @@ $autoload['drivers'] = array();
 // tautan grup WhatsApp ('' = belum dikonfigurasi → kartu disembunyikan).
 // Fungsi murni tanpa efek samping → netral bagi member maupun admin,
 // dan aman di-include ulang dari script CLI migrasi.
-$autoload['helper'] = array('url', 'file', 'form', 'security', 'language', 'i18n', 'maintenance', 'product_image', 'wa_group');
+// Plan 106: 'ewallet' = choke-point tunggal aturan nomor HP e-wallet
+// (normalisasi + validasi ^08[0-9]{8,11}$ + masking tampilan). Fungsi murni
+// tanpa efek samping → netral bagi member, admin, dan CLI migrasi.
+$autoload['helper'] = array('url', 'file', 'form', 'security', 'language', 'i18n', 'maintenance', 'product_image', 'wa_group', 'ewallet');
 
 /*
 | -------------------------------------------------------------------

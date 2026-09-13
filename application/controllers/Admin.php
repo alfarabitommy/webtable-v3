@@ -696,6 +696,8 @@ class Admin extends CI_Controller {
     public function user_detail($id)
     {
         $this->load->model('Admin_model');
+        $this->load->model('Wallet_model');
+        $this->load->model('Ewallet_model');
         $id = (int) $id;
 
         $user = $this->Admin_model->get_user_detail($id);
@@ -705,6 +707,12 @@ class Admin extends CI_Controller {
             return;
         }
 
+        // plan/106: kartu E-Wallet di detail user — binding aktif + baris
+        // katalog (untuk status aktif/nonaktif provider) + konteks penarikan
+        // pending (dipakai peringatan dialog konfirmasi reset).
+        $ewallet          = $this->Wallet_model->get_user_ewallet($id);
+        $ewallet_provider = $ewallet ? $this->Ewallet_model->get_provider_by_name($ewallet->bank_name) : null;
+
         $data = [
             'page_title'     => 'User Detail',
             'user'           => $user,
@@ -713,6 +721,9 @@ class Admin extends CI_Controller {
             'wallet_history' => $this->Admin_model->get_wallet_history($id, 20),
             'downline'       => $this->Admin_model->get_downline($id),
             'products'       => $this->Admin_model->get_active_products(),
+            'ewallet'          => $ewallet,
+            'ewallet_provider' => $ewallet_provider,
+            'has_pending_withdrawal' => $this->Wallet_model->has_pending_withdrawal($id),
         ];
 
         $this->load->view('admin/templates/header', $data);
@@ -1458,6 +1469,80 @@ class Admin extends CI_Controller {
     }
 
     // ===================================================================
+    //  plan/106 — RESET / UNBIND AKUN E-WALLET (admin)
+    //
+    //  "Reset" = ARSIP, bukan hapus (keputusan D2): `is_primary = 0` membuat
+    //  member bisa mengikat ulang, sementara baris tetap ada sehingga FK
+    //  `fk_withdrawals_bank` (ON DELETE RESTRICT) tidak pernah terpicu dan
+    //  seluruh kartu riwayat penarikan tetap menampilkan provider + nomor asli.
+    //
+    //  Penarikan in-flight SENGAJA tidak diblokir: baris `withdrawals` memegang
+    //  `bank_account_id` sendiri, jadi payout lama tetap dapat diproses admin.
+    //  Konfirmasi di UI memberi peringatan bila masih ada penarikan pending.
+    // ===================================================================
+
+    public function reset_ewallet($user_id)
+    {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
+        }
+
+        $this->load->model('Admin_model');
+        $this->load->model('Wallet_model');
+        $this->load->model('Audit_model');
+        $user_id = (int) $user_id;
+
+        if (!$this->Admin_model->user_exists($user_id)) {
+            $this->session->set_flashdata('error', 'User tidak ditemukan.');
+            redirect('admin/users');
+            return;
+        }
+
+        $before = $this->Wallet_model->get_user_ewallet($user_id);
+        if (!$before) {
+            $this->session->set_flashdata('error', 'User tidak memiliki akun e-wallet terikat.');
+            redirect('admin/user_detail/' . $user_id);
+            return;
+        }
+
+        // Atomic: arsip binding + audit + notifikasi member (M5).
+        $this->db->trans_start();
+        $affected = $this->Wallet_model->unbind_user_ewallet($user_id);
+
+        if ($affected >= 1) {
+            // PII minimisation: nomor HP disimpan TER-MASK di audit log.
+            $this->Audit_model->log_admin_action(
+                (int) $this->session->userdata('admin_id'),
+                $user_id,
+                'admin_reset_ewallet',
+                [
+                    'before' => [
+                        'bank_name'             => (string) $before->bank_name,
+                        'account_number_masked' => ewallet_phone_mask((string) $before->account_number),
+                        'account_holder'        => (string) $before->account_holder,
+                    ],
+                    'after'    => ['is_primary' => 0],
+                    'affected' => $affected,
+                ],
+                $this->input->ip_address()
+            );
+
+            $this->load->model('Notification_model');
+            $this->Notification_model->insert_keyed($user_id, 'notif_ewallet_reset', [], 'info');
+        }
+        $this->db->trans_complete();
+
+        if ($affected < 1 || !$this->db->trans_status()) {
+            $this->session->set_flashdata('error', 'Gagal mereset akun e-wallet user.');
+        } else {
+            $this->session->set_flashdata('success', 'Akun e-wallet user berhasil direset. User dapat mengikat ulang.');
+        }
+        redirect('admin/user_detail/' . $user_id);
+    }
+
+    // ===================================================================
     //  PHASE 9A: CIRCUIT BREAKER TOGGLE
     // ===================================================================
 
@@ -1549,6 +1634,254 @@ class Admin extends CI_Controller {
         $message = 'Gagal mengubah mode maintenance.';
         api_error($message, 500, [], 'toggle_failed',
             ['is_maintenance_mode' => $is_maintenance, 'message' => $message, 'error' => $message]);
+    }
+
+    // ===================================================================
+    //  plan/106 — ADMIN PROVIDER E-WALLET (katalog dinamis, CRUD tanpa hard
+    //  delete — keputusan D7). Pretty URLs di routes.php. Semua mutator:
+    //  POST-only fail-closed, CSRF via form_open, audit atomik M5 dalam
+    //  trans_start/trans_complete. Copy & pesan 100% Indonesia (invariant L1:
+    //  admin TIDAK pernah memuat kamus/i18n_apply).
+    // ===================================================================
+
+    public function ewallet_providers() {
+        $this->load->model('Ewallet_model');
+
+        $data = [
+            'page_title' => 'Provider E-Wallet',
+            'providers'  => $this->Ewallet_model->get_providers_admin(),
+        ];
+
+        $this->load->view('admin/templates/header', $data);
+        $this->load->view('admin/templates/sidebar', $data);
+        $this->load->view('admin/templates/topbar', $data);
+        $this->load->view('admin/ewallet_providers', $data);
+        $this->load->view('admin/templates/footer');
+    }
+
+    /**
+     * plan/106: tambah provider e-wallet baru (POST-only).
+     *
+     * `code` = identitas stabil (uppercase, unik, immutable setelah dibuat);
+     * `name` = label tampilan yang disimpan apa adanya di bank_accounts.
+     */
+    public function create_ewallet_provider() {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
+        }
+
+        $this->load->model('Ewallet_model');
+        $this->load->model('Audit_model');
+
+        $code = strtoupper(trim((string) $this->input->post('code', TRUE)));
+        $name = trim((string) $this->input->post('name', TRUE));
+        $is_active = ((string) $this->input->post('is_active', TRUE) === '0') ? 0 : 1;
+
+        if ($code === '' || !preg_match('/^[A-Z0-9_]{2,50}$/', $code)) {
+            $this->session->set_flashdata('error', 'Kode provider wajib 2-50 karakter (huruf kapital, angka, atau garis bawah).');
+            redirect('admin/ewallet-providers');
+            return;
+        }
+        if ($name === '' || mb_strlen($name) > 100) {
+            $this->session->set_flashdata('error', 'Nama provider wajib diisi (maksimal 100 karakter).');
+            redirect('admin/ewallet-providers');
+            return;
+        }
+        if ($this->Ewallet_model->code_exists($code)) {
+            $this->session->set_flashdata('error', 'Kode provider "' . $code . '" sudah dipakai.');
+            redirect('admin/ewallet-providers');
+            return;
+        }
+        if ($this->Ewallet_model->name_exists($name)) {
+            $this->session->set_flashdata('error', 'Nama provider "' . $name . '" sudah ada. Gunakan nama lain agar pilihan member tidak ambigu.');
+            redirect('admin/ewallet-providers');
+            return;
+        }
+
+        $this->db->trans_start();
+        $new_id = $this->Ewallet_model->create_provider([
+            'code'      => $code,
+            'name'      => $name,
+            'is_active' => $is_active,
+        ]);
+        if ($new_id !== false) {
+            $this->Audit_model->log_admin_action(
+                (int) $this->session->userdata('admin_id'),
+                null, // aksi katalog provider — tanpa user (kolom nullable)
+                'admin_create_ewallet_provider',
+                [
+                    'provider_id' => $new_id,
+                    'before'      => null,
+                    'after'       => ['id' => $new_id, 'code' => $code, 'name' => $name, 'is_active' => $is_active],
+                ],
+                $this->input->ip_address()
+            );
+        }
+        $this->db->trans_complete();
+
+        if (!$this->db->trans_status() || $new_id === false) {
+            $this->session->set_flashdata('error', 'Gagal menyimpan provider e-wallet.');
+            redirect('admin/ewallet-providers');
+            return;
+        }
+
+        $this->session->set_flashdata('success', 'Provider "' . $name . '" berhasil ditambahkan.');
+        redirect('admin/ewallet-providers');
+    }
+
+    /**
+     * plan/106: rename provider (POST-only). CODE immutable — hanya `name`
+     * yang berubah, dan perubahan itu DI-CASCADE ke label binding tersimpan
+     * (`bank_accounts.bank_name`) di dalam TX yang sama (keputusan D4).
+     */
+    public function update_ewallet_provider($id) {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
+        }
+
+        $this->load->model('Ewallet_model');
+        $this->load->model('Wallet_model');
+        $this->load->model('Audit_model');
+
+        $id     = (int) $id;
+        $before = $this->Ewallet_model->get_provider($id);
+        if (!$before) {
+            $this->session->set_flashdata('error', 'Provider tidak ditemukan.');
+            redirect('admin/ewallet-providers');
+            return;
+        }
+
+        $name = trim((string) $this->input->post('name', TRUE));
+        if ($name === '' || mb_strlen($name) > 100) {
+            $this->session->set_flashdata('error', 'Nama provider wajib diisi (maksimal 100 karakter).');
+            redirect('admin/ewallet-providers');
+            return;
+        }
+        if ($this->Ewallet_model->name_exists($name, $id)) {
+            $this->session->set_flashdata('error', 'Nama provider "' . $name . '" sudah dipakai provider lain.');
+            redirect('admin/ewallet-providers');
+            return;
+        }
+
+        if ($name === (string) $before->name) {
+            $this->session->set_flashdata('success', 'Nama provider tidak berubah.');
+            redirect('admin/ewallet-providers');
+            return;
+        }
+
+        $this->db->trans_start();
+        $ok        = $this->Ewallet_model->rename_provider($id, $name);
+        $rebounded = $ok ? $this->Wallet_model->reassign_provider_name((string) $before->name, $name) : 0;
+
+        if ($ok) {
+            $this->Audit_model->log_admin_action(
+                (int) $this->session->userdata('admin_id'),
+                null,
+                'admin_rename_ewallet_provider',
+                [
+                    'provider_id'       => $id,
+                    'code'              => (string) $before->code,
+                    'before'            => ['name' => (string) $before->name],
+                    'after'             => ['name' => $name],
+                    'rebound_bindings'  => $rebounded,
+                ],
+                $this->input->ip_address()
+            );
+        }
+        $this->db->trans_complete();
+
+        if (!$this->db->trans_status() || !$ok) {
+            $this->session->set_flashdata('error', 'Gagal mengubah nama provider.');
+            redirect('admin/ewallet-providers');
+            return;
+        }
+
+        $this->session->set_flashdata('success', 'Provider "' . $before->name . '" berhasil diubah menjadi "' . $name . '".'
+            . ($rebounded > 0 ? ' ' . $rebounded . ' akun member terikat ikut diperbarui.' : ''));
+        redirect('admin/ewallet-providers');
+    }
+
+    /**
+     * plan/106: aktifkan/nonaktifkan provider (POST-only).
+     *
+     * Guard D6: provider aktif TERAKHIR tidak boleh dinonaktifkan — tanpa
+     * provider aktif, tidak ada member yang bisa mengikat akun e-wallet.
+     */
+    public function toggle_ewallet_provider($id) {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
+        if ($this->input->method() !== 'post') {
+            show_404();
+            return;
+        }
+
+        $this->load->model('Ewallet_model');
+        $this->load->model('Audit_model');
+
+        $id     = (int) $id;
+        $before = $this->Ewallet_model->get_provider($id);
+        if (!$before) {
+            $this->session->set_flashdata('error', 'Provider tidak ditemukan.');
+            redirect('admin/ewallet-providers');
+            return;
+        }
+
+        $new_state = (((int) $before->is_active === 1) ? 0 : 1);
+
+        // D6: pertahankan minimal satu provider aktif.
+        if ($new_state === 0 && $this->Ewallet_model->count_active_providers() <= 1) {
+            $this->session->set_flashdata('error', 'Minimal satu provider e-wallet harus aktif — provider terakhir tidak bisa dinonaktifkan.');
+            redirect('admin/ewallet-providers');
+            return;
+        }
+
+        // Konteks keputusan: berapa binding hidup yang akan terblokir.
+        $bound = 0;
+        if ($new_state === 0) {
+            $this->load->model('Wallet_model');
+            $row = $this->db->query(
+                "SELECT COUNT(*) c FROM bank_accounts WHERE is_primary = 1 AND bank_name = ?",
+                [(string) $before->name]
+            )->row();
+            $bound = $row ? (int) $row->c : 0;
+        }
+
+        $this->db->trans_start();
+        $ok = $this->Ewallet_model->set_provider_active($id, $new_state);
+        if ($ok) {
+            $this->Audit_model->log_admin_action(
+                (int) $this->session->userdata('admin_id'),
+                null,
+                'admin_toggle_ewallet_provider',
+                [
+                    'provider_id'     => $id,
+                    'code'            => (string) $before->code,
+                    'name'            => (string) $before->name,
+                    'before'          => ['is_active' => (int) $before->is_active],
+                    'after'           => ['is_active' => $new_state],
+                    'active_bindings' => $bound,
+                ],
+                $this->input->ip_address()
+            );
+        }
+        $this->db->trans_complete();
+
+        if (!$this->db->trans_status() || !$ok) {
+            $this->session->set_flashdata('error', 'Gagal mengubah status provider.');
+            redirect('admin/ewallet-providers');
+            return;
+        }
+
+        if ($new_state === 1) {
+            $this->session->set_flashdata('success', 'Provider "' . $before->name . '" berhasil diaktifkan.');
+        } else {
+            $this->session->set_flashdata('success', 'Provider "' . $before->name . '" berhasil dinonaktifkan.'
+                . ($bound > 0 ? ' PERHATIAN: ' . $bound . ' akun member terikat akan diblokir dari penarikan sampai provider diaktifkan kembali.' : ''));
+        }
+        redirect('admin/ewallet-providers');
     }
 
     // ===================================================================
@@ -2149,7 +2482,7 @@ class Admin extends CI_Controller {
                 $filename = 'withdrawals';
                 $headers  = ['ID', 'WD Number', 'User ID', 'Phone',
                              'Gross (IDR)', 'Fee (IDR)', 'Net (IDR)',
-                             'Bank Name', 'Account Number', 'Account Holder',
+                             'Provider E-Wallet', 'Nomor HP E-Wallet', 'Nama Pemilik Akun',
                              'Status', 'Processed At', 'Created At'];
                 $rows     = [];
                 foreach ($data as $r) {

@@ -235,8 +235,9 @@
                         <div class="flex justify-between items-start">
                             <div>
                                 <p class="text-xs font-bold text-orange-600 dark:text-orange-400 mb-1"><?= $wd->wd_number ?></p>
-                                <p class="text-sm font-bold u-text"><?= $wd->bank_name ?> - <?= $wd->account_number ?></p>
-                                <p class="text-xs u-text-2 uppercase"><?= $wd->account_name ?></p>
+                                <?php /* plan/106: tujuan penarikan = akun e-wallet (provider · nomor ter-mask). */ ?>
+                                <p class="text-sm font-bold u-text"><?= htmlspecialchars($wd->bank_name) ?> · <?= htmlspecialchars(ewallet_phone_mask($wd->account_number)) ?></p>
+                                <p class="text-xs u-text-2 uppercase"><?= htmlspecialchars($wd->account_name) ?></p>
                             </div>
                             <div class="text-right">
                                 <p class="text-sm font-bold u-text">Rp <?= number_format($wd->amount, 0, ',', '.') ?></p>

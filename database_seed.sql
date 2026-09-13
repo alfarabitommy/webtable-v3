@@ -83,23 +83,50 @@ ON DUPLICATE KEY UPDATE `username` = VALUES(`username`), `phone` = VALUES(`phone
                          `level_id` = VALUES(`level_id`), `role` = VALUES(`role`), `is_banned` = VALUES(`is_banned`),
                          `must_change_password` = VALUES(`must_change_password`), `is_level_1_claimed` = VALUES(`is_level_1_claimed`);
 
+-- ============ SECTION: ewallet_providers ============
+-- Plan 106: katalog provider e-wallet (sumber tunggal pilihan member).
+-- CREATE TABLE ditaruh di section BIASA (bukan reconcile_schema) karena
+-- seeder MELEWATI section reconcile_schema — statement di sini dieksekusi
+-- apa adanya. Kedua statement idempoten.
+CREATE TABLE IF NOT EXISTS `ewallet_providers` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `code` VARCHAR(50) NOT NULL,
+  `name` VARCHAR(100) NOT NULL,
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_ewallet_code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `ewallet_providers` (`code`, `name`, `is_active`) VALUES
+('DANA',      'DANA',      1),
+('SHOPEEPAY', 'ShopeePay', 1),
+('OVO',       'OVO',       1),
+('GOPAY',     'GoPay',     1);
+
 -- ============ SECTION: bank_accounts ============
+-- Plan 106: binding e-wallet (bukan rekening bank). `bank_name` = nama provider
+-- dari `ewallet_providers.name`; `account_number` = nomor HP user seed (selaras
+-- const USER_PHONES di scripts/seed_database.php — semuanya lolos
+-- ^08[0-9]{8,11}$); `is_primary` = flag binding aktif (1 = terikat, D2).
 INSERT INTO `bank_accounts` (`id`, `user_id`, `bank_name`, `account_number`, `account_holder`, `is_primary`, `created_at`) VALUES
-(1,  1,  'BCA',     '1234567890',      'Budi Santoso',       1, DATE_SUB(NOW(), INTERVAL 44 DAY)),
-(2,  2,  'Mandiri', '1070001234567',   'Andi Wijaya',        1, DATE_SUB(NOW(), INTERVAL 39 DAY)),
-(3,  3,  'BRI',     '002001234567890', 'Budi Santoso',       1, DATE_SUB(NOW(), INTERVAL 49 DAY)),
-(4,  4,  'BNI',     '1234567890',      'Sari Lestari',       1, DATE_SUB(NOW(), INTERVAL 9 DAY)),
-(5,  5,  'CIMB',    '8001234567',      'Dewi Anggraini',     1, DATE_SUB(NOW(), INTERVAL 59 DAY)),
-(6,  6,  'BCA',     '0987654321',      'Eka Prasetya',       1, DATE_SUB(NOW(), INTERVAL 14 DAY)),
-(7,  7,  'Mandiri', '1070007654321',   'Fajar Nugroho',      1, DATE_SUB(NOW(), INTERVAL 11 DAY)),
-(8,  8,  'BRI',     '002009876543210', 'Gina Marlina',       1, DATE_SUB(NOW(), INTERVAL 7 DAY)),
-(9,  9,  'BNI',     '0987654321',      'Hadi Setiawan',      1, DATE_SUB(NOW(), INTERVAL 9 DAY)),
-(10, 10, 'CIMB',    '8007654321',      'Indah Permata',      1, DATE_SUB(NOW(), INTERVAL 34 DAY)),
-(11, 11, 'BCA',     '1122334455',      'Joko Susilo',        1, DATE_SUB(NOW(), INTERVAL 8 DAY)),
-(12, 12, 'Mandiri', '1070001122334',   'Karin Amelia',       1, DATE_SUB(NOW(), INTERVAL 1 DAY)),
-(13, 13, 'BRI',     '002009112233445', 'Lutfi Hakim',        1, DATE_SUB(NOW(), INTERVAL 2 DAY))
+(1,  1,  'DANA',      '081234567890', 'Budi Santoso',       1, DATE_SUB(NOW(), INTERVAL 44 DAY)),
+(2,  2,  'OVO',       '081298765432', 'Andi Wijaya',        1, DATE_SUB(NOW(), INTERVAL 39 DAY)),
+(3,  3,  'GoPay',     '085712345678', 'Budi Santoso',       1, DATE_SUB(NOW(), INTERVAL 49 DAY)),
+(4,  4,  'ShopeePay', '085798765432', 'Sari Lestari',       1, DATE_SUB(NOW(), INTERVAL 9 DAY)),
+(5,  5,  'DANA',      '087811223344', 'Dewi Anggraini',     1, DATE_SUB(NOW(), INTERVAL 59 DAY)),
+(6,  6,  'OVO',       '087855667788', 'Eka Prasetya',       1, DATE_SUB(NOW(), INTERVAL 14 DAY)),
+(7,  7,  'GoPay',     '085723456789', 'Fajar Nugroho',      1, DATE_SUB(NOW(), INTERVAL 11 DAY)),
+(8,  8,  'ShopeePay', '085798112233', 'Gina Marlina',       1, DATE_SUB(NOW(), INTERVAL 7 DAY)),
+(9,  9,  'DANA',      '087833445566', 'Hadi Setiawan',      1, DATE_SUB(NOW(), INTERVAL 9 DAY)),
+(10, 10, 'OVO',       '087855667799', 'Indah Permata',      1, DATE_SUB(NOW(), INTERVAL 34 DAY)),
+(11, 11, 'GoPay',     '081277889900', 'Joko Susilo',        1, DATE_SUB(NOW(), INTERVAL 8 DAY)),
+(12, 12, 'ShopeePay', '081288990011', 'Karin Amelia',       1, DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(13, 13, 'DANA',      '081299001122', 'Lutfi Hakim',        1, DATE_SUB(NOW(), INTERVAL 2 DAY))
 ON DUPLICATE KEY UPDATE `user_id` = VALUES(`user_id`), `bank_name` = VALUES(`bank_name`),
-                         `account_number` = VALUES(`account_number`), `account_holder` = VALUES(`account_holder`);
+                         `account_number` = VALUES(`account_number`), `account_holder` = VALUES(`account_holder`),
+                         `is_primary` = VALUES(`is_primary`);
 
 -- ============ SECTION: user_rentals ============
 -- H-0 rentals (id 6, 15) have days_processed = 0 and last_claimed_at NULL -> T+1 rejection test.

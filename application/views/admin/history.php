@@ -58,7 +58,7 @@
                         <th class="text-left px-5 py-3 t-th">User</th>
                         <th class="text-left px-5 py-3 t-th">No. Transaksi</th>
                         <?php if ($type === 'withdrawal'): ?>
-                            <th class="text-left px-5 py-3 t-th">Bank</th>
+                            <th class="text-left px-5 py-3 t-th">E-Wallet</th>
                         <?php endif; ?>
                         <th class="text-right px-5 py-3 t-th">Nominal</th>
                         <th class="text-center px-5 py-3 t-th">Status</th>

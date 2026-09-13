@@ -85,3 +85,11 @@ $route['admin/toggle-maintenance'] = 'admin/toggle_maintenance';
 // tanpa ini CI3 memetakan /admin/settings/qris sebagai Admin::settings('qris')
 // (segmen tambahan diperlakukan sebagai argumen method).
 $route['admin/settings/qris'] = 'admin/qris_settings';
+
+// plan/106: manajemen provider e-wallet (katalog dinamis; CRUD tanpa hard
+// delete — keputusan D7). Route eksplisit untuk sub-path create/update/toggle:
+// tanpa ini CI3 memperlakukannya sebagai argumen Admin::ewallet_providers().
+$route['admin/ewallet-providers'] = 'admin/ewallet_providers';
+$route['admin/ewallet-providers/create'] = 'admin/create_ewallet_provider';
+$route['admin/ewallet-providers/update/(:num)'] = 'admin/update_ewallet_provider/$1';
+$route['admin/ewallet-providers/toggle_status/(:num)'] = 'admin/toggle_ewallet_provider/$1';

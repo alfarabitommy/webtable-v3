@@ -5,14 +5,9 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 // Wallet::withdraw(); preview fee real-time; disabled state saat di luar
 // jam/hari operasional (notice WIB). Server tetap otoritas.
 
-// Mask account number: first 4 + asterisks + last 3
-$acc = $bank->account_number;
-$len = strlen($acc);
-if ($len > 7) {
-    $masked = substr($acc, 0, 4) . str_repeat('*', $len - 7) . substr($acc, -3);
-} else {
-    $masked = $acc;
-}
+// plan/106: kartu tujuan penarikan kini e-wallet (provider + nomor HP).
+// Masking lewat helper tunggal ewallet_phone_mask() (paritas kartu binding).
+$masked = ewallet_phone_mask($ewallet->account_number);
 
 // Baseline server (render awal); JS menyegarkan via jam WIB.
 // Plan 94 (F1): pesan notice diterjemahkan saat render (lang aktif).
@@ -56,19 +51,19 @@ if (!$wd_open) {
         <span id="wdClosedNoticeText"><?= htmlspecialchars($closed_notice); ?></span>
     </div>
 
-    <!-- ===== READ-ONLY BANK CARD ===== -->
+    <!-- ===== READ-ONLY E-WALLET CARD ===== -->
     <div class="u-card-fin text-white p-4 rounded-xl mb-6 relative overflow-hidden">
         <div class="absolute inset-0 opacity-5" style="background-image: repeating-linear-gradient(45deg, #fff 0, #fff 1px, transparent 1px, transparent 20px);"></div>
         <div class="relative z-10">
             <div class="flex items-center justify-between mb-3">
-                <span class="text-slate-400 text-[10px] uppercase tracking-widest font-bold"><?= lang('wd_rekening_label') ?></span>
+                <span class="text-slate-400 text-[10px] uppercase tracking-widest font-bold"><?= lang('wd_ewallet_label') ?></span>
                 <span class="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30"><?= lang('wd_verified') ?></span>
             </div>
-            <div class="text-lg font-extrabold tracking-tight mb-1"><?= htmlspecialchars($bank->bank_name); ?></div>
-            <div class="text-xl font-mono font-bold tracking-widest mb-3"><?= $masked; ?></div>
+            <div class="text-lg font-extrabold tracking-tight mb-1"><?= htmlspecialchars($ewallet->bank_name); ?></div>
+            <div class="text-xl font-mono font-bold tracking-widest mb-3"><?= htmlspecialchars($masked); ?></div>
             <div class="border-t border-slate-800 pt-3">
                 <span class="text-slate-400 text-[10px] uppercase tracking-widest font-bold"><?= lang('wd_an_label') ?> </span>
-                <span class="text-sm font-bold"><?= htmlspecialchars($bank->account_holder); ?></span>
+                <span class="text-sm font-bold"><?= htmlspecialchars($ewallet->account_holder); ?></span>
             </div>
         </div>
     </div>

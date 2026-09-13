@@ -1167,6 +1167,24 @@ class Wallet_model extends CI_Model {
                 return ['success' => false, 'code' => 'error', 'message' => 'Gagal memproses penarikan.', 'wd_number' => null];
             }
 
+            // 1a. Plan 106: validasi tujuan penarikan DI DALAM TX terkunci —
+            //     baris binding harus milik user ini DAN masih aktif
+            //     (is_primary = 1, keputusan D2). Defense-in-depth: admin bisa
+            //     mereset binding tepat setelah controller membacanya, sehingga
+            //     withdrawal tidak boleh menunjuk akun yang sudah dilepas.
+            //     Predikat identik dengan Wallet_model::get_user_ewallet().
+            $bound = $this->db->query(
+                "SELECT id FROM bank_accounts WHERE id = ? AND user_id = ? AND is_primary = 1 FOR UPDATE",
+                [(int) $bank_account_id, (int) $user_id]
+            )->row();
+
+            if (!$bound) {
+                $this->db->trans_rollback();
+                log_message('error', 'Wallet_model::create_withdrawal — binding e-wallet tidak valid/aktif (user '
+                    . $user_id . ', bank_account_id ' . (int) $bank_account_id . ')');
+                return ['success' => false, 'code' => 'no_ewallet', 'message' => 'Akun e-wallet tidak valid atau sudah tidak aktif.', 'wd_number' => null];
+            }
+
             // 1b. Kebijakan operasional & batas nominal (M1, plan/56) —
             //     otoritatif di dalam TX terkunci (re-check setelah lock wait),
             //     jadi perubahan jam/hari/tier langsung berlaku tanpa race.
@@ -1311,12 +1329,153 @@ class Wallet_model extends CI_Model {
         return $this->db->trans_status() && $affected === 1;
     }
 
-    // ===== BANK BINDING (IMMUTABLE) =====
+    // =====================================================================
+    // Plan 106 — E-WALLET BINDING (eksklusif e-wallet, tetap IMMUTABLE)
+    //
+    // Tabel `bank_accounts` DIPERTAHANKAN secara struktural (zero-breakage:
+    // `fk_withdrawals_bank` ON DELETE RESTRICT + seluruh kartu riwayat
+    // penarikan membaca nama provider/nomor dari baris ini). Semantik kolom:
+    //
+    //   bank_name      = NAMA provider e-wallet (harus ada di
+    //                    `ewallet_providers.name` — divalidasi di controller);
+    //   account_number = nomor HP e-wallet kanonik ^08[0-9]{8,11}$;
+    //   account_holder = nama pemilik akun e-wallet;
+    //   is_primary     = FLAG BINDING AKTIF (1 = terikat, 0 = arsip/unbound).
+    //
+    // Model ini adalah SATU-SATUNYA penulis `bank_accounts` (single writer);
+    // `Ewallet_model` hanya menulis katalog `ewallet_providers`.
+    // =====================================================================
 
-    public function get_user_bank($user_id) {
-        return $this->db->get_where('bank_accounts', ['user_id' => $user_id])->row();
+    /**
+     * Binding e-wallet AKTIF milik user (is_primary = 1).
+     *
+     * Dulu `get_user_bank()` (tanpa filter) — sejak plan 106 `is_primary`
+     * adalah flag binding hidup, sehingga baris terarsip (hasil reset admin
+     * atau migrasi legacy) TIDAK lagi dianggap terikat.
+     *
+     * `ORDER BY id DESC LIMIT 1` = deterministik bila data historis memuat
+     * lebih dari satu baris aktif (skenario rollback migrasi + re-bind).
+     *
+     * @param  int $user_id
+     * @return object|null
+     */
+    public function get_user_ewallet($user_id) {
+        return $this->db
+            ->where('user_id', (int) $user_id)
+            ->where('is_primary', 1)
+            ->order_by('id', 'DESC')
+            ->limit(1)
+            ->get('bank_accounts')
+            ->row();
     }
 
+    /**
+     * Ikat akun e-wallet (IMMUTABLE bagi member: satu binding aktif per user).
+     *
+     * TX + row-level lock menutup race double-submit yang dulu hanya dijaga
+     * di controller (dua POST bersamaan bisa menyisipkan dua baris).
+     *
+     * @param  int    $user_id
+     * @param  string $provider_name Nama provider dari katalog (sudah divalidasi)
+     * @param  string $phone         Nomor kanonik `08…` (sudah divalidasi)
+     * @param  string $holder        Nama pemilik akun
+     * @return array{ok:bool, code:string} code: 'ok' | 'already_bound' | 'error'
+     */
+    public function bind_user_ewallet($user_id, $provider_name, $phone, $holder) {
+        $this->db->trans_begin();
+
+        try {
+            // Kunci baris binding aktif (bila ada) — serialisasi dua submit.
+            $existing = $this->db->query(
+                "SELECT id FROM bank_accounts WHERE user_id = ? AND is_primary = 1 FOR UPDATE",
+                [(int) $user_id]
+            )->row();
+
+            if ($existing) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'code' => 'already_bound'];
+            }
+
+            $inserted = $this->insert_bank([
+                'user_id'        => (int) $user_id,
+                'bank_name'      => (string) $provider_name,
+                'account_number' => (string) $phone,
+                'account_holder' => (string) $holder,
+                'is_primary'     => 1,
+            ]);
+
+            if (!$inserted) {
+                $this->db->trans_rollback();
+                log_message('error', 'Wallet_model::bind_user_ewallet — insert gagal: '
+                    . $this->db->error()['message']);
+                return ['ok' => false, 'code' => 'error'];
+            }
+
+            $this->db->trans_commit();
+            return ['ok' => true, 'code' => 'ok'];
+
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            log_message('error', 'Wallet_model::bind_user_ewallet — ' . $e->getMessage());
+            return ['ok' => false, 'code' => 'error'];
+        }
+    }
+
+    /**
+     * Reset/unbind e-wallet (ADMIN) — ARSIP, bukan hapus.
+     *
+     * `is_primary = 0` membuat member "belum terikat" dan bisa mengikat ulang,
+     * sementara baris tetap ada sehingga `fk_withdrawals_bank` (RESTRICT) tidak
+     * pernah terpicu dan kartu riwayat penarikan tetap menampilkan provider
+     * serta nomor aslinya.
+     *
+     * @param  int $user_id
+     * @return int Jumlah baris diarsipkan (0 = tidak ada binding aktif).
+     */
+    public function unbind_user_ewallet($user_id) {
+        $this->db->where('user_id', (int) $user_id);
+        $this->db->where('is_primary', 1);
+        $this->db->update('bank_accounts', ['is_primary' => 0]);
+
+        return (int) $this->db->affected_rows();
+    }
+
+    /**
+     * Cascade rename provider → label binding tersimpan (dipanggil admin di
+     * dalam TX rename, keputusan D4).
+     *
+     * Tanpa cascade ini, gate penarikan (`get_provider_by_name`) akan gagal
+     * mencocokkan nama lama sehingga member terblokir tanpa sebab yang jelas.
+     * Efeknya hanya label tampilan — tidak ada semantik finansial yang berubah.
+     *
+     * @param  string $old_name
+     * @param  string $new_name
+     * @return int Jumlah baris diperbarui.
+     */
+    public function reassign_provider_name($old_name, $new_name) {
+        $old_name = trim((string) $old_name);
+        $new_name = trim((string) $new_name);
+
+        if ($old_name === '' || $new_name === '' || $old_name === $new_name) {
+            return 0;
+        }
+
+        $this->db->where('bank_name', $old_name);
+        $this->db->update('bank_accounts', ['bank_name' => $new_name]);
+
+        return (int) $this->db->affected_rows();
+    }
+
+    /**
+     * Insert baris binding mentah (dipakai internal `bind_user_ewallet`).
+     *
+     * Dipertahankan sebagai method tersendiri agar tidak ada duplikasi jalur
+     * tulis `bank_accounts`; pemanggil WAJIB berada di dalam TX + sudah
+     * memvalidasi provider & nomor (choke-point ada di controller).
+     *
+     * @param  array $data
+     * @return bool
+     */
     public function insert_bank($data) {
         return $this->db->insert('bank_accounts', $data);
     }

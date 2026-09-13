@@ -74,10 +74,10 @@ erDiagram
     bank_accounts {
         BIGINT id PK
         BIGINT user_id FK
-        VARCHAR100 bank_name
-        VARCHAR50 account_number
+        VARCHAR100 bank_name "plan/106: nama provider e-wallet"
+        VARCHAR50 account_number "plan/106: nomor HP 08xxxxxxxxxx"
         VARCHAR100 account_holder
-        TINYINT1 is_primary "DEFAULT 1"
+        TINYINT1 is_primary "plan/106: 1=terikat, 0=arsip"
         TIMESTAMP created_at
         TIMESTAMP updated_at
     }
@@ -284,19 +284,29 @@ Immutable, append-only ledger yang mencatat setiap pergerakan dana masuk (credit
 ### ~~Tabel: `transactions`~~ — DECOMMISSIONED (M6)
 Tabel double-entry ledger lama. **TIDAK ADA LAGI** — telah dihapus pada M6 pragmatic path (audit: `plan/68_M6_TRANSACTIONS_TABLE_AUDIT_REPORT.md`; eksekusi: `plan/69_M6_DECOMMISSION_TRANSACTIONS_SUMMARY.md`). Aplikasi tidak pernah membaca/menulis tabel ini; seluruh pencatatan finansial memakai `wallet_ledger` (single ledger). Jangan membuat ulang tabel ini.
 
-### Tabel: `bank_accounts`
-Data rekening yang di-bind oleh user untuk keperluan Withdrawal.
+### Tabel: `bank_accounts` — BINDING E-WALLET (plan/106)
+Data akun **e-wallet** yang di-bind user sebagai satu-satunya tujuan penarikan. Struktur tabel **sengaja dipertahankan** (zero-breakage: `fk_withdrawals_bank` ON DELETE RESTRICT, dan kartu riwayat penarikan membaca provider/nomor dari baris ini).
 * `id` (BIGINT, Primary Key, Auto Increment, Unsigned)
 * `user_id` (BIGINT, Unsigned, NOT NULL) - **[Foreign Key -> users.id, ON DELETE CASCADE]**
-* `bank_name` (VARCHAR 100, NOT NULL)
-* `account_number` (VARCHAR 50, NOT NULL)
-* `account_holder` (VARCHAR 100, NOT NULL)
-* `is_primary` (TINYINT 1, NOT NULL, DEFAULT 1)
+* `bank_name` (VARCHAR 100, NOT NULL) - **plan/106:** NAMA provider e-wallet; WAJIB ada di `ewallet_providers.name` (divalidasi di `Wallet::bind_bank`, gate penarikan, dan `migrate_106 --verify`).
+* `account_number` (VARCHAR 50, NOT NULL) - **plan/106:** nomor HP e-wallet kanonik `^08[0-9]{8,11}$` (normalisasi + validasi satu sumber: `application/helpers/ewallet_helper.php`).
+* `account_holder` (VARCHAR 100, NOT NULL) - Nama pemilik akun e-wallet.
+* `is_primary` (TINYINT 1, NOT NULL, DEFAULT 1) - **plan/106:** FLAG BINDING AKTIF — `1` = terikat, `0` = arsip/unbound (hasil reset admin atau migrasi legacy). `Wallet_model::get_user_ewallet()` hanya membaca `is_primary = 1`; reset/unbind = ARSIP, **bukan** DELETE.
 * `created_at` (TIMESTAMP)
 * `updated_at` (TIMESTAMP)
 
+### Tabel: `ewallet_providers` (plan/106)
+Katalog provider e-wallet dinamis — satu-satunya sumber pilihan provider untuk member sekaligus otoritas status aktif/nonaktif.
+* `id` (INT, Primary Key, Auto Increment, Unsigned)
+* `code` (VARCHAR 50, UNIQUE `uk_ewallet_code`) - Identitas stabil (uppercase) untuk audit, backfill migrasi, dan CLI verify. **Immutable** setelah dibuat.
+* `name` (VARCHAR 100, NOT NULL) - Label tampilan; disimpan apa adanya di `bank_accounts.bank_name`. Rename di-cascade ke binding tersimpan (`Wallet_model::reassign_provider_name`) di dalam TX yang sama + audit `admin_rename_ewallet_provider` (`rebound_bindings`).
+* `is_active` (TINYINT 1, NOT NULL, DEFAULT 1) - `1` = muncul di selector member; `0` = disembunyikan (binding lama tetap tersimpan tetapi penarikan diblokir dengan `wd_err_ewallet_inactive`). Minimal satu provider wajib aktif (guard D6).
+* `created_at` / `updated_at` (TIMESTAMP)
+* Seed kanonik (`INSERT IGNORE`, tidak pernah menimpa perubahan admin): DANA, SHOPEEPAY (ShopeePay), OVO, GOPAY (GoPay). **Tanpa hard delete** — provider dinonaktifkan, bukan dihapus (D7).
+* Pemilik tulis: `application/models/Ewallet_model.php` (member read-only via `get_active_providers()`; admin CRUD; gate penarikan memakai `get_provider_by_name()`).
+
 ### Tabel: `withdrawals`
-Menyimpan antrean dan riwayat penarikan dana ke rekening bank.
+Menyimpan antrean dan riwayat penarikan dana ke akun e-wallet.
 * `id` (BIGINT, Primary Key, Auto Increment, Unsigned)
 * `user_id` (BIGINT, Unsigned, NOT NULL) - **[Foreign Key -> users.id, ON DELETE RESTRICT]**
 * `bank_account_id` (BIGINT, Unsigned, NOT NULL) - **[Foreign Key -> bank_accounts.id, ON DELETE RESTRICT]**
@@ -440,8 +450,8 @@ Tabel `rentals` dalam ERD v3.0 **tidak digunakan** dalam implementasi aktual dan
 
 Tabel `user_rentals` juga berfungsi sebagai tabel `rentals` di dalam kode (`application/models/Rental_model.php`).
 
-### Inventory kanonik (13 tabel) vs retention-only
-- **Kanonik (live):** `users`, `gpu_products`, `user_rentals`, `promoter_claims`, `deposits`, `withdrawals`, `bank_accounts`, `wallet_ledger`, `user_notifications`, `admins`, `system_settings`, `system_audit_logs`, `rate_limits`.
+### Inventory kanonik (14 tabel) vs retention-only
+- **Kanonik (live):** `users`, `gpu_products`, `user_rentals`, `promoter_claims`, `deposits`, `withdrawals`, `bank_accounts`, `ewallet_providers` (plan/106), `wallet_ledger`, `user_notifications`, `admins`, `system_settings`, `system_audit_logs`, `rate_limits`.
 - **Retention-only (DEPRECATED M10):** `rentals` (live = `user_rentals`), `otp_logs` (tidak ada flow OTP).
 - **Dihapus dari skema kanonik:** `site_settings` (M7 → `system_settings`), `transactions` double-entry (M6 → `wallet_ledger`).
 

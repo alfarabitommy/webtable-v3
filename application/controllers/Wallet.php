@@ -33,6 +33,10 @@ class Wallet extends MY_Controller {
         'daily_limit'    => 'wd_err_daily_limit',
         'closed_day'     => 'wd_err_closed_day',
         'closed_time'    => 'wd_err_closed_time',
+        // plan/106: hardening di dalam TX — tujuan penarikan tidak lagi valid
+        // (binding direset admin / nomor di luar aturan) → pesan yang sama
+        // dengan gatekeeper GET/POST "belum mengikat akun e-wallet".
+        'no_ewallet'     => 'wd_err_no_ewallet',
         'error'          => 'wd_err_process_failed',
     ];
 
@@ -47,6 +51,8 @@ class Wallet extends MY_Controller {
         $this->load->model('Wallet_model');
         $this->load->model('Rental_model');
         $this->load->model('Rate_limit_model');
+        // plan/106: katalog provider e-wallet (sumber tunggal pilihan binding).
+        $this->load->model('Ewallet_model');
         $this->load->helper('ratelimit');
     }
 
@@ -363,10 +369,20 @@ class Wallet extends MY_Controller {
             return;
         }
 
-        // Gatekeeper 4: bank must be bound
-        $bank = $this->Wallet_model->get_user_bank($user_id);
-        if (empty($bank)) {
-            $this->session->set_flashdata('error', lang('wd_err_no_bank_cta'));
+        // Gatekeeper 4 (plan/106): akun e-wallet harus terikat DAN providernya
+        // masih aktif. Provider nonaktif = penarikan diblokir (keputusan D5):
+        // immutability binding tetap utuh, hanya reset admin (atau reaktivasi
+        // provider) yang membuka jalur ini.
+        $ewallet = $this->Wallet_model->get_user_ewallet($user_id);
+        if (empty($ewallet)) {
+            $this->session->set_flashdata('error', lang('wd_err_no_ewallet_cta'));
+            redirect('wallet/bind_bank');
+            return;
+        }
+
+        $provider = $this->_resolve_active_provider($ewallet);
+        if ($provider === null) {
+            $this->session->set_flashdata('error', lang('wd_err_ewallet_inactive'));
             redirect('wallet/bind_bank');
             return;
         }
@@ -381,7 +397,8 @@ class Wallet extends MY_Controller {
         $data = [
             'page_title'   => lang('wd_page_title'),
             'balance'      => $this->Wallet_model->get_balance($user_id),
-            'bank'         => $bank,
+            // plan/106: binding e-wallet aktif (dulu `bank`).
+            'ewallet'      => $ewallet,
             // Subset config untuk JS preview (json_encode di view).
             'wd_config'    => [
                 'operational_days' => $wd_cfg['operational_days'],
@@ -439,10 +456,17 @@ class Wallet extends MY_Controller {
             return;
         }
 
-        // Fetch bank_account_id server-side — zero client bank input
-        $bank = $this->Wallet_model->get_user_bank($user_id);
-        if (empty($bank)) {
-            $this->session->set_flashdata('error', lang('wd_err_no_bank'));
+        // Fetch binding e-wallet server-side — zero client input (plan/106).
+        // `$ewallet->id` adalah bank_account_id: FK `fk_withdrawals_bank`.
+        $ewallet = $this->Wallet_model->get_user_ewallet($user_id);
+        if (empty($ewallet)) {
+            $this->session->set_flashdata('error', lang('wd_err_no_ewallet'));
+            redirect('wallet/bind_bank');
+            return;
+        }
+
+        if ($this->_resolve_active_provider($ewallet) === null) {
+            $this->session->set_flashdata('error', lang('wd_err_ewallet_inactive'));
             redirect('wallet/bind_bank');
             return;
         }
@@ -500,7 +524,7 @@ class Wallet extends MY_Controller {
             return;
         }
 
-        $result = $this->Wallet_model->create_withdrawal($user_id, $amount, $bank->id);
+        $result = $this->Wallet_model->create_withdrawal($user_id, $amount, $ewallet->id);
 
         // C5 (plan/48 §3.5): map hasil terstruktur model → flashdata + redirect.
         if ($result['success']) {
@@ -555,47 +579,107 @@ class Wallet extends MY_Controller {
         redirect('wallet');
     }
 
-    // ===== BANK BINDING (IMMUTABLE) =====
+    // ===================================================================
+    //  Plan 106 — E-WALLET BINDING (IMMUTABLE)
+    //
+    //  URL tetap `/wallet/bind_bank` (route eksisting) dan tabel tetap
+    //  `bank_accounts` (kompatibilitas FK), tetapi isinya kini binding
+    //  e-wallet:
+    //    bank_name      ← nama provider dari `ewallet_providers` (aktif);
+    //    account_number ← nomor HP e-wallet kanonik (helper ewallet_helper);
+    //    account_holder ← nama pemilik akun.
+    //  Provider TIDAK boleh datang dari klien sebagai nama bebas: yang
+    //  dikirim klien adalah `provider_id`, lalu di-resolve ke katalog aktif.
+    // ===================================================================
+
+    /**
+     * Resolusi provider AKTIF untuk sebuah binding.
+     *
+     * @param  object $ewallet Baris binding aktif (`bank_accounts`)
+     * @return object|null     null bila provider hilang dari katalog ATAU nonaktif
+     */
+    private function _resolve_active_provider($ewallet) {
+        if (empty($ewallet) || empty($ewallet->bank_name)) {
+            return null;
+        }
+
+        $provider = $this->Ewallet_model->get_provider_by_name($ewallet->bank_name);
+
+        if (!$provider || (int) $provider->is_active !== 1) {
+            return null;
+        }
+
+        return $provider;
+    }
 
     public function bind_bank() {
         $user_id = $this->session->userdata('user_id');
-        $existing_bank = $this->Wallet_model->get_user_bank($user_id);
+        $existing_ewallet = $this->Wallet_model->get_user_ewallet($user_id);
 
         // POST: Backend Bypass Protection
         if ($this->input->post()) {
-            if ($existing_bank) {
+            // 1. Immutability: satu binding aktif per user (guard cepat;
+            //    otoritas anti-race ada di Wallet_model::bind_user_ewallet).
+            if ($existing_ewallet) {
                 $this->session->set_flashdata('error', lang('bb_err_already_bound'));
                 redirect('wallet/bind_bank');
                 return;
             }
 
-            $bank_name      = $this->input->post('bank_name');
-            $account_number = $this->input->post('account_number');
-            $account_holder = $this->input->post('account_holder');
+            // 2. Provider: id integer positif + WAJIB ada dan AKTIF di katalog.
+            //    Nama provider tidak pernah dipercaya dari klien.
+            $provider_id = $this->input->post('provider_id');
+            if (!is_string($provider_id) || !preg_match('/^[1-9][0-9]*$/', $provider_id)) {
+                $this->session->set_flashdata('error', lang('bb_err_provider_invalid'));
+                redirect('wallet/bind_bank');
+                return;
+            }
 
-            // Validation
-            if (empty($bank_name) || empty($account_number) || empty($account_holder)) {
+            $provider = $this->Ewallet_model->get_active_provider((int) $provider_id);
+            if (!$provider) {
+                $this->session->set_flashdata('error', lang('bb_err_provider_invalid'));
+                redirect('wallet/bind_bank');
+                return;
+            }
+
+            // 3. Kelengkapan field (parity pesan lama).
+            $phone_raw      = $this->input->post('ewallet_phone');
+            $account_holder = trim((string) $this->input->post('account_holder'));
+
+            if (empty($phone_raw) || $account_holder === '') {
                 $this->session->set_flashdata('error', lang('bb_err_required_fields'));
                 redirect('wallet/bind_bank');
                 return;
             }
 
-            if (!preg_match('/^[0-9]+$/', $account_number) || strlen($account_number) < 8) {
-                $this->session->set_flashdata('error', lang('bb_err_account_number'));
+            // 4. Nomor HP e-wallet: numerik, awalan 08, 10–13 digit
+            //    (normalisasi + validasi satu sumber: ewallet_helper).
+            $phone = ewallet_phone_validate($phone_raw);
+            if ($phone === null) {
+                $this->session->set_flashdata('error', lang('bb_err_phone'));
                 redirect('wallet/bind_bank');
                 return;
             }
 
-            $data = [
-                'user_id'        => $user_id,
-                'bank_name'      => $bank_name,
-                'account_number' => $account_number,
-                'account_holder' => $account_holder,
-                'is_primary'     => 1,
-            ];
+            // 5. Panjang nama pemilik (kolom VARCHAR(100)).
+            if (mb_strlen($account_holder) > 100) {
+                $this->session->set_flashdata('error', lang('bb_err_holder_too_long'));
+                redirect('wallet/bind_bank');
+                return;
+            }
 
-            if ($this->Wallet_model->insert_bank($data)) {
+            // 6. Simpan di dalam TX + row-level lock (anti double-submit).
+            $result = $this->Wallet_model->bind_user_ewallet(
+                $user_id,
+                (string) $provider->name,
+                $phone,
+                $account_holder
+            );
+
+            if (!empty($result['ok'])) {
                 $this->session->set_flashdata('success', lang('bb_ok_bound'));
+            } elseif (($result['code'] ?? '') === 'already_bound') {
+                $this->session->set_flashdata('error', lang('bb_err_already_bound'));
             } else {
                 $this->session->set_flashdata('error', lang('bb_err_save_failed'));
             }
@@ -604,10 +688,16 @@ class Wallet extends MY_Controller {
             return;
         }
 
-        // GET: Render view
+        // GET: Render view — provider selector HANYA dari katalog aktif;
+        // daftar kosong = state fail-closed (kartu info, form tidak dirender).
         $data = [
-            'page_title'    => lang('bind_page_title'),
-            'existing_bank' => $existing_bank,
+            'page_title'       => lang('bind_page_title'),
+            'existing_ewallet' => $existing_ewallet,
+            'providers'        => $this->Ewallet_model->get_active_providers(),
+            // Status provider binding aktif (untuk notice nonaktif di State B).
+            'ewallet_provider' => $existing_ewallet
+                ? $this->Ewallet_model->get_provider_by_name($existing_ewallet->bank_name)
+                : null,
         ];
 
         $this->load->view('templates/header', $data);

@@ -101,7 +101,10 @@ $identicalAllowlist = array(
     'rp', 'wib', 'en', 'id', 'l1', 'h+1', 't+1', 'px', 'mb', 'kb', '%1$d %2$s %3$d %4$s %5$d %6$s',
     // label netral lintas-bahasa
     'info', 'bonus', 'invoice', 'top up', 'merchant', 'online', 'level', 'actif',
-    'bank account', 'aktif',
+    // plan/106: token 'bank account' DIHAPUS — tidak ada lagi nilai kamus yang
+    // identik EN≡ID untuk terminologi akun (kini e-wallet, EN≠ID). Menghapus
+    // entri allowlist hanya memperketat gate.
+    'aktif',
     // leksikon tanggal yang identik di kedua idiom
     'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'sep', 'nov',
     // nama hari/bulan singkatan yang sama

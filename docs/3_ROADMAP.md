@@ -200,6 +200,22 @@
 
 ---
 
+### Exclusive E-Wallet Withdrawal Gateway & Dynamic Provider Management ✅ COMPLETED (plan/106)
+- [x] **Katalog provider dinamis** — tabel baru `ewallet_providers` (`id`, `code` UNIQUE `uk_ewallet_code`, `name`, `is_active`, `created_at`, `updated_at`) + seed kanonik `INSERT IGNORE` DANA / SHOPEEPAY / OVO / GOPAY. Tanpa hard delete (D7): provider dinonaktifkan, bukan dihapus.
+- [x] **Migrasi CLI** — `scripts/migrate_106_ewallet_withdrawal.php` (7 fase: PRE-FLIGHT → INSPECT → DDL → SEED → BACKFILL nama bank legacy → ARSIP binding legacy → VERIFY; flag `--dry-run` default / `--apply` / `--verify` / `--keep-bindings` / `--default-provider`, exit 0/1/2). Idempoten (re-run = 0 dipetakan / 0 diarsipkan); **sudah diterapkan ke DB live** (17 baris dipetakan + 17 binding legacy diarsipkan, 0 orphan FK).
+- [x] **Zero-breakage `bank_accounts`** — struktur tabel TIDAK diubah (FK `fk_withdrawals_bank` ON DELETE RESTRICT): `bank_name` = nama provider, `account_number` = nomor HP e-wallet `^08[0-9]{8,11}$`, `is_primary` = flag binding aktif (1 = terikat, 0 = arsip). Reset admin = **arsip**, bukan hapus → seluruh kartu riwayat penarikan tetap menampilkan provider + nomor asli.
+- [x] **Choke-point nomor HP** — `application/helpers/ewallet_helper.php` (autoload `ewallet`): `ewallet_phone_normalize()` (62/0062 → 0), `ewallet_phone_is_valid()` / `ewallet_phone_validate()` (`^08[0-9]{8,11}$`), `ewallet_phone_mask()` — satu sumber aturan untuk controller member, 4 view, admin, dan verifikator CLI.
+- [x] **Model katalog** — `Ewallet_model` (`get_active_providers`, `get_active_provider`, `get_provider_by_name`, `count_active_providers`, `get_providers_admin` + hitungan binding aktif/total, `create_provider`, `rename_provider`, `set_provider_active`, guard duplikat code & name).
+- [x] **Admin provider CRUD** — `/admin/ewallet-providers` (+ `/create`, `/update/(:num)`, `/toggle_status/(:num)`, entri sidebar **E-Wallet**): tambah, rename (code immutable + cascade label binding + audit `rebound_bindings`), toggle aktif/nonaktif dengan guard **minimal satu provider aktif** dan peringatan jumlah akun terikat. Copy 100% Indonesia (L1), audit `admin_create/rename/toggle_ewallet_provider`.
+- [x] **Reset / unbind admin** — kartu **Akun E-Wallet** di `/admin/user_detail/{id}` (provider + status, nomor ter-mask, nama pemilik) + aksi POST `admin/reset_ewallet/{id}` (form standalone, konfirmasi, peringatan bila ada penarikan pending); audit `admin_reset_ewallet` (nomor HP ter-mask — PII minimisation) + notifikasi dwibahasa `notif_ewallet_reset` di dalam TX yang sama.
+- [x] **Binding member** — `/wallet/bind_bank` memakai **card selector 2×2** dari provider AKTIF (CSS `peer-checked:`, tanpa JS); input **Nomor HP E-Wallet** + **Nama Pemilik Akun**; validasi server: `provider_id` wajib ada & aktif (nama provider tidak pernah dipercaya dari klien), nomor wajib numerik/`08`/10–13 digit, nama ≤ 100 karakter; `Wallet_model::bind_user_ewallet()` memakai row-level lock `FOR UPDATE` (anti double-submit) dan tetap **immutable** bagi member.
+- [x] **Gate penarikan** — `/wallet/withdraw` + `process_withdraw` menolak bila belum terikat (`wd_err_no_ewallet*`) atau providernya nonaktif (`wd_err_ewallet_inactive` → redirect `bind_bank` dengan notice); `Wallet_model::create_withdrawal()` memverifikasi ulang kepemilikan + status aktif binding **di dalam TX terkunci** (code `no_ewallet`) sebagai defense-in-depth.
+- [x] **Terminologi e-wallet** — view wallet (`bank_bind`, `withdraw`, `index`), kartu pending WD (provider · nomor ter-mask), hub profil (`fa-wallet`), header CSV admin (`Provider E-Wallet` / `Nomor HP E-Wallet` / `Nama Pemilik Akun`), kolom riwayat admin (`E-Wallet`), FAQ bantuan.
+- [x] **Kamus EN/ID** — 9 key di-rename (`bb_provider_label`, `bb_choose_provider`, `bb_phone_label`, `bb_phone_placeholder`, `bb_err_phone`, `profile_withdraw_ewallet`, `wd_ewallet_label`, `wd_err_no_ewallet`, `wd_err_no_ewallet_cta`), 14 nilai ditulis ulang, +8 key baru (`bb_phone_hint`, `bb_err_provider_invalid`, `bb_err_holder_too_long`, `bb_no_provider_available`, `bb_provider_inactive_notice`, `wd_err_ewallet_inactive`, `notif_ewallet_reset_title`, `notif_ewallet_reset_body`) → **602 key** identik di kedua idiom; token allowlist `'bank account'` dihapus dari `audit_i18n_parity.php`; kedua audit exit 0 dan `audit_i18n_hardcoded.php` 0 temuan.
+- [x] **Ringkasan** — `plan/106_EWALLET_WITHDRAWAL_AND_PROVIDER_MANAGEMENT_SUMMARY.md`.
+
+---
+
 ## Upcoming Phases
 
 ### Phase 11: Production Payment Gateway (PLANNED)

@@ -91,7 +91,39 @@ CREATE TABLE IF NOT EXISTS `rentals` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------
--- Table `bank_accounts`
+-- Table `ewallet_providers` — Plan 106 (katalog provider e-wallet dinamis)
+-- Satu-satunya sumber kebenaran pilihan provider untuk member (/wallet/bind_bank)
+-- dan otoritas status aktif/nonaktif. `code` = identitas stabil (dipakai audit,
+-- backfill migrasi & verify CLI); `name` = label tampilan (disimpan apa adanya
+-- di `bank_accounts.bank_name` — keputusan D4). Tidak ada hard delete (D7).
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `ewallet_providers` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `code` VARCHAR(50) NOT NULL,
+  `name` VARCHAR(100) NOT NULL,
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_ewallet_code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Seed idempotent (pola `system_settings`): INSERT IGNORE tidak pernah
+-- menimpa rename/status yang sudah diubah admin.
+INSERT IGNORE INTO `ewallet_providers` (`code`, `name`, `is_active`) VALUES
+('DANA',      'DANA',      1),
+('SHOPEEPAY', 'ShopeePay', 1),
+('OVO',       'OVO',       1),
+('GOPAY',     'GoPay',     1);
+
+-- -----------------------------------------------------
+-- Table `bank_accounts` — RETENSI STRUKTURAL (Plan 106)
+-- Struktur SENGAJA tidak diubah (zero-breakage: `fk_withdrawals_bank`).
+-- Semantik kolom setelah Plan 106:
+--   `bank_name`      = NAMA provider e-wallet (harus ada di `ewallet_providers.name`);
+--   `account_number` = nomor HP e-wallet kanonik `^08[0-9]{8,11}$`;
+--   `account_holder` = nama pemilik akun e-wallet;
+--   `is_primary`     = FLAG BINDING AKTIF (1 = terikat, 0 = arsip/unbound — D2).
 -- -----------------------------------------------------
 CREATE TABLE IF NOT EXISTS `bank_accounts` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -525,4 +557,61 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- di-resolve application/helpers/product_image_helper.php. Berkas fisik
 -- bersifat runtime (di-gitignore) → instalasi bersih yang belum memiliki
 -- aset akan menampilkan fallback banner, bukan broken image.
+-- -----------------------------------------------------
+
+-- -----------------------------------------------------
+-- Plan 106 — MIGRASI LIVE (one-time; jalankan manual di DB aktif).
+-- Tabel `ewallet_providers` + seed 4 provider sudah masuk blok CREATE TABLE
+-- di atas (instalasi baru otomatis). Untuk DB yang SUDAH ADA — yang masih
+-- menyimpan binding rekening bank legacy — gunakan tool yang menyertakan
+-- BACKFILL + ARSIP + verifikasi:
+--
+--   php scripts/migrate_106_ewallet_withdrawal.php --dry-run   # inspeksi, tanpa tulis
+--   php scripts/migrate_106_ewallet_withdrawal.php --apply     # DDL + seed + backfill + arsip + verify
+--   php scripts/migrate_106_ewallet_withdrawal.php --verify    # read-only; exit 2 bila drift
+--
+-- Referensi SQL yang dijalankan tool tersebut (urutan wajib):
+--
+--   1) CREATE TABLE IF NOT EXISTS `ewallet_providers` ( … );   -- §DDL di atas
+--
+--   2) INSERT IGNORE INTO `ewallet_providers` (`code`,`name`,`is_active`) VALUES
+--        ('DANA','DANA',1),('SHOPEEPAY','ShopeePay',1),
+--        ('OVO','OVO',1),('GOPAY','GoPay',1);
+--      -- INSERT IGNORE: re-run TIDAK pernah menimpa rename/status admin.
+--
+--   3) Backfill nama bank legacy → provider (kolom utf8mb4_unicode_ci = CI):
+--        UPDATE `bank_accounts` SET `bank_name` = 'DANA'
+--         WHERE LOWER(`bank_name`) IN ('bca','bank bca','bank central asia (bca)',
+--                                      'bni','bank negara indonesia (bni)');
+--        UPDATE `bank_accounts` SET `bank_name` = 'OVO'
+--         WHERE LOWER(`bank_name`) IN ('mandiri','bank mandiri');
+--        UPDATE `bank_accounts` SET `bank_name` = 'GoPay'
+--         WHERE LOWER(`bank_name`) IN ('bri','bank rakyat indonesia (bri)');
+--        UPDATE `bank_accounts` SET `bank_name` = 'ShopeePay'
+--         WHERE LOWER(`bank_name`) IN ('cimb','bank cimb niaga');
+--        -- sisa nama tak dikenal → provider default (DANA)
+--        UPDATE `bank_accounts` SET `bank_name` = 'DANA'
+--         WHERE `bank_name` NOT IN (SELECT `name` FROM `ewallet_providers`);
+--
+--   4) Arsipkan binding legacy (nomor bank BUKAN nomor HP e-wallet) → member
+--      wajib re-bind. TIDAK PERNAH menghapus baris (FK RESTRICT + riwayat):
+--        UPDATE `bank_accounts` SET `is_primary` = 0
+--         WHERE `is_primary` = 1 AND `account_number` NOT REGEXP '^08[0-9]{8,11}$';
+--
+--   5) Verifikasi invarian (WAJIB: 4 / 0 / 0 / 0):
+--        SELECT COUNT(*) FROM `ewallet_providers`
+--         WHERE `is_active`=1 AND `code` IN ('DANA','SHOPEEPAY','OVO','GOPAY');
+--        SELECT COUNT(*) FROM `bank_accounts` b
+--          LEFT JOIN `ewallet_providers` p ON p.`name` = b.`bank_name`
+--         WHERE b.`is_primary`=1 AND p.`id` IS NULL;                 -- drift = 0
+--        SELECT COUNT(*) FROM `bank_accounts`
+--         WHERE `is_primary`=1 AND `account_number` NOT REGEXP '^08[0-9]{8,11}$';
+--        SELECT COUNT(*) FROM `withdrawals` w
+--          LEFT JOIN `bank_accounts` b ON b.`id` = w.`bank_account_id`
+--         WHERE w.`bank_account_id` IS NOT NULL AND b.`id` IS NULL;  -- orphan = 0
+--
+-- Catatan: arsip reversibel — `UPDATE bank_accounts SET is_primary=1 WHERE id IN (…)`
+-- memakai daftar ID yang dicetak tool. Menghapus baris TIDAK PERNAH menjadi
+-- opsi: `fk_withdrawals_bank` ON DELETE RESTRICT dan seluruh kartu riwayat
+-- penarikan membaca nama provider/nomor dari baris tersebut.
 -- -----------------------------------------------------

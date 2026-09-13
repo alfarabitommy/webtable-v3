@@ -220,6 +220,101 @@
     </div>
 
     <!-- ================================================================= -->
+    <!-- SECTION 2b (plan/106): E-Wallet Binding & Reset / Unbind          -->
+    <!-- ================================================================= -->
+    <div class="t-card p-6">
+        <h4 class="text-sm font-bold text-[var(--t-text)] mb-4 flex items-center gap-2">
+            <i class="fas fa-wallet text-indigo-500"></i> Akun E-Wallet
+        </h4>
+
+        <?php $ew_provider_active = $ewallet ? ($ewallet_provider && (int) $ewallet_provider->is_active === 1) : false; ?>
+
+        <?php if ($ewallet): ?>
+            <div class="bg-[var(--t-surface-2)] rounded-lg p-4 mb-4 border border-[var(--t-border)] space-y-3">
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <p class="text-[11px] text-[var(--t-muted)] mb-0.5">Provider E-Wallet</p>
+                        <p class="text-sm font-bold text-[var(--t-text)]"><?= htmlspecialchars((string) $ewallet->bank_name, ENT_QUOTES, 'UTF-8') ?></p>
+                    </div>
+                    <?php if ($ew_provider_active): ?>
+                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                            <i class="fas fa-circle text-[6px]"></i> Provider Aktif
+                        </span>
+                    <?php else: ?>
+                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                            <i class="fas fa-circle text-[6px]"></i> Provider Nonaktif
+                        </span>
+                    <?php endif; ?>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <p class="text-[11px] text-[var(--t-muted)] mb-0.5">Nomor HP E-Wallet</p>
+                        <p class="text-sm font-mono font-semibold text-[var(--t-text)]">
+                            <?= htmlspecialchars(ewallet_phone_mask((string) $ewallet->account_number), ENT_QUOTES, 'UTF-8') ?>
+                        </p>
+                    </div>
+                    <div>
+                        <p class="text-[11px] text-[var(--t-muted)] mb-0.5">Nama Pemilik Akun</p>
+                        <p class="text-sm font-semibold text-[var(--t-text)]"><?= htmlspecialchars((string) $ewallet->account_holder, ENT_QUOTES, 'UTF-8') ?></p>
+                    </div>
+                </div>
+
+                <p class="text-[11px] text-[var(--t-muted)]">
+                    Direkatkan pada <?= date('d M Y H:i', strtotime($ewallet->created_at)) ?> WIB
+                </p>
+            </div>
+
+            <?php if (!$ew_provider_active): ?>
+                <div class="bg-rose-500/10 border border-rose-500/25 rounded-lg px-3 py-2 mb-4 flex items-start gap-2">
+                    <i class="fas fa-exclamation-triangle text-rose-500 text-xs mt-0.5"></i>
+                    <p class="text-[11px] text-rose-700 dark:text-rose-300">
+                        Provider ini sedang NONAKTIF: penarikan user diblokir sampai provider diaktifkan kembali
+                        (menu E-Wallet) atau ikatan akun direset dari halaman ini.
+                    </p>
+                </div>
+            <?php endif; ?>
+
+            <?php if (!empty($has_pending_withdrawal)): ?>
+                <div class="bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2 mb-4 flex items-start gap-2">
+                    <i class="fas fa-clock text-amber-500 text-xs mt-0.5"></i>
+                    <p class="text-[11px] text-amber-700 dark:text-amber-400">
+                        Masih ada penarikan pending/proses. Dana penarikan tersebut tetap dikirim ke akun e-wallet LAMA
+                        (data penarikan menyimpan tujuannya sendiri), reset hanya membuka ikatan untuk pengajuan berikutnya.
+                    </p>
+                </div>
+            <?php endif; ?>
+
+            <div class="bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2 mb-4 flex items-start gap-2">
+                <i class="fas fa-info-circle text-amber-500 text-xs mt-0.5"></i>
+                <p class="text-[11px] text-amber-700 dark:text-amber-400">
+                    Reset = melepas ikatan (baris diarsipkan, bukan dihapus) sehingga user dapat mengikat ulang
+                    akun e-wallet yang benar dari menu Wallet.
+                </p>
+            </div>
+
+            <!-- Form standalone (TIDAK boleh bersarang di <form> lain) -->
+            <?= form_open('admin/reset_ewallet/' . (int) $user->id,
+                "onsubmit=\"return confirm('Reset ikatan akun e-wallet user ini? User akan bisa mengikat ulang."
+                . (!empty($has_pending_withdrawal) ? ' PERHATIAN: masih ada penarikan pending — dana tetap dikirim ke akun e-wallet lama.' : '')
+                . "')\"") ?>
+                <button type="submit"
+                        class="px-4 py-2 rounded-lg bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 transition-colors flex items-center gap-2">
+                    <i class="fas fa-unlink text-xs"></i> Reset / Lepas Ikat Akun E-Wallet
+                </button>
+            <?= form_close() ?>
+        <?php else: ?>
+            <div class="bg-[var(--t-surface-2)] rounded-lg p-4 border border-[var(--t-border)]">
+                <p class="text-sm text-[var(--t-text)] font-medium mb-1">User belum mengikat akun e-wallet.</p>
+                <p class="text-[11px] text-[var(--t-muted)]">
+                    Binding wajib sebelum pengajuan penarikan: user mengikat sendiri dari menu Wallet → Tarik Dana
+                    (provider + nomor HP e-wallet, hanya bisa sekali). Gunakan reset di atas bila ikatan salah.
+                </p>
+            </div>
+        <?php endif; ?>
+    </div>
+
+    <!-- ================================================================= -->
     <!-- SECTION 3: Active Rentals Manipulation -->
     <!-- ================================================================= -->
     <div class="t-card p-6 lg:col-span-2">

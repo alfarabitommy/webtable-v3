@@ -152,14 +152,14 @@
             <i class="fas fa-chevron-right text-[10px] u-muted"></i>
         </a>
 
-        <!-- 2. Tarik Dana & Rekening Bank -->
+        <!-- 2. Tarik Dana & Akun E-Wallet (plan/106) -->
         <a href="<?= site_url('wallet/bind_bank') ?>"
            class="flex items-center justify-between px-5 py-4 u-row-hover transition border-b border-slate-50 dark:border-slate-800 active:scale-[0.98]">
             <div class="flex items-center gap-3">
                 <div class="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-                    <i class="fas fa-university text-sm"></i>
+                    <i class="fas fa-wallet text-sm"></i>
                 </div>
-                <span class="text-sm font-medium u-text"><?= lang('profile_withdraw_bank') ?></span>
+                <span class="text-sm font-medium u-text"><?= lang('profile_withdraw_ewallet') ?></span>
             </div>
             <i class="fas fa-chevron-right text-[10px] u-muted"></i>
         </a>

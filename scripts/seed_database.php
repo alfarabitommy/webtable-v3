@@ -393,6 +393,8 @@ function run_validation($m)
     // 1. Table counts
     $counts = [
         'admins' => 1, 'gpu_products' => 4, 'users' => 13, 'bank_accounts' => 13,
+        // Plan 106: katalog provider e-wallet (4 code kanonik).
+        'ewallet_providers' => 4,
         'user_rentals' => 15, 'deposits' => 15, 'withdrawals' => 4,
         'user_notifications' => 14, 'system_audit_logs' => 16,
     ];
@@ -455,6 +457,22 @@ function run_validation($m)
         $n = (int) $m->query($sql)->fetch_row()[0];
         $ok('FK ' . $label, $n === 0, "orphans {$n}");
     }
+
+    // 4b. E-wallet binding integrity (Plan 106)
+    echo "-- e-wallet provider & binding integrity (plan/106) --\n";
+    $provCodes = (int) $m->query("SELECT COUNT(*) FROM ewallet_providers
+                                   WHERE is_active = 1 AND code IN ('DANA','SHOPEEPAY','OVO','GOPAY')")->fetch_row()[0];
+    $ok('4 provider kanonik aktif', $provCodes === 4, "found {$provCodes}");
+    $badPhone = (int) $m->query("SELECT COUNT(*) FROM bank_accounts
+                                  WHERE is_primary = 1 AND account_number NOT REGEXP '^08[0-9]{8,11}$'")->fetch_row()[0];
+    $ok('semua binding aktif = nomor HP e-wallet valid', $badPhone === 0, "invalid {$badPhone}");
+    $drift = (int) $m->query("SELECT COUNT(*) FROM bank_accounts b
+                               LEFT JOIN ewallet_providers p ON p.name = b.bank_name
+                               WHERE b.is_primary = 1 AND p.id IS NULL")->fetch_row()[0];
+    $ok('semua binding aktif menunjuk provider katalog', $drift === 0, "drift {$drift}");
+    $multi = (int) $m->query("SELECT COUNT(*) FROM (SELECT user_id FROM bank_accounts
+                                WHERE is_primary = 1 GROUP BY user_id HAVING COUNT(*) > 1) t")->fetch_row()[0];
+    $ok('maksimum satu binding aktif per user', $multi === 0, "users with >1 {$multi}");
 
     // 5. H-0 rentals (T+1 rejection test fixtures)
     echo "-- H-0 rental state (T+1) --\n";

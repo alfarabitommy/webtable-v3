@@ -68,6 +68,12 @@
                 <i class="fas fa-microchip w-5 text-center text-xs"></i>
                 <span>Produk GPU</span>
             </a>
+            <!-- plan/106: katalog provider e-wallet (tujuan penarikan member) -->
+            <a href="<?= site_url('admin/ewallet-providers') ?>"
+               class="t-nav-link <?= in_array($this->uri->segment(2), ['ewallet-providers', 'ewallet_providers']) ? 't-nav-active' : '' ?>">
+                <i class="fas fa-wallet w-5 text-center text-xs"></i>
+                <span>E-Wallet</span>
+            </a>
             <!-- Plan 91: queue klaim reward promotor. Plan 94 (F2): + badge -->
             <a href="<?= site_url('admin/promoter-claims') ?>"
                class="t-nav-link <?= in_array($this->uri->segment(2), ['promoter-claims', 'promoter_claims']) ? 't-nav-active' : '' ?>">
