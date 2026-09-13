@@ -380,9 +380,24 @@ class Admin extends CI_Controller {
                 $errors = array_merge($errors, array_values($this->form_validation->error_array()));
             }
 
+            // plan/105: tautan grup WhatsApp — OPSIONAL ('' = kartu komunitas
+            // tidak ditampilkan di halaman Bantuan member). Sengaja di luar
+            // form_validation karena nilai kosong adalah nilai SAH; aturan
+            // kanonik ada di helper wa_group_helper (satu sumber bersama
+            // render member & CLI migrasi).
+            $wa_group_raw  = (string) $this->input->post('wa_group_link', TRUE);
+            $wa_group_link = wa_group_link_normalize($wa_group_raw);
+            if ($wa_group_link === null) {
+                $errors[] = 'Link grup WhatsApp tidak valid. Gunakan tautan undangan resmi '
+                          . '(contoh: https://chat.whatsapp.com/XXXXXXXXXXXXXXXXXXXXXX) '
+                          . 'atau kosongkan bila belum ada.';
+                $wa_group_link = '';
+            }
+
             $contact = [
                 'wa_number'     => $this->input->post('wa_number', TRUE),
                 'support_email' => $this->input->post('support_email', TRUE),
+                'wa_group_link' => $wa_group_link,
             ];
 
             // ── Finansial (raw POST → normalizer ketat Wallet_model;
@@ -462,7 +477,7 @@ class Admin extends CI_Controller {
             return;
         }
 
-        $contact = $this->Admin_model->get_settings_map(['wa_number', 'support_email']);
+        $contact = $this->Admin_model->get_settings_map(['wa_number', 'support_email', 'wa_group_link']);
         $cfg     = $this->Wallet_model->get_financial_config();
         // plan/102: konfigurasi pembayaran QRIS manual + kebijakan deposit
         // (form TERPISAH dari form finansial di halaman yang sama).
@@ -473,6 +488,8 @@ class Admin extends CI_Controller {
             'page_title'          => 'Pengaturan',
             'wa_number'           => $contact['wa_number'] ?? '',
             'support_email'       => $contact['support_email'] ?? '',
+            // plan/105: tautan grup/komunitas WhatsApp ('' = kartu disembunyikan).
+            'wa_group_link'       => (string) ($contact['wa_group_link'] ?? ''),
             'days'                => array_map('intval', array_filter(explode(',', $cfg['operational_days']), 'strlen')),
             'open_time'           => $cfg['open_time'],
             'close_time'          => $cfg['close_time'],

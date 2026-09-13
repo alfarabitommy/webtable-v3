@@ -337,6 +337,7 @@ Key-value store konfigurasi runtime (circuit breaker + config finansial + rebate
 | `wd_min_amount` / `wd_max_amount` | `100000` / `50000000` | Batas nominal WD (M1) |
 | `deposit_fee_enabled` / `deposit_fee_type` / `deposit_fee_value` | `0` / `flat` / `0` | Config fee deposit (M1) |
 | `wa_number` / `support_email` | `628000000000` / `support@synapse.id` | Kontak/support (M7, plan/70) |
+| **`wa_group_link`** | `''` | **Plan 105:** tautan undangan grup/komunitas WhatsApp resmi. Bentuk kanonik `https://chat.whatsapp.com/<token>`; `''` = belum dikonfigurasi → kartu Komunitas di `/help` **tidak dirender**. Validasi/kanonikalisasi satu sumber `application/helpers/wa_group_helper.php` (`wa_group_link_normalize()` / `wa_group_link_url()`); write-path `/admin/settings` (all-or-nothing + audit `admin_update_settings`). |
 | **`rebate_enabled`** | `1` | **Plan 89:** master switch engine rebate 3-tier (0 = skip distribusi) |
 | **`rebate_l1_percent`** | `5` | **Plan 89:** persen rebate L1 (integer 0–100) |
 | **`rebate_l2_percent`** | `3` | **Plan 89:** persen rebate L2 |

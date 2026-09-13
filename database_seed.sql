@@ -281,6 +281,9 @@ INSERT IGNORE INTO `system_settings` (`key_name`, `key_value`) VALUES
 -- M7 (plan/70): contact/support keys migrated from decommissioned `site_settings`.
 ('wa_number', '628000000000'),
 ('support_email', 'support@synapse.id'),
+-- plan/105: tautan grup/komunitas WhatsApp resmi. '' = tidak dikonfigurasi →
+-- kartu Komunitas disembunyikan di halaman Bantuan member (fail-safe).
+('wa_group_link', ''),
 -- plan/102: gateway deposit QRIS manual — identitas pembayaran + kebijakan deposit.
 ('qris_image', ''),
 ('qris_merchant_name', 'Synapse'),

@@ -574,6 +574,10 @@ $lang['help_contact_title'] = 'Contact Support';
 $lang['help_contact_sub'] = 'Still cannot find an answer? Our team is ready to help.';
 $lang['help_contact_wa'] = 'WhatsApp';
 $lang['help_contact_email'] = 'Email';
+// plan/105: kartu komunitas WhatsApp (tampil hanya bila tautan grup dikonfigurasi admin).
+$lang['help_wa_group_title'] = 'Join the Synapse WhatsApp Community';
+$lang['help_wa_group_desc'] = 'Connect with the Synapse team and fellow members for network updates, GPU node announcements, and direct assistance.';
+$lang['help_wa_group_btn'] = 'Join the Community';
 $lang['help_faq_title'] = 'Frequently Asked Questions';
 $lang['help_q_what_title'] = 'What is Synapse?';
 $lang['help_q_what_body'] = 'Synapse is a digital GPU (Graphics Processing Unit) rental platform for AI computing and mining. Members rent GPU nodes online, earn daily revenue (ROI), and withdraw funds anytime during operational hours.';

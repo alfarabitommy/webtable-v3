@@ -70,35 +70,35 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 | The $query_builder variables lets you determine whether or not to load
 | the query builder class.
 */
+$active_group = 'live';
+$query_builder = TRUE;
+
+$db['local'] = array(
+	'dsn'	=> '',
+	'hostname' => (string) (getenv('DB_HOSTNAME') ?: 'localhost'),
+	'username' => (string) (getenv('DB_USERNAME') ?: 'root'),
+	'password' => (string) (getenv('DB_PASSWORD') ?: 'root'),
+	'database' => (string) (getenv('DB_DATABASE') ?: 'db_webtable'),
+	'dbdriver' => 'mysqli',
+	'dbprefix' => '',
+	'pconnect' => FALSE,
+	'db_debug' => (ENVIRONMENT !== 'production'),
+	'cache_on' => FALSE,
+	'cachedir' => '',
+	'char_set' => 'utf8',
+	'dbcollat' => 'utf8_general_ci',
+	'swap_pre' => '',
+	'encrypt' => FALSE,
+	'compress' => FALSE,
+	'stricton' => FALSE,
+	'failover' => array(),
+	'save_queries' => TRUE
+);
+
 // $active_group = 'default';
 // $query_builder = TRUE;
 
-// $db['default'] = array(
-// 	'dsn'	=> '',
-// 	'hostname' => (string) (getenv('DB_HOSTNAME') ?: 'localhost'),
-// 	'username' => (string) (getenv('DB_USERNAME') ?: 'root'),
-// 	'password' => (string) (getenv('DB_PASSWORD') ?: 'root'),
-// 	'database' => (string) (getenv('DB_DATABASE') ?: 'db_webtable'),
-// 	'dbdriver' => 'mysqli',
-// 	'dbprefix' => '',
-// 	'pconnect' => FALSE,
-// 	'db_debug' => (ENVIRONMENT !== 'production'),
-// 	'cache_on' => FALSE,
-// 	'cachedir' => '',
-// 	'char_set' => 'utf8',
-// 	'dbcollat' => 'utf8_general_ci',
-// 	'swap_pre' => '',
-// 	'encrypt' => FALSE,
-// 	'compress' => FALSE,
-// 	'stricton' => FALSE,
-// 	'failover' => array(),
-// 	'save_queries' => TRUE
-// );
-
-$active_group = 'default';
-$query_builder = TRUE;
-
-$db['default'] = array(
+$db['live'] = array(
 	'dsn'	=> '',
 	'hostname' => (string) (getenv('DB_HOSTNAME') ?: 'localhost'),
 	'username' => (string) (getenv('DB_USERNAME') ?: 'cmlh9365_synapse'),

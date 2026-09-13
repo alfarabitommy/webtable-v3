@@ -189,6 +189,15 @@
 - [x] **Kamus** — +6 key (`profile_pref_title`, `profile_lang_label`, `profile_theme_label`, `profile_theme_dark`, `profile_theme_light`, `profile_theme_hint`), −3 key usang (`profile_theme`, `js_theme_dark`, `js_theme_light`) → **332 key** identik di kedua idiom.
 - [x] **Ringkasan** — `plan/100_HEADER_DECLUTTER_AND_PROFILE_SETTINGS_SUMMARY.md`. *(QA live-browser V5–V11 tertunda karena sandbox tanpa MySQL; §2.1 memuat sanity lebar statis.)*
 
+### Dynamic WhatsApp Group Link (Help & FAQ + Admin Settings) ✅ COMPLETED (plan/105)
+- [x] **Key konfigurasi** — `system_settings.wa_group_link` (default `''`, **tanpa DDL**), seed kanonik `INSERT IGNORE` di `database.sql` + `database_seed.sql` (tidak pernah menimpa nilai live); baris hilang ≡ `''` ≡ kartu tersembunyi (fail-safe).
+- [x] **Choke-point tunggal** — `application/helpers/wa_group_helper.php` (autoload `'wa_group'`): `wa_group_link_normalize()` (`''` = kosong sah / kanonik / `null` = invalid) + `wa_group_link_url()` (kanonik ATAU `''`, tidak pernah null). Allowlist ketat: host `chat.whatsapp.com` (https saja, tanpa userinfo/port), token `[A-Za-z0-9_-]{6,64}`, `www.` + `/invite/` + query/fragment/trailing-slash dinormalkan, input tanpa skema & `http://` → `https`, maks 512 char, ZWSP/BOM dibuang — dipakai **tiga** konsumen (admin POST, render member, CLI `--verify`).
+- [x] **Migrasi CLI** — `scripts/migrate_105_wa_group_link.php` (`--dry-run` default / `--apply` / `--verify`; exit 0/1/2), idempoten (re-run = "sudah ada (dibiarkan)"), **tanpa fase ALTER/backfill** (key-value store), deteksi tamper → exit 2; sudah diterapkan ke DB live.
+- [x] **Admin** — `/admin/settings` kartu **"Kontak & Bantuan"** (koreksi L1 dari header lama `General & Support`) + field **Link Grup WhatsApp (Komunitas)** di bawah `support_email`; validasi server-side all-or-nothing berbahasa Indonesia ("Link grup WhatsApp tidak valid…"), nilai kosong SAH (tanpa `required`); persist via `Admin_model::update_system_settings()` + audit generik `admin_update_settings` (before→after, hanya saat berubah).
+- [x] **Member** — `Help::index()` meneruskan nilai terkanonikalisasi; kartu komunitas emerald/teal (gradient + orb glow, ikon `fa-users`, CTA full-width `target="_blank" rel="noopener noreferrer"`, href `html_escape()`) dirender **hanya bila** `$wa_group_link !== ''` → degradasi anggun tanpa tautan rusak.
+- [x] **Kamus EN/ID** — +3 key (`help_wa_group_title`, `help_wa_group_desc`, `help_wa_group_btn`) → **594 key** identik di kedua idiom; `audit_i18n_parity.php` exit 0, `audit_i18n_hardcoded.php` 0 temuan.
+- [x] **Ringkasan** — `plan/105_WHATSAPP_GROUP_LINK_SETTINGS_AND_HELP_INTEGRATION_SUMMARY.md`.
+
 ---
 
 ## Upcoming Phases

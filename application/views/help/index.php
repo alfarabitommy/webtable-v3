@@ -32,6 +32,33 @@
         </div>
     </div>
 
+    <?php if ($wa_group_link !== ''): ?>
+    <!-- plan/105: kartu Komunitas WhatsApp — seluruh blok disembunyikan bila tautan kosong -->
+    <div class="relative overflow-hidden rounded-2xl p-5 shadow-sm border border-emerald-400/40
+                bg-gradient-to-br from-emerald-500/10 via-emerald-400/5 to-teal-500/10
+                dark:from-emerald-500/15 dark:via-slate-900 dark:to-teal-500/10">
+        <span class="pointer-events-none absolute -right-6 -top-6 w-24 h-24 rounded-full bg-emerald-400/20 blur-2xl"></span>
+        <div class="relative flex items-start gap-3">
+            <span class="w-11 h-11 shrink-0 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30">
+                <i class="fas fa-users text-lg"></i>
+            </span>
+            <div class="min-w-0">
+                <h3 class="text-sm font-bold u-text"><?= lang('help_wa_group_title') ?></h3>
+                <p class="text-xs u-text-2 mt-1 leading-relaxed"><?= lang('help_wa_group_desc') ?></p>
+            </div>
+        </div>
+        <a href="<?= html_escape($wa_group_link) ?>"
+           target="_blank"
+           rel="noopener noreferrer"
+           class="relative mt-4 flex items-center justify-center gap-2 w-full bg-emerald-500 hover:bg-emerald-600
+                  active:bg-emerald-700 text-white text-sm font-bold py-3 px-4 rounded-xl transition-all
+                  duration-200 active:scale-95 shadow-sm">
+            <i class="fab fa-whatsapp text-lg"></i>
+            <span><?= lang('help_wa_group_btn') ?></span>
+        </a>
+    </div>
+    <?php endif; ?>
+
     <!-- ═══ FAQ Accordion ═══ -->
     <div class="space-y-3" id="faq-container">
         <h3 class="text-sm font-bold u-text flex items-center gap-2">

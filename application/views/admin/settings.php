@@ -40,10 +40,10 @@ $day_labels = [1 => 'Senin', 2 => 'Selasa', 3 => 'Rabu', 4 => 'Kamis', 5 => 'Jum
         <!-- ================= COLUMN KIRI ================= -->
         <div class="space-y-6">
 
-            <!-- Card 1: General & Support -->
+            <!-- Card 1: Kontak & Bantuan (L1 — label Indonesia; plan/105) -->
             <div class="t-card p-6">
                 <h4 class="text-sm font-semibold text-[var(--t-text)] mb-4 flex items-center gap-2">
-                    <i class="fas fa-headset text-indigo-500"></i> General &amp; Support
+                    <i class="fas fa-headset text-indigo-500"></i> Kontak &amp; Bantuan
                 </h4>
 
                 <div class="space-y-4">
@@ -78,6 +78,29 @@ $day_labels = [1 => 'Senin', 2 => 'Selasa', 3 => 'Rabu', 4 => 'Kamis', 5 => 'Jum
                                placeholder="support@synapse.id"
                                class="t-input w-full px-3 py-2.5 rounded-lg text-sm
                                       focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+
+                    <!-- plan/105: tautan grup/komunitas WhatsApp (opsional; '' = kartu disembunyikan) -->
+                    <div>
+                        <label for="wa_group_link" class="t-label text-sm mb-1.5">
+                            <i class="fas fa-users text-emerald-500 mr-1"></i>
+                            Link Grup WhatsApp (Komunitas)
+                        </label>
+                        <input type="text"
+                               id="wa_group_link"
+                               name="wa_group_link"
+                               value="<?= set_value('wa_group_link', $wa_group_link) ?>"
+                               inputmode="url"
+                               autocomplete="off"
+                               spellcheck="false"
+                               maxlength="512"
+                               placeholder="https://chat.whatsapp.com/XXXXXXXXXXXXXXXXXXXXXX"
+                               class="t-input w-full px-3 py-2.5 rounded-lg text-sm font-mono
+                                      focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+                        <p class="text-xs text-[var(--t-muted)] mt-1">
+                            Tautan undangan grup/komunitas WhatsApp resmi. Kosongkan bila belum ada —
+                            kartu Komunitas di halaman Bantuan member otomatis disembunyikan.
+                        </p>
                     </div>
                 </div>
             </div>
