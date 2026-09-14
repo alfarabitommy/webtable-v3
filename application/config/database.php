@@ -95,15 +95,34 @@ $db['local'] = array(
 	'save_queries' => TRUE
 );
 
-// $active_group = 'default';
-// $query_builder = TRUE;
-
-$db['live'] = array(
+$db['dev'] = array(
 	'dsn'	=> '',
 	'hostname' => (string) (getenv('DB_HOSTNAME') ?: 'localhost'),
 	'username' => (string) (getenv('DB_USERNAME') ?: 'cmlh9365_synapse'),
 	'password' => (string) (getenv('DB_PASSWORD') ?: 'U9a]iKNOgC!ahb%R'),
 	'database' => (string) (getenv('DB_DATABASE') ?: 'cmlh9365_synapse'),
+	'dbdriver' => 'mysqli',
+	'dbprefix' => '',
+	'pconnect' => FALSE,
+	'db_debug' => (ENVIRONMENT !== 'production'),
+	'cache_on' => FALSE,
+	'cachedir' => '',
+	'char_set' => 'utf8',
+	'dbcollat' => 'utf8_general_ci',
+	'swap_pre' => '',
+	'encrypt' => FALSE,
+	'compress' => FALSE,
+	'stricton' => FALSE,
+	'failover' => array(),
+	'save_queries' => TRUE
+);
+
+$db['live'] = array(
+	'dsn'	=> '',
+	'hostname' => (string) (getenv('DB_HOSTNAME') ?: 'localhost'),
+	'username' => (string) (getenv('DB_USERNAME') ?: 'gtwqzhzq_user_synapse'),
+	'password' => (string) (getenv('DB_PASSWORD') ?: 'hg(XQGf)s?n5RI@v'),
+	'database' => (string) (getenv('DB_DATABASE') ?: 'gtwqzhzq_synapse'),
 	'dbdriver' => 'mysqli',
 	'dbprefix' => '',
 	'pconnect' => FALSE,
