@@ -102,7 +102,10 @@ $autoload['drivers'] = array();
 // Plan 106: 'ewallet' = choke-point tunggal aturan nomor HP e-wallet
 // (normalisasi + validasi ^08[0-9]{8,11}$ + masking tampilan). Fungsi murni
 // tanpa efek samping → netral bagi member, admin, dan CLI migrasi.
-$autoload['helper'] = array('url', 'file', 'form', 'security', 'language', 'i18n', 'maintenance', 'product_image', 'wa_group', 'ewallet');
+// Plan 108: 'referral' = choke-point tunggal kode undangan (normalisasi
+// [0-9A-Z] 6 karakter + validasi bentuk + prioritas prefill ref>session>cookie).
+// Fungsi murni tanpa efek samping → netral bagi member, admin, dan CLI.
+$autoload['helper'] = array('url', 'file', 'form', 'security', 'language', 'i18n', 'maintenance', 'product_image', 'wa_group', 'ewallet', 'referral');
 
 /*
 | -------------------------------------------------------------------

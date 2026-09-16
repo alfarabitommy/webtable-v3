@@ -410,7 +410,7 @@
 
             <div>
                 <label for="invite_code" class="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block"><?= lang('auth_invite_label') ?> <span class="text-rose-500">*</span></label>
-                <input type="text" id="invite_code" name="invite_code" value="<?= set_value('invite_code') ?>"
+                <input type="text" id="invite_code" name="invite_code" value="<?= set_value('invite_code', $invite_prefill ?? '') ?>"
                        class="u-input h-14 px-5 rounded-2xl text-sm focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all w-full uppercase"
                        placeholder="<?= lang('auth_invite_placeholder') ?>" maxlength="6">
                 <?= form_error('invite_code', '<p class="text-xs text-rose-500 mt-1.5">', '</p>') ?>

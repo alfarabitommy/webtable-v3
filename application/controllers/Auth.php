@@ -109,11 +109,51 @@ class Auth extends CI_Controller {
         $this->load->view($view, $data);
     }
 
+    // ─── REFERRAL CAPTURE (plan/108) ───────────────────
+    // Menangkap ?ref=CODE pada GET /register, menyanitasi (strip non-alnum,
+    // strtoupper, clamp 6), menyimpannya (session + cookie 30 hari), lalu
+    // mengembalikan nilai prefill dengan prioritas: ref URL → session → cookie.
+    // Nilai tersimpan hanya ditimpa oleh ref URL yang BARU dan TIDAK dihapus
+    // di jalur gagal (user tetap bisa memperbaiki input tanpa kehilangan atribusi).
+    private function _referral_prefill(): string {
+        // Guard is_array: ?ref[]=x membuat input->get() mengembalikan array.
+        $raw     = $this->input->get('ref', TRUE);
+        $url_ref = referral_code_normalize(is_array($raw) ? '' : $raw);
+
+        $key = referral_capture_key();
+
+        if ($url_ref !== '') {
+            // Session = sumber utama selama sesi hidup; cookie = fallback
+            // lintas-restart browser (pola i18n_resolve, plan/94 F1).
+            $this->session->set_userdata($key, $url_ref);
+            $this->input->set_cookie(array(
+                'name'   => $key,
+                'value'  => $url_ref,
+                'expire' => referral_capture_ttl(),
+            ));
+        }
+
+        $stored = referral_code_normalize($this->session->userdata($key));
+
+        if ($stored === '') {
+            $stored = referral_code_normalize($this->input->cookie($key, TRUE));
+        }
+
+        return referral_code_resolve($url_ref, $stored);
+    }
+
     // ─── REGISTER ──────────────────────────────────────
     public function register() {
         if (!empty($this->session->userdata('user_id'))) {
             redirect('home');
         }
+
+        // plan/108 (Refinement 2): inject ke memori view GLOBAL CI3, BUKAN ke
+        // $data lokal — register() punya banyak cabang (rate limit, pendaftaran
+        // ditutup, captcha gagal, kode invalid, uk_phone bentrok) yang masing2
+        // menyusun $data sendiri, sehingga $this->load->vars() menjamin
+        // $invite_prefill tersedia di SEMUA cabang render.
+        $this->load->vars(['invite_prefill' => $this->_referral_prefill()]);
 
         // Phase 9A: Circuit Breaker — block registration if closed
         $this->load->model('Admin_model');
@@ -198,6 +238,14 @@ class Auth extends CI_Controller {
                 $this->db->db_debug = $prev_debug;
 
                 if ($user_id) {
+                    // plan/108: atribusi referral sudah dikonsumsi → bersihkan
+                    // session + cookie TEPAT sebelum redirect (masih sebelum
+                    // output apa pun → aman dari "headers already sent").
+                    // 'cookie' TIDAK di-autoload → loader lokal, bukan autoload baru.
+                    $this->session->unset_userdata(referral_capture_key());
+                    $this->load->helper('cookie');
+                    delete_cookie(referral_capture_key());
+
                     $this->session->set_flashdata('success', lang('auth_ok_registered'));
                     redirect('login');
                 } elseif ((int) $db_error['code'] === 1062 && strpos((string) $db_error['message'], 'uk_phone') !== FALSE) {
