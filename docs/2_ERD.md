@@ -1,17 +1,32 @@
-# Entity Relationship Diagram (ERD) & Database Schema v5.0
+# Entity Relationship Diagram (ERD) & Database Schema v5.1
 **Project Name:** Synapse
 **Database Engine:** MySQL 8.4 (InnoDB)
 **Character Set / Collation:** utf8mb4 / utf8mb4_unicode_ci
 **Sinkronisasi skema:** penuh dengan `database.sql` — closure plan/89–92
 (3-Tier Rebate Engine & Promoter Program, 100% runtime-verified, `dec-94563cfd1af2c22e`).
 
+> **v5.1 — catatan sinkronisasi (plan/111).** Dokumen ini disinkronkan dengan
+> **kode sebagai sumber kebenaran** (AGENTS.md) untuk rentang plan/102–110.
+> Perubahan utama: skema `deposits` (gateway QRIS manual, kode unik 3 digit —
+> plan/102), kolom `gpu_products.image` (plan/104), tabel `ewallet_providers`
+> (plan/106, 14 tabel kanonik), dan key `qris_*`/`deposit_*`/`is_maintenance_mode`
+> di `system_settings`. Skema lama (deposit manual tanpa kode unik, tabel
+> `transactions`/`rentals`) **tidak** dikembalikan.
+
 ---
 
 ## 0. ER Diagram (Mermaid)
 
-Diagram di bawah mencakup **13 tabel kanonik** + relasi aktifnya (FK sesuai
+Diagram di bawah mencakup **14 tabel kanonik** + relasi aktifnya (FK sesuai
 `database.sql`). Tabel retention-only `rentals` & `otp_logs` (DEPRECATED M10)
 dan `transactions` (decommissioned M6) **tidak** dirender — lihat §2, §4, §3.
+
+> **Catatan relasi:** `bank_accounts.bank_name` menyimpan **nama** provider
+> (bukan FK) yang harus ada di `ewallet_providers.name`; relasi ini bersifat
+> **logis by-name**, divalidasi di `Wallet::bind_bank`, gate penarikan, dan
+> `migrate_106 --verify`. Plan/106 sengaja **tidak** membuat FK baru ke
+> `ewallet_providers` demi menjaga struktur `bank_accounts` (zero-breakage
+> `fk_withdrawals_bank`).
 
 ```mermaid
 erDiagram
@@ -21,7 +36,7 @@ erDiagram
         VARCHAR255 password "bcrypt"
         VARCHAR10 invite_code UK
         BIGINT parent_id FK "upline, NULL utk root"
-        DECIMAL15-2 balance "DEFAULT 0.00"
+        DECIMAL15-2 balance "cache non-otoritatif; saldo asli = SUM wallet_ledger"
         VARCHAR255 avatar_url
         INT level_id "0 = member biasa"
         TINYINT1 is_banned "0 = aktif"
@@ -35,6 +50,7 @@ erDiagram
     gpu_products {
         INT id PK
         VARCHAR100 name
+        VARCHAR255 image "plan/104: basename di uploads/products/, NULL = fallback"
         ENUM type "short_term | long_term"
         DECIMAL15-2 price "integer IDR"
         DECIMAL15-2 daily_rate
@@ -81,6 +97,14 @@ erDiagram
         TIMESTAMP created_at
         TIMESTAMP updated_at
     }
+    ewallet_providers {
+        INT id PK
+        VARCHAR50 code UK "plan/106: immutable, uppercase"
+        VARCHAR100 name "label tampilan; disimpan di bank_accounts.bank_name"
+        TINYINT1 is_active "1=tampil di selector, 0=disembunyikan"
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
     withdrawals {
         BIGINT id PK
         BIGINT user_id FK
@@ -109,9 +133,16 @@ erDiagram
     deposits {
         BIGINT id PK
         BIGINT user_id FK
-        VARCHAR50 invoice_number UK
-        DECIMAL15-2 amount
-        ENUM status "pending | success | failed"
+        VARCHAR50 invoice_number UK "INV-{YmdHis}-{user_id}-{6 hex}"
+        DECIMAL15-2 amount "pokok"
+        SMALLINTU unique_code "plan/102: 3 digit 100-999, permanen"
+        DECIMAL15-2 total_amount "plan/102: pokok + [fee] + kode, DIBEKUKAN"
+        VARCHAR24 reserved_code_key UK "plan/102: {pokok}-{kode} saat reservasi hidup, NULL bila keluar"
+        TIMESTAMP expires_at
+        TIMESTAMP confirmed_at
+        TIMESTAMP processed_at
+        VARCHAR255 decline_reason
+        ENUM status "pending | waiting_approval | success | failed | rejected | expired"
         TIMESTAMP created_at
         TIMESTAMP updated_at
     }
@@ -125,8 +156,10 @@ erDiagram
     user_notifications {
         BIGINT id PK
         BIGINT user_id FK
-        VARCHAR100 title
-        TEXT message
+        VARCHAR100 title "retensi + fallback baris legacy"
+        TEXT message "retensi + fallback baris legacy"
+        VARCHAR64 title_key "plan/103: key kamus dasar (tanpa _title/_body)"
+        JSON params "plan/103: argumen vsprintf untuk <key>_body"
         ENUM type "info | warning | success | commission"
         TINYINT1 is_read
         TIMESTAMP created_at
@@ -168,6 +201,7 @@ erDiagram
     admins ||--o{ promoter_claims : "approve/reject"
     admins ||--o{ system_audit_logs : "pelaku aksi"
     users ||--o{ system_audit_logs : "subjek aksi"
+    %% ewallet_providers TIDAK punya FK: bank_accounts.bank_name -> ewallet_providers.name (logis by-name, plan/106).
 ```
 
 ---
@@ -192,7 +226,7 @@ Menyimpan data autentikasi, profil pengguna, saldo utama, dan struktur *Adjacenc
 * `password` (VARCHAR 255, NOT NULL) - Hashed Bcrypt.
 * `invite_code` (VARCHAR 10, UNIQUE, NOT NULL) - Kode referral unik milik user ini (digenerate sistem saat register).
 * `parent_id` (BIGINT, Unsigned, NULLABLE) - ID dari user Upline. **[Foreign Key -> users.id, ON DELETE SET NULL]**
-* `balance` (DECIMAL 15,2, NOT NULL, DEFAULT 0.00) - Saldo dompet yang bisa ditarik/digunakan.
+* `balance` (DECIMAL 15,2, NOT NULL, DEFAULT 0.00) - **Cache non-otoritatif** saldo dompet (di-`UPDATE` oleh `Wallet_model::_post()` sebagai mirror). **Saldo otoritatif = `SUM(credit) − SUM(debit)` atas `wallet_ledger`** (`Wallet_model::get_balance()` → `(int)`); jangan pernah memakai `users.balance` sebagai sumber kebenaran untuk operasi dompet.
 * `avatar_url` (VARCHAR 255, NULLABLE) - Path/URL foto profil.
 * `level_id` (INT, NOT NULL, DEFAULT 0) - Menyimpan level keagenan saat ini (0 = Member biasa, 1 = Level 1, dst).
 * `is_banned` (TINYINT 1, NOT NULL, DEFAULT 0) - 1 = akun dibanned (login/aksi diblokir, lockout).
@@ -248,19 +282,52 @@ Tabel legacy — **tidak ada jalur kode yang membaca/menulis**; tabel live = `us
 ## 3. Financial & Ledger Tables
 
 ### Tabel: `deposits`
-Tabel staging untuk deposit yang diajukan oleh user. Record bersifat temporary — status berubah dari `pending` ke `success`/`failed` setelah proses approval.
+Tabel staging **gateway deposit QRIS manual** (plan/102). Setiap deposit memiliki
+**kode unik 3 digit (100–999)** sehingga admin dapat mencocokkan transfer masuk;
+record tidak dihapus — status bergerak melalui state machine di bawah dan
+`unique_code` disimpan **permanen** sebagai jejak audit.
 
 * `id` (BIGINT, Primary Key, Auto Increment, Unsigned)
 * `user_id` (BIGINT, Unsigned, NOT NULL) - **[Foreign Key -> users.id, ON DELETE RESTRICT]**
-* `invoice_number` (VARCHAR 50, UNIQUE, NOT NULL) - Nomor invoice unik berformat `INV-{YmdHis}-{user_id}`.
-* `amount` (DECIMAL 15,2, NOT NULL) - Nominal deposit dalam IDR.
-* `status` (ENUM('pending', 'success', 'failed'), NOT NULL, DEFAULT 'pending') - Status pemrosesan deposit.
+* `invoice_number` (VARCHAR 50, UNIQUE, NOT NULL) - `INV-{YmdHis}-{user_id}-{6 hex CSPRNG}`.
+* `amount` (DECIMAL 15,2, NOT NULL) - **Pokok** deposit (nominal yang diminta user, IDR).
+* `unique_code` (SMALLINT UNSIGNED, NULLABLE) - **plan/102:** kode unik **3 digit (100–999)**, dialokasikan CSPRNG dari himpunan bebas (retry 3× saat tabrakan). Disimpan **permanen** (tidak dibuang setelah `success`) sebagai jejak audit.
+* `total_amount` (DECIMAL 15,2, NOT NULL, DEFAULT 0.00) - **plan/102:** nominal bayar yang **DIBEKUKAN** saat create = `pokok + [fee] + kode`. Otoritatif untuk verifikasi admin **dan** nilai kredit (Option A). **Tidak pernah** dihitung ulang saat render.
+* `reserved_code_key` (VARCHAR 24, NULLABLE, UNIQUE `uk_reserved_code_key`) - **plan/102:** `"{pokok}-{kode}"` **selama reservasi hidup**; `NULL` saat baris keluar dari `pending`/`waiting_approval`. Semantik "banyak NULL" InnoDB = jaminan tingkat DB: **maksimal satu pemilik hidup per (pokok, kode)**; kode bebas dipakai ulang setelah `expired`/`rejected`.
+* `expires_at` (TIMESTAMP, NULLABLE) - **plan/102:** batas jendela bayar = `created_at + deposit_expiry_minutes` (default 60, clamp 5–1440).
+* `confirmed_at` (TIMESTAMP, NULLABLE) - **plan/102:** stamp saat member menekan "Saya Sudah Transfer" (`pending → waiting_approval`).
+* `processed_at` (TIMESTAMP, NULLABLE) - Stamp terminal (`success`/`failed`/`rejected`/`expired`).
+* `decline_reason` (VARCHAR 255, NULLABLE) - **plan/102:** alasan terstruktur saat admin menolak (`rejected`).
+* `status` (ENUM('pending','waiting_approval','success','failed','rejected','expired'), NOT NULL, DEFAULT 'pending') - State machine deposit.
 * `created_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP)
 * `updated_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)
 
-**Index Optimization:** `INDEX (user_id, status)` untuk query pending deposits per user.
+**Index Optimization:** `idx_user_status` (user_id, status) untuk deposit hidup per user;
+`idx_status_created` (status, created_at) untuk COUNT antrean pending + listing dashboard (plan/94 F2);
+`idx_status_expires` (status, expires_at) untuk sweep expiry **lazy** (plan/102, pola sama `idx_status_created`).
 
-> **Lifecycle:** User creates a deposit → status `pending` → displayed in "Menunggu Pembayaran" section → approved (simulator or gateway) → status `success` → credit entry minted into `wallet_ledger`.
+> **Lifecycle (state machine, plan/102).** User membuat invoice → `pending`
+> (`total_amount` + `unique_code` + `expires_at` dibekukan, reservasi kode ditahan)
+> → pilih salah satu:
+> * **`waiting_approval`** — member menekan **"Saya Sudah Transfer"** (`POST /wallet/confirm_payment/{invoice}`); **tanpa unggah bukti**; `confirmed_at` diisi; reservasi kode **tetap ditahan** dan **tidak pernah auto-expire** (keputusan D1).
+> * **`expired`** — sweep **lazy** (`pending` → `expired`, `reserved_code_key` dilepas) saat user request berikutiya / CLI admin.
+>
+> Dari `pending` **atau** `waiting_approval` → **`success`** saat admin approve:
+> kredit = **pokok + kode unik** (fee deposit, bila aktif, **ditahan platform**
+> sehingga kredit tetap "pure principal"; saat `deposit_fee_enabled = '0'` kredit
+> = `total_amount` persis — **Option A**). Satu baris `credit` ditulis ke
+> `wallet_ledger`, `reserved_code_key` dilepas, notifikasi + audit ditulis
+> **atomik dalam TX yang sama**. Cabang terminal lain: **`failed`** / **`rejected`**
+> (decline admin + `decline_reason`).
+>
+> **Satu deposit hidup per user** (`status IN ('pending','waiting_approval')`) —
+> dijaga di dalam TX terkunci `Wallet_model::create_deposit()`.
+>
+> **Kebijakan (dinamis, `system_settings`):** `deposit_min_amount` (10000),
+> `deposit_max_amount` (50000000), `deposit_expiry_minutes` (60). Fallback
+> fail-safe ada di `application/config/withdrawal_fees.php`. **Tidak ada gate
+> hari/jam untuk deposit** — yang ada hanya jendela bayar (`expires_at`) dan
+> verifikasi **manual oleh admin pada jam kerja**.
 
 ### Tabel: `wallet_ledger`
 Immutable, append-only ledger yang mencatat setiap pergerakan dana masuk (credit) dan keluar (debit). Saldo user dihitung secara dinamis dari tabel ini. **`wallet_ledger` adalah SATU-SATUNYA ledger transaksi yang otoritatif** — tabel `transactions` (double-entry) legacy telah didecommission pada M6 (lihat `plan/68` & `plan/69`); jangan membuat ulang atau menulis ke tabel tersebut.
@@ -341,11 +408,17 @@ Key-value store konfigurasi runtime (circuit breaker + config finansial + rebate
 | Key | Default | Peran |
 |---|---|---|
 | `is_registration_open` | `1` | Circuit breaker registrasi (Phase 9A) |
-| `wd_operational_days` / `wd_open_time` / `wd_close_time` | `1,2,3,4,5,6` / `07:00` / `19:00` | Window withdrawal (M1, plan/56) |
+| **`is_maintenance_mode`** | `0` | **Plan 95:** maintenance mode member site (`0`=normal, `1`=locked; **default OFF bila baris hilang**). Gate di `maintenance_helper.php` (`maintenance_gate()`), dieksekusi sebagai statement pertama di `MY_Controller`/`Auth`/`Lang`; admin/CLI exempt. Toggle: `POST /admin/toggle-maintenance` (audit `admin_toggle_maintenance`). |
+| `wd_operational_days` / `wd_open_time` / `wd_close_time` | `1,2,3,4,5,6` / `07:00` / `19:00` | Window withdrawal (M1, plan/56) — gate **pengajuan** saja |
 | `wd_fixed_fee` | `6500` | Biaya tetap withdrawal (M1) |
-| `wd_fee_tiers` | JSON array tier | Tier fee withdrawal (M1) |
-| `wd_min_amount` / `wd_max_amount` | `100000` / `50000000` | Batas nominal WD (M1) |
-| `deposit_fee_enabled` / `deposit_fee_type` / `deposit_fee_value` | `0` / `flat` / `0` | Config fee deposit (M1) |
+| `wd_fee_tiers` | JSON array 6 tier | Tier fee withdrawal, **half-open `[min, max)` kontigu penuh** (M1; amandemen plan/110: **endpoint turunan dinormalkan otomatis** — baris 1 `min` ← `wd_min_amount`, baris terakhir `max` ← `max(…, wd_max_amount + 1)`; gap/overlap tetap error keras). Choke-point input admin: `application/helpers/withdrawal_fee_helper.php`. |
+| `wd_min_amount` / `wd_max_amount` | `100000` / `50000000` | Batas nominal WD (M1) — **dinamis**; admin boleh menurunkannya (mis. Rp 50.000) tanpa mengedit baris tier manual (plan/110 D1). Nilai di `application/config/withdrawal_fees.php` hanya **fail-safe**, bukan otoritas operasional. |
+| `deposit_fee_enabled` / `deposit_fee_type` / `deposit_fee_value` | `0` / `flat` / `0` | Config fee deposit (M1) — fee ditahan platform, kredit deposit tetap pokok + kode |
+| **`qris_image`** | `''` | **Plan 102:** **basename** gambar QRIS di `uploads/qris/`; `''` = belum dikonfigurasi → `create_deposit()` **fail-closed** (`deposit_err_qris_unconfigured`). |
+| **`qris_merchant_name`** | `Synapse` | **Plan 102:** nama merchant yang ditampilkan di `views/wallet/pay.php`. |
+| **`qris_payment_instructions`** | (teks instruksi) | **Plan 102:** instruksi pembayaran manual (dwibahasa **non-target** i18n plan/103 — konten admin-authored). |
+| **`deposit_expiry_minutes`** | `60` | **Plan 102:** jendela bayar deposit (menit), clamp 5–1440 → `deposits.expires_at`. |
+| **`deposit_min_amount` / `deposit_max_amount`** | `10000` / `50000000` | **Plan 102:** batas nominal deposit. Bundle harus koheren (`min < max`, `max ≤ 1e9`); pelanggaran → fallback fail-safe atomik. |
 | `wa_number` / `support_email` | `628000000000` / `support@synapse.id` | Kontak/support (M7, plan/70) |
 | **`wa_group_link`** | `''` | **Plan 105:** tautan undangan grup/komunitas WhatsApp resmi. Bentuk kanonik `https://chat.whatsapp.com/<token>`; `''` = belum dikonfigurasi → kartu Komunitas di `/help` **tidak dirender**. Validasi/kanonikalisasi satu sumber `application/helpers/wa_group_helper.php` (`wa_group_link_normalize()` / `wa_group_link_url()`); write-path `/admin/settings` (all-or-nothing + audit `admin_update_settings`). |
 | **`rebate_enabled`** | `1` | **Plan 89:** master switch engine rebate 3-tier (0 = skip distribusi) |
@@ -354,6 +427,13 @@ Key-value store konfigurasi runtime (circuit breaker + config finansial + rebate
 | **`rebate_l3_percent`** | `1` | **Plan 89:** persen rebate L3 |
 
 > Fallback kode: `application/config/rebate_commission.php` (1/5/3/1) dipakai bila baris belum ada. Admin mengubah via Card 5 di `admin/settings` (validasi 0–100 all-or-nothing + audit atomik).
+>
+> Fallback deposit/withdrawal: `application/config/withdrawal_fees.php` — berisi
+> `operational_days`/`open_time`/`close_time`, `fixed_fee`, `min_amount`
+> (100000), `max_amount` (50000000), `tiers` (6 baris), `deposit_expiry_minutes`
+> (60), `deposit_min_amount` (10000), `deposit_max_amount` (50000000),
+> `deposit_fee_*`. Dipakai **hanya** bila baris `system_settings` hilang/rusak
+> (`Wallet_model::_resolve_financial_config()` + `get_deposit_policy()`).
 
 ### Tabel: `rate_limits`
 Rate limiting & brute-force protection (Phase 10B). Satu baris per composite key (endpoint + identitas). Baris berumur pendek (GC ≤ 30 menit); **tanpa FK** (bukan data bisnis).
@@ -373,8 +453,10 @@ Tabel notifikasi interaktif yang dipicu oleh AJAX polling. Menyimpan notifikasi 
 
 * `id` (BIGINT, Primary Key, Auto Increment, Unsigned)
 * `user_id` (BIGINT, Unsigned, NOT NULL) - **[Foreign Key -> users.id, ON DELETE CASCADE]** — Notifikasi dihapus otomatis jika user dihapus.
-* `title` (VARCHAR 100, NOT NULL) - Judul singkat notifikasi (contoh: "Bonus Level 1 Terkirim!").
-* `message` (TEXT, NOT NULL) - Isi detail notifikasi (contoh: "Selamat! Kamu telah mencapai Level 1 Agency...").
+* `title` (VARCHAR 100, NOT NULL) - Judul singkat notifikasi. **Plan/103:** dipertahankan sebagai **retensi + fallback baris legacy** (`title_key IS NULL`) — **tidak pernah dihapus**.
+* `message` (TEXT, NOT NULL) - Isi detail notifikasi. **Plan/103:** idem — retensi + fallback snapshot untuk baris lama.
+* `title_key` (VARCHAR 64, NULLABLE) - **plan/103 (W8):** kunci kamus dasar (tanpa sufiks `_title`/`_body`). Notifikasi keyed dirender dalam **idiom pembaca** via `i18n_notification_text()` — bukan prosa beku satu bahasa.
+* `params` (JSON, NULLABLE) - **plan/103:** argumen `vsprintf` untuk `<title_key>_body` (larik JSON). Guard arity di `i18n_helper.php` melindungi baris ber-`params` 1 elemen dari `ArgumentCountError` (PHP 8) — fallback ke snapshot `message`.
 * `type` (ENUM('info', 'warning', 'success', 'commission'), NOT NULL) - Kategori notifikasi untuk styling badge warna:
     * `info` → slate badge
     * `warning` → amber badge
@@ -383,7 +465,7 @@ Tabel notifikasi interaktif yang dipicu oleh AJAX polling. Menyimpan notifikasi 
 * `is_read` (TINYINT 1, NOT NULL, DEFAULT 0) - 0 = belum dibaca (tampil di Red Badge), 1 = sudah dibaca.
 * `created_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP)
 
-**Index Optimization:** `INDEX (user_id, is_read)` — Composite index untuk query unread count yang sangat sering: `SELECT COUNT(*) FROM user_notifications WHERE user_id = ? AND is_read = 0`.
+**Index Optimization:** `idx_user_read` (user_id, is_read) — Composite index untuk query unread count yang sangat sering: `SELECT COUNT(*) FROM user_notifications WHERE user_id = ? AND is_read = 0`.
 
 > **Lifecycle:** Backend insert notifikasi → AJAX poll dari `header.php` fetches unread count → render Red Badge → user taps bell → fetch notification list → mark `is_read = 1` per item atau bulk "Mark All Read". Notifikasi approve/reject klaim promotor & toggle promotor ditulis **atomik dalam TX yang sama** dengan mutasinya (pola M5/N2, plan/91).
 
@@ -461,3 +543,13 @@ Tabel `user_rentals` juga berfungsi sebagai tabel `rentals` di dalam kode (`appl
 - **K5 — Guard rasio CAC** 8–10% (integer) pada submit & approve klaim.
 - **K6 — Demosi segar:** gate submit membaca `is_promoter` segar dalam TX; klaim pending tetap diproses.
 - **K7 — Kontrak zero-cost:** `source='promoter_reward'`, `purchase_price = 0`, tanpa `_distribute_rebate`, tanpa dampak omzet upline; burn omzet TIDAK menyentuh `wallet_ledger` (Z1/C4).
+
+### Invariant arsitektural tambahan (plan/102–110)
+- **D1 (plan/102) — Eksklusivitas kode unik:** satu pemilik hidup per `(pokok, kode)` dijamin `UNIQUE uk_reserved_code_key`; kode dilepas (`NULL`) saat baris keluar dari `pending`/`waiting_approval` sehingga dapat dipakai ulang.
+- **D2 (plan/102) — `waiting_approval` abadi:** status ini **tidak pernah** auto-expire; reservasi kode tetap ditahan setelah member menyatakan sudah transfer.
+- **D3 (plan/102) — Kredit = pokok + kode:** nominal yang ditransfer member (minus fee deposit yang ditahan platform) yang dikreditkan; `total_amount` dibekukan saat create dan tidak dihitung ulang saat render.
+- **L1 (plan/106) — Payout e-wallet saja:** tidak ada jalur bank; katalog provider dinamis (`ewallet_providers`), `bank_accounts.bank_name` harus ada di katalog, nomor kanonik `^08[0-9]{8,11}$`.
+- **A1 (plan/106) — Arsip, bukan hapus:** reset/unbind binding = `is_primary = 0`; provider = `is_active = 0`; tidak pernah DELETE (FK RESTRICT / retensi riwayat).
+- **T1 (plan/110) — Endpoint tier turunan:** `wd_fee_tiers` wajib kontigu penuh; dua endpoint dinormalkan otomatis (bukan ditolak) karena `calculate_withdrawal_fee()` memakai tarif tier terakhir sebagai fallback — celah tier = potensi kurang potong biaya secara senyap.
+- **N1 (plan/109) — Ledger tidak diubah:** tampilan NET/gross/fee adalah **presentasi**; debit `wallet_ledger` tetap merekam **gross penuh**.
+- **Z2 (plan/102–106) — `wallet_ledger` satu-satunya ledger:** deprecation tabel `transactions` (M6) dan `rentals` (M10) tetap berlaku; tidak ada kode baru yang menulis ke keduanya.

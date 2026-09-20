@@ -1,7 +1,13 @@
-# UI/UX & Component Guidelines v5.0 (Strict AI Specification)
+# UI/UX & Component Guidelines v5.1 (Strict AI Specification)
 **Project Name:** Synapse
 **CSS Framework:** Tailwind CSS (Strictly Utility Classes)
 **Design Philosophy:** Minimalist, High-Density Data Presentation, Bloomberg Terminal Aesthetic, Mobile-First.
+
+> **v5.1 — catatan sinkronisasi (plan/111).** Disinkronkan dengan kode sebagai
+> sumber kebenaran untuk rentang plan/102–110. Tambahan: **§5.G** provider
+> e-wallet card selector 2×2 (plan/106), **§5.H** hierarki nominal NET penarikan
+> (plan/109), dan **§8.C** editor tier biaya penarikan admin (plan/110). Contoh
+> antrean admin **§8.B** diperbarui agar menampilkan **NET** + kode unik deposit.
 
 ---
 
@@ -113,11 +119,12 @@ w-full h-14 bg-rose-500 hover:bg-rose-600 text-white rounded-2xl font-bold shado
 ### B. Input Forms (v5.0 Updated)
 * **Text/Password/Number Inputs:** `w-full h-12 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-600 transition-all`.
 * **Form Group Spacing:** Selalu gunakan `space-y-4` antar elemen input. Beri label di atas input dengan `text-xs font-semibold text-slate-700 mb-1 block`.
-* **Phone Number Inputs — Flexible Frontend, Strict Backend (v5.0):**
-    * Use `type="tel"` + `inputmode="numeric"` for mobile keyboard optimization.
-    * **Do NOT apply rigid `minlength` or `maxlength` HTML attributes** on phone inputs. The backend regex `/^0[0-9]{9,13}$/` is the single source of truth for validation.
+* **Phone Number Inputs — Flexible Frontend, Strict Backend:**
+    * Use `type="tel"` + `inputmode="numeric"` for mobile keyboard optimization (user's own phone).
+    * **Do NOT apply rigid `minlength`/`maxlength` HTML attributes** on user phone inputs. Backend **normalisasi** (`preg_replace('/\D/','', …)`, `62`→`0`) + keunikan `is_unique[users.phone]`/`uk_phone` adalah sumber kebenaran.
     * Frontend may apply real-time stripping/conversion (+62→0, symbols removed) on `input` event as a UX preview — but this is cosmetic only.
-    * Pattern: `pattern="^0[0-9]{9,13}$"` for native browser hint (optional, not enforced server-side).
+    * **E-wallet phone input (unique screen, `bank_bind.php`):** the ONE input that **does** carry a rigid pattern — `inputmode="numeric" maxlength="13" pattern="08[0-9]{8,11}"` — because the canonical e-wallet rule `^08[0-9]{8,11}$` is enforced server-side (`ewallet_helper.php`).
+    * **⚠️ Koreksi plan/111:** klaim lama "backend regex `/^0[0-9]{9,13}$/` adalah satu-satunya sumber validasi" **tidak benar** — regex tersebut tidak ada di kode (lihat `docs/1_PRD.md` §4.A). Panjang keras hanya berlaku untuk nomor HP e-wallet.
     * **Applies to:** Registration, Login, Profile phone update, Admin user creation.
 
 ### C. Cards (Kartu Produk/Riwayat)
@@ -159,7 +166,10 @@ Bloomberg Terminal dark aesthetic used on the Team page for displaying Level 1 B
 ```html
 px-5 py-3 flex items-center justify-between hover:bg-slate-50 transition
 ```
-Left: icon circle (emerald for credit, rose for debit) + description + timestamp. Right: amount with sign prefix (`+`/`-`) and `font-mono` for alignment.
+Left: icon circle (emerald for credit, rose for debit) + description + timestamp. Right: amount with sign prefix (`+`/`-`) and `font-mono` for alignment. **`wallet_ledger` menampilkan gross penuh** (lihat §5.H — presentasi NET/gross/fee tidak mengubah ledger).
+
+**Pending Withdrawal Card (member, plan/106 + plan/109):**
+Kartu penarikan tertunda di `views/wallet/index.php` menampilkan **provider + nomor HP e-wallet ter-mask** (mis. `DANA · 0812*****01`) dan **NET sebagai nilai primer** dengan rincian Gross/Fee sebagai sub-teks — lihat **§5.H**. **Anti-pattern:** kartu WD yang menampilkan gross sebagai satu-satunya angka.
 
 ### D. Bottom Sheet Modal (One-Screen Checkout)
 
@@ -240,6 +250,59 @@ Secondary input forms (Top-Up amount selection, custom amount input) MUST be hid
 * Do **not** reintroduce a theme row inside THE HUB menu (`#btn-theme-hub` was deleted in plan/100; hub rows are 1–6: Dompet, Tarik Dana, Edit Profil, Keamanan, Bantuan, Keluar).
 
 > **Rule:** member Language and Theme controls live in this Profile card only. Auth pages keep their own top-right cluster (`templates/lang_switcher.php` + `templates/auth_theme_toggle.php`) and admin keeps its own toggle — those are separate surfaces, not duplicates of this card.
+
+### G. Provider E-Wallet Card Selector (2×2, CSS-only) — plan/106
+
+`application/views/wallet/bank_bind.php` MUST render the e-wallet provider chooser as a **2×2 grid of selectable cards** — **pure CSS, no JavaScript**, using the `peer` pattern.
+
+**Container:** a real `<fieldset>` with a `<legend>` + helper paragraph:
+```html
+<legend class="text-[10px] uppercase tracking-widest u-muted font-bold block mb-1.5"><?= lang('bb_provider_label') ?></legend>
+<p class="text-[10px] u-text-2 mb-2.5"><?= lang('bb_choose_provider') ?></p>
+<div class="grid grid-cols-2 gap-3">
+  <?php foreach ($providers as $p): ?>
+    <label class="relative block cursor-pointer">
+      <input type="radio" name="provider_id" value="<?= $pid ?>" class="peer sr-only" <?= set_radio('provider_id', $pid) ?>>
+      <div class="h-full rounded-xl border border-slate-200 dark:border-slate-700 p-3 transition-all
+                  peer-checked:border-indigo-500 peer-checked:bg-indigo-50 dark:peer-checked:bg-indigo-500/10
+                  peer-checked:ring-2 peer-checked:ring-indigo-500/20">
+        <!-- provider label -->
+      </div>
+    </label>
+  <?php endforeach; ?>
+</div>
+```
+
+**Rules:**
+* Providers come **only** from `Ewallet_model::get_active_providers()` (server-side) — never hardcode the list in the view.
+* Active state (`peer-checked:*`): `border-indigo-500` + `bg-indigo-50` (+ dark `bg-indigo-500/10`) + `ring-2 ring-indigo-500/20`. No stylesheet-order dependence.
+* **No JS**: selection is native radio behaviour; the `peer` class drives the visual state.
+* **Empty state:** no active provider → render a notice (`bb_no_provider_available`) and **no** selectable cards.
+* **Inactive binding state:** existing binding on a deactivated provider → read-only card + amber notice `bb_provider_inactive_notice` (withdrawal blocked until re-bind).
+* Canonical labels: **Provider E-Wallet** / **Nomor HP E-Wallet** (`inputmode="numeric" maxlength="13" pattern="08[0-9]{8,11}"`) / **Nama Pemilik Akun**.
+
+### H. Withdrawal Amount Hierarchy — NET Primary (plan/109)
+
+All withdrawal surfaces MUST present the **NET** (the amount the admin actually transfers) as the **primary** value, with **gross** and **fee** demoted to **muted sub-text**. Rationale: the largest, most-readable number on the card is what the user receives.
+
+**Member pending card (`views/wallet/index.php`):**
+```html
+<p class="text-base font-extrabold u-text font-mono">Rp <?= number_format((int) $wd->net_eff, 0, ',', '.') ?></p>
+<p class="text-[10px] u-text-2"><?= lang('wd_amount_label') ?>: Rp <?= number_format((int) $wd->gross_eff, 0, ',', '.') ?> · Biaya: Rp <?= number_format((int) $wd->fee_eff, 0, ',', '.') ?></p>
+```
+* Primary label = **"Estimasi Dana Diterima (Net)"**; sub-text = Nominal Penarikan (Gross) + Biaya Admin (Fee).
+
+**Withdraw form preview (`views/wallet/withdraw.php`) — 3 explicit rows** inside the amber breakdown box:
+1. **Nominal Penarikan (Gross)** — `#wd_gross`, `text-[11px] font-mono`.
+2. **Biaya Admin (Fee)** — `#wd_fee`, `text-[11px] font-mono` (with tier bps label `#wd_bps_label`).
+3. **Estimasi Dana Diterima (Net)** — `#wd_net`, `text-sm font-mono font-extrabold` (visually dominant).
+
+**Admin surfaces (see §8.B/§8.C):** queue card = label **"Wajib Transfer (Net)"** + `Rp {net}` + muted `(Penarikan: Rp {gross} | Biaya: Rp {fee})`; history = 3 separate columns **Gross / Biaya / Net (ditransfer)**.
+
+**Rules:**
+* Values are decorated by `withdrawal_amount_helper.php` (`gross_eff`/`fee_eff`/`net_eff`) — never recomputed in the view; money stays integer (L6: format only at the view layer).
+* **`wallet_ledger` is never altered** by this presentation — the debit records the **full gross**.
+* **Anti-pattern:** showing gross as the only/primary number on any withdrawal card.
 
 ---
 
@@ -360,7 +423,7 @@ The Admin Command Center operates on a **completely separate dark theme** — di
 <p class="text-slate-500 text-xs mt-1">System Administration Panel — Real-time Approval Queue</p>
 ```
 
-**Queue Card (Deposit/Withdrawal):**
+**Queue Card — Deposit (plan/102: tampilkan kode unik + status):**
 ```html
 <div class="border border-slate-800 rounded-lg overflow-hidden">
   <!-- Card header -->
@@ -376,9 +439,10 @@ The Admin Command Center operates on a **completely separate dark theme** — di
         <div>
           <div class="text-green-500 text-xs font-bold">INV-20260621...</div>
           <div class="text-slate-400 text-[10px] mt-0.5">0812***999</div>
+          <div class="text-amber-400 text-[10px] mt-0.5">Kode unik: <span class="font-bold">347</span> · status: <span class="uppercase">waiting_approval</span></div>
         </div>
         <div class="text-right">
-          <div class="text-white text-sm font-bold font-mono">Rp 1.500.000</div>
+          <div class="text-white text-sm font-bold font-mono">Rp 1.500.347</div>
           <div class="text-slate-500 text-[10px]">21 Jun 2026 14:30</div>
         </div>
       </div>
@@ -390,6 +454,28 @@ The Admin Command Center operates on a **completely separate dark theme** — di
 </div>
 ```
 
+**Queue Card — Withdrawal (plan/109: NET primer + sub-teks gross/fee):**
+```html
+<div class="px-4 py-3 hover:bg-slate-900/50 transition">
+  <div class="flex items-start justify-between mb-2">
+    <div>
+      <div class="text-green-500 text-xs font-bold">WD-20260621...</div>
+      <div class="text-slate-400 text-[10px] mt-0.5">0812***999 · DANA</div>
+      <!-- CAKUP: semua nilai dari member WAJIB di-html_escape() -->
+      <div class="text-slate-400 text-[10px] mt-0.5">a/n Nama Pemilik</div>
+    </div>
+    <div class="text-right">
+      <div class="text-[10px] uppercase tracking-widest text-amber-500 font-extrabold">Wajib Transfer (Net)</div>
+      <div class="text-base font-extrabold text-amber-300 font-mono">Rp 928.500</div>
+      <div class="text-slate-500 text-[10px]">(Penarikan: Rp 1.000.000 | Biaya: Rp 71.500)</div>
+      <div class="text-slate-500 text-[10px]">21 Jun 2026 14:30</div>
+    </div>
+  </div>
+  <button class="w-full bg-green-700 ...">APPROVE</button>
+</div>
+```
+* **WAJIB:** nilai yang berasal dari member (`account_holder`, `account_number`, `phone`, `wd_number`) **harus** di-`html_escape()` (temuan keamanan plan/109 §4.3). String konfirmasi JS di-escape ganda (literal JS + atribut HTML).
+
 **Empty State:** `text-slate-600 text-xs text-center py-8` + `&#8709;` entity symbol.
 
 **Footer:**
@@ -399,3 +485,25 @@ The Admin Command Center operates on a **completely separate dark theme** — di
   <span class="font-mono">2026-06-21 14:30:00</span>
 </div>
 ```
+
+### C. Financial Tier Editor — Admin (`/admin/settings`, Card "Biaya Penarikan") — plan/110
+
+Editor tier biaya penarikan pada `application/views/admin/settings.php` MUST follow the **"derive the endpoints"** UX: `Min` baris pertama dan `Maks` baris terakhir adalah **data turunan**, bukan input bebas. Copy editor **100% Indonesia** (L1).
+
+**Layout:**
+* Grid 3 kolom untuk `wd_fixed_fee` / `wd_min_amount` / `wd_max_amount` + editor baris tier (`#tierRows`).
+* **Transport array** (bukan satu hidden JSON): setiap baris mengirim `wd_tier_min[]`, `wd_tier_max[]`, `wd_tier_pct[]` — jalur JSON legacy tetap diterima server untuk halaman ter-cache.
+
+**Rules (plan/110 D1/D2):**
+1. **`Min` baris pertama = `readonly`** (`aria-readonly="true"`, `title="Mengikuti nilai Minimal (IDR)"`) — nilainya diturunkan dari field **"Minimal (IDR)"**, tidak dapat diketik.
+2. **`Maks` baris terakhir diperpanjang otomatis** di atas `wd_max_amount`. Bila admin pernah mengeditnya manual, tampilkan hint + tombol **"Sesuaikan Batas Atas"** untuk merapikannya.
+3. Tombol **"Rapikan Tier"**: urutkan berdasar `Min` lalu sambung batas (stitch) → menghasilkan partisi kontigu penuh.
+4. **Status live `#tierStatus`**: menampilkan ringkasan cakupan ("Rentang tercakup Rp X – Rp Y ✓") dan **hard-error** yang menyebut **nomor baris + kedua nilai aktual** (gap/overlap/`max ≤ min`/persen luar 0–100).
+5. **Endpoint turunan dinormalkan otomatis** saat simpan (bukan ditolak) → dilaporkan sebagai **notice** di flash + audit `auto_adjusted`. Pelanggaran nyata tetap ditolak.
+6. **Repopulasi form:** setelah simpan gagal, **seluruh** input dikembalikan apa adanya (min/max/hari/jam/tier/kontak/rebate) via `flashdata('settings_form_state')` + `set_value()` — tidak boleh ada input yang hilang.
+7. Validasi JS **tidak** mem-`preventDefault()` pada state transisi yang dapat diperbaiki; hanya kontradiksi nyata yang memblokir submit.
+
+**Server-side contract (`Wallet_model::validate_financial_settings()`):** bentuk kembalian **aditif** — `{ ok, errors[], notices[], field_errors{key→pesan}, values{} }`; `errors`/`values` tetap (aman bagi pemanggil lama). Choke-point aturan: `application/helpers/withdrawal_fee_helper.php`.
+
+**Anti-pattern:** menjadikan `Min` baris 1 / `Maks` baris terakhir sebagai input bebas yang "kebetulan harus sama" dengan `wd_min_amount`/`wd_max_amount` (root cause deadlock plan/110 RC4) — jangan dihidupkan kembali.
+
