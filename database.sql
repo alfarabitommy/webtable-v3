@@ -23,6 +23,13 @@ CREATE TABLE IF NOT EXISTS `users` (
   `must_change_password` TINYINT(1) NOT NULL DEFAULT 0,
   `is_level_1_claimed` TINYINT(1) NOT NULL DEFAULT 0,
   `last_wage_claimed_at` DATETIME NULL DEFAULT NULL,
+  -- plan/112: absensi harian (daily check-in). `checkin_last_date` = tanggal WIB
+  -- klaim terakhir (DATE, otoritas harian); `checkin_streak` = hari beruntun
+  -- terakhir yang DIBAYAR (0 = belum pernah). Otoritas tanggal = PHP WIB, bukan
+  -- MySQL NOW()/CURDATE() (invarian M2/M3). Histori klaim per hari ada di
+  -- `wallet_ledger` dengan `transaction_id` = 'CHK-{user_id}-{Ymd}'.
+  `checkin_streak` INT UNSIGNED NOT NULL DEFAULT 0,
+  `checkin_last_date` DATE NULL DEFAULT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -390,7 +397,16 @@ INSERT IGNORE INTO `system_settings` (`key_name`, `key_value`) VALUES
 ('qris_payment_instructions', 'Scan QRIS di atas menggunakan aplikasi bank/e-wallet Anda, lalu transfer sejumlah TEPAT nominal yang tertera (termasuk 3 digit kode unik). Deposit diverifikasi manual oleh admin pada jam kerja.'),
 ('deposit_expiry_minutes', '60'),
 ('deposit_min_amount', '10000'),
-('deposit_max_amount', '50000000');
+('deposit_max_amount', '50000000'),
+-- plan/112: Absensi Harian (daily check-in). `checkin_enabled` = gerbang
+-- fail-closed (0 = widget disembunyikan DAN endpoint klaim menolak).
+-- `checkin_streak_policy`: 'reset' = bolong sehari → mulai lagi dari hari 1;
+-- 'continue' = lanjut ke N+1 (gap tidak mereset). Bonus = min(base × hari, max);
+-- fallback per-key di application/config/checkin_rewards.php.
+('checkin_enabled', '1'),
+('checkin_base_reward', '50'),
+('checkin_max_reward', '10000'),
+('checkin_streak_policy', 'reset');
 
 -- -----------------------------------------------------
 -- Table `system_audit_logs` — Phase 10 baseline (ERD §6)
@@ -614,4 +630,45 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- memakai daftar ID yang dicetak tool. Menghapus baris TIDAK PERNAH menjadi
 -- opsi: `fk_withdrawals_bank` ON DELETE RESTRICT dan seluruh kartu riwayat
 -- penarikan membaca nama provider/nomor dari baris tersebut.
+-- -----------------------------------------------------
+
+-- -----------------------------------------------------
+-- Plan 112 — MIGRASI LIVE (one-time; jalankan manual di DB aktif).
+-- Dua kolom `users` + empat kunci `system_settings` sudah masuk blok
+-- CREATE TABLE / seed di atas (instalasi baru otomatis). Untuk DB yang SUDAH
+-- ADA, gunakan tool yang menyertakan verifikasi (idempotent, tanpa backfill —
+-- baris lama cukup memakai DEFAULT 0 / NULL):
+--
+--   php scripts/migrate_112_daily_checkin.php --dry-run   # inspeksi, tanpa tulis
+--   php scripts/migrate_112_daily_checkin.php --apply     # DDL + seed + verify
+--   php scripts/migrate_112_daily_checkin.php --verify    # read-only; exit 2 bila drift
+--
+-- Referensi SQL yang dijalankan tool tersebut (urutan wajib):
+--
+--   1) ALTER TABLE `users`
+--        ADD COLUMN `checkin_streak`    INT UNSIGNED NOT NULL DEFAULT 0 AFTER `last_wage_claimed_at`,
+--        ADD COLUMN `checkin_last_date` DATE         NULL DEFAULT NULL AFTER `checkin_streak`;
+--      -- MariaDB (idempoten): ADD COLUMN IF NOT EXISTS …; MySQL 8 tidak punya
+--      -- IF NOT EXISTS → tool memeriksa information_schema lebih dulu.
+--
+--   2) INSERT IGNORE INTO `system_settings` (`key_name`,`key_value`) VALUES
+--        ('checkin_enabled','1'),('checkin_base_reward','50'),
+--        ('checkin_max_reward','10000'),('checkin_streak_policy','reset');
+--      -- INSERT IGNORE: re-run TIDAK pernah menimpa nilai yang diubah admin.
+--
+--   3) Verifikasi invarian (harapan: 2 kolom / 4 baris / 0 nilai rusak):
+--        SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+--          FROM information_schema.COLUMNS
+--         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+--           AND COLUMN_NAME IN ('checkin_streak','checkin_last_date');
+--        SELECT `key_name`, `key_value` FROM `system_settings`
+--         WHERE `key_name` LIKE 'checkin\_%';
+--        -- tamper (exit 2): enabled ∉ {'0','1'} / policy ∉ {'reset','continue'}
+--        --   / base atau max bukan integer positif / base > max
+--
+-- Catatan: bonus DIBAYAR lewat `Wallet_model::credit()` dengan transaction_id
+-- deterministik `'CHK-{user_id}-{Ymd}'` — UNIQUE (user_id, transaction_id, type)
+-- menjadi jaminan tingkat DB "satu kredit per user per hari". Histori absensi
+-- karena itu TIDAK memerlukan tabel baru: cukup query `wallet_ledger`
+-- dengan prefix `CHK-%` (terlayani `idx_user_id`).
 -- -----------------------------------------------------

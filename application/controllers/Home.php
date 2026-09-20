@@ -7,6 +7,8 @@ class Home extends MY_Controller {
         parent::__construct();
         $this->load->model('User_model');
         $this->load->model('Rental_model');
+        // plan/112: konfigurasi + status absensi harian (widget dashboard).
+        $this->load->model('Checkin_model');
     }
 
     public function index() {
@@ -41,6 +43,9 @@ class Home extends MY_Controller {
             'referral_locked'      => ($lifetime === 0 && !$is_promoter),
             'is_promoter'          => $is_promoter,
             'promoter_available'   => $promoter_available,
+            // plan/112: status absensi harian (read-only). `enabled=false` →
+            // view TIDAK merender widget sama sekali (guard di view).
+            'checkin'              => $this->Checkin_model->get_status($user_id),
         ];
 
         $this->load->view('templates/header', $data);

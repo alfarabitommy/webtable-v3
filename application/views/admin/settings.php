@@ -47,7 +47,19 @@ $error_flat = function ($map) {
     }
     return array_values(array_unique($out));
 };
-$financial_errors = $error_flat(isset($field_errors) ? $field_errors : []);
+$financial_errors = $error_flat(array_filter(
+    isset($field_errors) ? $field_errors : [],
+    function ($key) { return strpos((string) $key, 'checkin_') !== 0; },
+    ARRAY_FILTER_USE_KEY
+));
+// plan/112: pesan validasi kartu Absensi Harian ditampilkan di kartunya sendiri
+// (bukan di kartu Biaya Penarikan) — pemisahan murni presentasi; daftar error
+// finansial tidak berubah saat tidak ada temuan `checkin_*`.
+$checkin_errors = $error_flat(array_filter(
+    isset($field_errors) ? $field_errors : [],
+    function ($key) { return strpos((string) $key, 'checkin_') === 0; },
+    ARRAY_FILTER_USE_KEY
+));
 $qris_errors      = $error_flat(isset($qris_field_errors) ? $qris_field_errors : []);
 $auto_notices     = (isset($notices) && is_array($notices)) ? $notices : [];
 
@@ -64,6 +76,14 @@ $dep_value   = $state_val($fs, 'deposit_fee_value', $deposit_fee_value);
 $rebate_enabled_state = array_key_exists('rebate_enabled', $fs)
     ? !empty($fs['rebate_enabled'])
     : (bool) $rebate_enabled;
+
+// Kartu Absensi Harian (plan/112) — satu form dengan finansial → ikut repopulasi.
+$checkin_enabled_state  = array_key_exists('checkin_enabled', $fs)
+    ? !empty($fs['checkin_enabled'])
+    : (bool) $checkin_enabled;
+$checkin_base_display   = $state_val($fs, 'checkin_base_reward', (int) $checkin_base_reward);
+$checkin_max_display    = $state_val($fs, 'checkin_max_reward', (int) $checkin_max_reward);
+$checkin_policy_display = $state_val($fs, 'checkin_streak_policy', (string) $checkin_streak_policy);
 
 // Kartu QRIS/deposit (form TERPISAH → state sendiri, plan/110 P8).
 $qris_merchant_display = $state_val($qs, 'qris_merchant_name', $qris_merchant_name);
@@ -416,6 +436,81 @@ $dep_max_display       = $state_val($qs, 'deposit_max_amount', (int) $deposit_ma
         <p class="text-xs text-[var(--t-muted)] mt-2">
             Nilai harus angka bulat 0–100. Contoh: downline membeli paket Rp 2.000.000 dengan L1 5% →
             komisi upline Rp 100.000; L2 3% → Rp 60.000; L3 1% → Rp 20.000.
+        </p>
+    </div>
+
+    <!-- Card 6 (plan/112): Absensi Harian (Daily Check-in) — gerbang + bonus.
+         Berada DI DALAM form finansial (form_open admin/settings) sehingga
+         otomatis mewarisi CSRF + guard data-guard-submit, dan nilai yang sudah
+         diketik TIDAK hilang saat validasi gagal (flash settings_form_state).
+         Panel admin tetap 100% Indonesia (invarian L1) — tanpa key i18n. -->
+    <div class="t-card p-6 mt-6">
+        <h4 class="text-sm font-semibold text-[var(--t-text)] mb-1 flex items-center gap-2">
+            <i class="fas fa-calendar-check text-amber-500"></i> Absensi Harian (Daily Check-in)
+        </h4>
+        <p class="text-xs text-[var(--t-muted)] mb-5">
+            Member mengklaim bonus sekali per hari (jam <span class="font-semibold">WIB</span>);
+            bonus naik berjenjang mengikuti hari beruntun
+            (<code class="text-xs">min(bonus hari pertama &times; hari, batas harian)</code>)
+            dan dibayarkan ke <code class="text-xs">wallet_ledger</code>.
+            Saat dinonaktifkan, widget di dashboard member dihilangkan seluruhnya
+            dan endpoint klaim menolak permintaan (fail-closed).
+        </p>
+
+        <?php if (!empty($checkin_errors)): ?>
+        <div class="mb-4 px-3 py-2 rounded-lg text-xs bg-red-500/10 text-red-600 dark:text-red-400">
+            <p class="font-medium mb-1">Periksa kembali:</p>
+            <ul class="list-disc list-inside space-y-0.5">
+                <?php foreach ($checkin_errors as $message): ?>
+                <li><?= htmlspecialchars($message) ?></li>
+                <?php endforeach; ?>
+            </ul>
+        </div>
+        <?php endif; ?>
+
+        <div class="flex items-center justify-between mb-4">
+            <label for="checkin_enabled" class="text-sm text-[var(--t-text-2)] cursor-pointer select-none">
+                Aktifkan Absensi Harian
+            </label>
+            <input type="checkbox" id="checkin_enabled" name="checkin_enabled" value="1"
+                   class="rounded border-slate-300" <?= $checkin_enabled_state ? 'checked' : '' ?>>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+                <label for="checkin_base_reward" class="t-label text-sm mb-1.5 block">Bonus Hari Pertama (Rp)</label>
+                <input type="number" id="checkin_base_reward" name="checkin_base_reward"
+                       value="<?= htmlspecialchars($checkin_base_display) ?>" min="1" max="1000000" step="1" required
+                       class="t-input w-full px-3 py-2.5 rounded-lg text-sm font-mono">
+            </div>
+            <div>
+                <label for="checkin_max_reward" class="t-label text-sm mb-1.5 block">Batas Harian (Rp)</label>
+                <input type="number" id="checkin_max_reward" name="checkin_max_reward"
+                       value="<?= htmlspecialchars($checkin_max_display) ?>" min="1" max="10000000" step="1" required
+                       class="t-input w-full px-3 py-2.5 rounded-lg text-sm font-mono">
+            </div>
+            <div>
+                <label for="checkin_streak_policy" class="t-label text-sm mb-1.5 block">Kebijakan Bila Bolong</label>
+                <select id="checkin_streak_policy" name="checkin_streak_policy"
+                        class="t-input w-full px-3 py-2.5 rounded-lg text-sm">
+                    <option value="reset" <?= $checkin_policy_display === 'reset' ? 'selected' : '' ?>>
+                        Reset ke Hari 1
+                    </option>
+                    <option value="continue" <?= $checkin_policy_display === 'continue' ? 'selected' : '' ?>>
+                        Lanjutkan (streak dibekukan)
+                    </option>
+                </select>
+            </div>
+        </div>
+
+        <p class="text-xs text-[var(--t-muted)] mt-3">
+            Wajib angka bulat (IDR, tanpa pecahan) dengan
+            <strong>bonus hari pertama &le; batas harian</strong>. Contoh: bonus 50 &amp; batas 10.000
+            &rarr; hari ke-1 Rp 50, hari ke-2 Rp 100, hari ke-3 Rp 150, dan seterusnya
+            sampai berhenti di Rp 10.000/hari. <strong>Reset ke Hari 1</strong>: bolong sehari &rarr;
+            hari terlewat membuat bonus kembali ke hari ke-1. <strong>Lanjutkan</strong>: bolong sehari
+            &rarr; rentetan tetap tersimpan dan klaim berikutnya melanjutkan hari ke-(N+1).
+            Perubahan langsung berlaku pada permintaan member berikutnya.
         </p>
     </div>
 

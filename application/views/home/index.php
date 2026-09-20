@@ -161,7 +161,68 @@
     /* Reduced motion — semua animasi dimatikan; konten statis tetap terbaca */
     @media (prefers-reduced-motion: reduce) {
         .hm99-hero *, .hm99-map * { animation: none !important; transition: none !important; }
+        .hm112-card * { animation: none !important; transition: none !important; }
         .hm99-statusdot, .hm99-live-dot { box-shadow: 0 0 0 2px rgba(52,211,153,.25); }
+    }
+
+    /* ═══ Plan 112: Widget Absensi Harian — scoped hm112-* ═══
+       Aturan sama plan/99: hanya color/bg/border/shadow/animation; radius &
+       spacing tetap utility Tailwind. Warna memakai token tema (--u-*) agar
+       idiom terang/gelap konsisten tanpa duplikasi aturan. */
+    .hm112-card {
+        position: relative; overflow: hidden; isolation: isolate;
+        background:
+            linear-gradient(135deg, rgba(99, 102, 241, .10) 0%, rgba(6, 182, 212, .07) 100%),
+            var(--u-surface);
+        border: 1px solid var(--u-border-glow-2);
+        box-shadow: var(--u-glow);
+    }
+    html.dark .hm112-card {
+        background:
+            linear-gradient(135deg, rgba(99, 102, 241, .18) 0%, rgba(6, 182, 212, .12) 100%),
+            var(--u-surface);
+        border: 1px solid rgba(99, 102, 241, .30);
+    }
+    .hm112-orb {
+        position: absolute; width: 150px; height: 150px; border-radius: 50%;
+        filter: blur(38px); opacity: .38; pointer-events: none; z-index: -1;
+        animation: hm112-drift 9s ease-in-out infinite;
+    }
+    .hm112-orb-a { top: -56px; right: -40px;
+                   background: radial-gradient(circle, rgba(99,102,241,.60), transparent 70%); }
+    .hm112-orb-b { bottom: -64px; left: -46px; animation-delay: -4s;
+                   background: radial-gradient(circle, rgba(6,182,212,.50), transparent 70%); }
+    html.dark .hm112-orb { opacity: .55; }
+    @keyframes hm112-drift {
+        0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+        50%      { transform: translate3d(0, -10px, 0) scale(1.06); }
+    }
+    .hm112-ic { background: rgba(99,102,241,.12); border: 1px solid rgba(99,102,241,.28); }
+    html.dark .hm112-ic { background: rgba(99,102,241,.18); border-color: rgba(129,140,248,.34); }
+    .hm112-chip { background: rgba(245,158,11,.12); border: 1px solid rgba(245,158,11,.32);
+                  color: #b45309; }
+    html.dark .hm112-chip { color: #fbbf24; border-color: rgba(251,191,36,.32); }
+    .hm112-day { background: var(--u-surface-2); border: 1px solid var(--u-border); }
+    .hm112-day-next { background: rgba(99,102,241,.12); border-color: rgba(99,102,241,.42);
+                      box-shadow: 0 0 0 2px rgba(99,102,241,.10); }
+    html.dark .hm112-day-next { background: rgba(99,102,241,.20); border-color: rgba(129,140,248,.46); }
+    .hm112-btn {
+        background: linear-gradient(135deg, #4f46e5 0%, #0891b2 100%);
+        border: 1px solid rgba(79,70,229,.35);
+        box-shadow: 0 6px 18px rgba(79,70,229,.22);
+        transition: opacity .15s ease, transform .15s ease;
+    }
+    .hm112-btn:hover:not(:disabled) { opacity: .93; }
+    .hm112-btn:active:not(:disabled) { transform: scale(.985); }
+    .hm112-btn:disabled {
+        background: var(--u-surface-3); color: var(--u-text-2);
+        border: 1px solid var(--u-border); box-shadow: none; cursor: not-allowed;
+    }
+    .hm112-pulse { animation: hm112-pulse 2.4s ease-out infinite; }
+    @keyframes hm112-pulse {
+        0%   { box-shadow: 0 0 0 0 rgba(99,102,241,.35); }
+        75%  { box-shadow: 0 0 0 12px rgba(99,102,241,0); }
+        100% { box-shadow: 0 0 0 0 rgba(99,102,241,0); }
     }
     </style>
 
@@ -193,6 +254,228 @@
             </div>
         </div>
     </div>
+
+    <?php if (!empty($checkin['enabled'])): ?>
+    <?php
+    // ═══ Plan 112: Widget Absensi Harian (Daily Check-in) ═══
+    // Seluruh angka DIHITUNG & DIFORMAT di server (L6: uang tidak pernah masuk
+    // kamus; view tidak pernah melakukan aritmetika uang). Persentase progres
+    // memakai intdiv (M8 — tanpa pembagian float).
+    $hm112_max  = max(1, (int) $checkin['max_reward']);
+    // Persentase progres = ceil() integer murni (intdiv) → hari ke-1 (0,5%)
+    // tetap terlihat sebagai 1%, cap = 100%. Tanpa pembagian float (M8).
+    $hm112_pct  = min(100, intdiv(max(0, (int) $checkin['today_reward']) * 100 + $hm112_max - 1, $hm112_max));
+    $hm112_done = !empty($checkin['claimed_today']);
+    ?>
+    <?php /* Peta string dinamis JS — pola SYNAPSE_I18N (plan/94 L5), digabung
+             (Object.assign) agar header tidak perlu diubah. */ ?>
+    <script>
+    window.SYNAPSE_I18N = Object.assign(window.SYNAPSE_I18N || {}, <?= json_encode([
+        'hm112_claim'       => lang('home_checkin_claim_btn'),
+        'hm112_claimed'     => lang('home_checkin_claimed_btn'),
+        'hm112_next_in'     => lang('home_checkin_next_in'),
+        'hm112_window_left' => lang('home_checkin_window_left'),
+        'hm112_generic'     => lang('home_checkin_err_generic'),
+        'hm112_day_fmt'     => lang('home_checkin_day'),
+    ], JSON_UNESCAPED_UNICODE) ?>);
+    </script>
+
+    <div id="hm112-card" class="hm112-card rounded-2xl p-5 shadow-sm"
+         data-claimed="<?= $hm112_done ? '1' : '0' ?>"
+         data-window-ts="<?= (int) $checkin['next_window_ts'] ?>"
+         data-max-reward="<?= $hm112_max ?>">
+        <div class="hm112-orb hm112-orb-a" aria-hidden="true"></div>
+        <div class="hm112-orb hm112-orb-b" aria-hidden="true"></div>
+
+        <!-- Identitas + chip streak -->
+        <div class="flex items-start justify-between gap-3">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="hm112-ic w-11 h-11 shrink-0 rounded-2xl flex items-center justify-center">
+                    <i class="fas fa-calendar-check text-indigo-600 dark:text-indigo-400"></i>
+                </div>
+                <div class="min-w-0">
+                    <p class="text-[10px] u-muted font-semibold uppercase tracking-wider"><?= lang('home_checkin_title') ?></p>
+                    <p class="text-[11px] u-text-2 leading-snug mt-0.5"><?= lang('home_checkin_subtitle') ?></p>
+                </div>
+            </div>
+            <span class="hm112-chip shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold">
+                <i class="fas fa-fire"></i>
+                <span id="hm112-streak-days"><?= (int) $checkin['streak'] ?></span>
+                <span><?= lang('home_checkin_streak_label') ?></span>
+            </span>
+        </div>
+
+        <!-- Bonus hari ini + bar ke cap harian -->
+        <div class="mt-4">
+            <p class="text-[10px] u-muted font-semibold uppercase tracking-wider"><?= lang('home_checkin_today_reward') ?></p>
+            <div class="flex items-end justify-between gap-3 mt-0.5">
+                <p class="text-2xl font-extrabold u-text leading-none">Rp <span id="hm112-amount"><?= number_format((int) $checkin['today_reward'], 0, ',', '.') ?></span></p>
+                <span id="hm112-day-label" class="text-[10px] u-muted font-mono"><?= sprintf(lang('home_checkin_day'), (int) $checkin['today_streak']) ?></span>
+            </div>
+            <div class="mt-2 h-1.5 w-full rounded-full u-progress-track overflow-hidden">
+                <div id="hm112-bar" class="h-full rounded-full" style="width: <?= $hm112_pct ?>%; background: linear-gradient(90deg, #6366f1, #06b6d4);"></div>
+            </div>
+            <p class="text-[10px] u-muted mt-1.5"><?= lang('home_checkin_cap_label') ?> · Rp <?= number_format($hm112_max, 0, ',', '.') ?></p>
+        </div>
+
+        <!-- Pratinjau 7 hari ke depan (server-rendered) -->
+        <div class="mt-4">
+            <p class="text-[10px] u-muted font-semibold uppercase tracking-wider mb-1.5"><?= lang('home_checkin_preview') ?></p>
+            <div class="grid grid-cols-7 gap-1">
+                <?php foreach ($checkin['preview'] as $hm112_p): ?>
+                <div class="hm112-day<?= !empty($hm112_p['is_next']) ? ' hm112-day-next' : '' ?> rounded-lg py-1.5 text-center"
+                     data-day="<?= (int) $hm112_p['day'] ?>">
+                    <span class="hm112-day-num block text-[9px] font-mono u-muted"><?= (int) $hm112_p['day'] ?></span>
+                    <span class="hm112-day-amt block text-[10px] font-bold u-text-2"><?= number_format((int) $hm112_p['reward'], 0, ',', '.') ?></span>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+
+        <!-- Timer WIB + tombol klaim -->
+        <div class="mt-4 flex items-center justify-between gap-2">
+            <p id="hm112-timer" class="text-[10px] u-muted font-mono">&#8212;</p>
+        </div>
+
+        <button id="hm112-claim" type="button"
+                class="hm112-btn w-full mt-2 h-12 rounded-xl flex items-center justify-center gap-2 text-sm font-bold text-white<?= $hm112_done ? '' : ' hm112-pulse' ?>"
+                aria-label="<?= $hm112_done ? lang('home_checkin_claimed_btn') : lang('home_checkin_claim_btn') ?>"
+                <?= $hm112_done ? 'disabled' : '' ?>>
+            <i class="fas <?= $hm112_done ? 'fa-circle-check' : 'fa-hand-holding-usd' ?>"></i>
+            <span id="hm112-btn-label"><?= $hm112_done ? lang('home_checkin_claimed_btn') : lang('home_checkin_claim_btn') ?></span>
+        </button>
+
+        <p class="text-[10px] u-muted mt-2 text-center"><?= lang($checkin['policy'] === 'continue' ? 'home_checkin_hint_continue' : 'home_checkin_hint_reset') ?></p>
+        <p id="hm112-status" class="text-[10px] text-center text-emerald-600 dark:text-emerald-400 mt-1.5 hidden" aria-live="polite"></p>
+    </div>
+
+    <div id="hm112-toast" class="fixed left-1/2 -translate-x-1/2 bottom-24 px-4 py-2 u-toast text-xs font-medium rounded-xl opacity-0 transition-opacity duration-300 z-[60] shadow-lg pointer-events-none"></div>
+
+    <script>
+    (function () {
+        var card = document.getElementById('hm112-card');
+        var btn  = document.getElementById('hm112-claim');
+        if (!card || !btn) return;
+
+        var I18N = window.SYNAPSE_I18N || {};
+        var NUM  = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 });
+
+        var amountEl = document.getElementById('hm112-amount');
+        var barEl    = document.getElementById('hm112-bar');
+        var streakEl = document.getElementById('hm112-streak-days');
+        var dayEl    = document.getElementById('hm112-day-label');
+        var labelEl  = document.getElementById('hm112-btn-label');
+        var timerEl  = document.getElementById('hm112-timer');
+        var statusEl = document.getElementById('hm112-status');
+        var toastEl  = document.getElementById('hm112-toast');
+        var pills    = card.querySelectorAll('.hm112-day');
+        var iconEl   = btn.querySelector('i');
+
+        var claimed   = card.getAttribute('data-claimed') === '1';
+        var windowTs  = parseInt(card.getAttribute('data-window-ts'), 10) || 0;
+        var maxReward = parseInt(card.getAttribute('data-max-reward'), 10) || 0;
+        var toastTimer = null;
+
+        function showToast(text, ok) {
+            if (!toastEl || !text) return;
+            toastEl.textContent = text;
+            toastEl.classList.toggle('text-emerald-600', !!ok);
+            toastEl.classList.remove('opacity-0');
+            if (toastTimer) clearTimeout(toastTimer);
+            toastTimer = setTimeout(function () { toastEl.classList.add('opacity-0'); }, 2600);
+        }
+
+        // Hitung mundur ke tengah malam WIB berikutnya (epoch dari SERVER — klien
+        // tidak menghitung ulang tanggal, hanya sisa waktu).
+        function tick() {
+            if (!timerEl || !windowTs) return;
+            var left = windowTs - Math.floor(Date.now() / 1000);
+            if (left < 0) left = 0;
+            function p(n) { return (n < 10 ? '0' : '') + n; }
+            timerEl.textContent = (claimed ? (I18N.hm112_next_in || '') : (I18N.hm112_window_left || ''))
+                + ' ' + p(Math.floor(left / 3600)) + ':' + p(Math.floor((left % 3600) / 60)) + ':' + p(left % 60);
+        }
+        tick();
+        setInterval(tick, 1000);
+
+        // Sinkronkan seluruh tampilan dengan status segar dari server.
+        function paint(st) {
+            if (!st) return;
+            claimed = !!st.claimed_today;
+            card.setAttribute('data-claimed', claimed ? '1' : '0');
+
+            if (streakEl) streakEl.textContent = st.streak;
+            if (amountEl) amountEl.textContent = NUM.format(st.today_reward);
+            if (dayEl && I18N.hm112_day_fmt) dayEl.textContent = I18N.hm112_day_fmt.replace('%d', st.today_streak);
+            if (barEl && maxReward > 0) {
+                barEl.style.width = Math.min(100, Math.round((st.today_reward * 100) / maxReward)) + '%';
+            }
+
+            if (pills.length && st.preview && st.preview.length === pills.length) {
+                for (var i = 0; i < pills.length; i++) {
+                    pills[i].setAttribute('data-day', st.preview[i].day);
+                    var num = pills[i].querySelector('.hm112-day-num');
+                    var amt = pills[i].querySelector('.hm112-day-amt');
+                    if (num) num.textContent = st.preview[i].day;
+                    if (amt) amt.textContent = NUM.format(st.preview[i].reward);
+                    pills[i].classList.toggle('hm112-day-next', !!st.preview[i].is_next);
+                }
+            }
+
+            btn.disabled = claimed;
+            btn.classList.toggle('hm112-pulse', !claimed);
+            if (labelEl) labelEl.textContent = claimed ? I18N.hm112_claimed : I18N.hm112_claim;
+            if (iconEl) iconEl.className = claimed ? 'fas fa-circle-check' : 'fas fa-hand-holding-usd';
+            tick();
+        }
+
+        var CLAIM_URL = <?= json_encode(site_url('checkin/claim')) ?>;
+
+        btn.addEventListener('click', function () {
+            if (btn.disabled) return;
+
+            var prevLabel = labelEl ? labelEl.textContent : '';
+            btn.disabled = true;
+            btn.classList.remove('hm112-pulse');
+            if (labelEl) labelEl.textContent = I18N.js_processing || prevLabel;
+
+            csrfFetch(CLAIM_URL, { method: 'POST' })
+                .then(function (res) { return res.json(); })
+                .then(function (d) {
+                    if (d && d.success) {
+                        showToast(d.message, true);
+                        if (statusEl) {
+                            statusEl.textContent = d.message || '';
+                            statusEl.classList.remove('hidden');
+                        }
+                        paint(d.data && d.data.status);
+                        return;
+                    }
+
+                    // Fail-closed: admin baru saja mematikan fitur → widget harus
+                    // hilang; server TIDAK merender apa pun pada reload.
+                    if (d && d.code === 'disabled') { window.location.reload(); return; }
+
+                    if (d && d.status) paint(d.status);
+                    else if (labelEl) labelEl.textContent = prevLabel;
+
+                    var msg = (d && d.message) ? d.message : I18N.hm112_generic;
+                    showToast(msg, false);
+                    if (statusEl) {
+                        statusEl.textContent = msg || '';
+                        statusEl.classList.remove('hidden');
+                    }
+                })
+                .catch(function () {
+                    if (labelEl) labelEl.textContent = prevLabel;
+                    btn.disabled = claimed;
+                    if (!claimed) btn.classList.add('hm112-pulse');
+                    showToast(I18N.hm112_generic, false);
+                });
+        });
+    })();
+    </script>
+    <?php endif; ?>
 
     <!-- ═══ User Identity & Referral Card ═══ -->
     <div class="u-card rounded-2xl p-5 shadow-sm flex items-center justify-between">

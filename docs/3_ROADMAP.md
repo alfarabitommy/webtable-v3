@@ -9,6 +9,8 @@
 > tampilan NET penarikan, dan perbaikan validasi tier admin. Nomor versi
 > dokumen **tidak** diubah (struktur fase tetap). Beberapa catatan fase lama
 > dianotasi agar tidak menyesatkan (lihat Fase 1 & Strict Rule 6).
+> **plan/112** menambah blok **Daily Check-in — Bonus Absensi Harian** di log
+> milestone (kode otoritatif; lihat juga PRD v5.2 §F).
 
 ---
 
@@ -195,6 +197,16 @@
 - [x] **Kartu "App Preferences" di Profile** — `application/views/profile/index.php` (368 → 480 baris), disisipkan antara REFERRAL CENTER dan THE HUB: Row 1 **Bahasa** (segmented capsule EN/ID → anchor `lang/switch/en|id`, segmen aktif server-rendered dari `$site_lang_code`) dan Row 2 **Tema** (segmented `#pref-theme-seg` dua `button.pref-theme-opt`, `aria-pressed` via JS, `localStorage['user_theme']` + `CustomEvent('user-theme-change')`); baris hub `#btn-theme-hub` lama dihapus (hub jadi 1–6). Ini **lokasi kanonik** kontrol bahasa & tema member.
 - [x] **Kamus** — +6 key (`profile_pref_title`, `profile_lang_label`, `profile_theme_label`, `profile_theme_dark`, `profile_theme_light`, `profile_theme_hint`), −3 key usang (`profile_theme`, `js_theme_dark`, `js_theme_light`) → **332 key** identik di kedua idiom.
 - [x] **Ringkasan** — `plan/100_HEADER_DECLUTTER_AND_PROFILE_SETTINGS_SUMMARY.md`. *(QA live-browser V5–V11 tertunda karena sandbox tanpa MySQL; §2.1 memuat sanity lebar statis.)*
+
+### Daily Check-in — Bonus Absensi Harian (Member Widget + Admin Settings) ✅ COMPLETED (plan/112)
+- [x] **Skema** — dua kolom `users` (`checkin_streak INT UNSIGNED NOT NULL DEFAULT 0`, `checkin_last_date DATE NULL DEFAULT NULL`) + 4 kunci `system_settings` (`checkin_enabled` · `checkin_base_reward` · `checkin_max_reward` · `checkin_streak_policy`); **tanpa tabel baru** (histori = `wallet_ledger` berprefix `CHK-`, tanpa kolom total).
+- [x] **Migrasi CLI** — `scripts/migrate_112_daily_checkin.php` (`--dry-run` default / `--apply` / `--verify`, exit 0/1/2, pre-flight `information_schema`, DDL dijaga + `INSERT IGNORE`, tamper → exit 2, **tanpa backfill**); diterapkan ke DB lokal & re-run = no-op.
+- [x] **Jalur uang** — `Checkin_model::claim()`: satu TX (anchor `users FOR UPDATE` → hitung hari → `UPDATE` kondisional + `affected_rows() === 1` → `Wallet_model::credit()` `CHK-{user_id}-{Ymd}` → commit); `db_debug` dimatikan lokal + `error()` dibaca SEBELUM rollback → 1062 ditranslasi `already_claimed` (jalur AJAX tidak pernah HTML). Fungsi murni `_streak_next()` / `_reward_for()`.
+- [x] **Endpoint** — `POST /checkin/claim` (`Checkin`, POST+AJAX-only, rate limit `checkin_claim:{uid}` 5/60, envelope `api_*` + key legacy, `status` segar pada sukses & penolakan, `disabled` = HTTP 403). Rute eksplisit `checkin/claim`.
+- [x] **Widget member** — `views/home/index.php` scoped `hm112-*` (Font Awesome, pratinjau 7 hari, progres cap via `intdiv` ceil, hitung mundur WIB dari epoch server, klaim via `csrfFetch` tanpa reload, `prefers-reduced-motion`); **tidak dirender sama sekali** saat `checkin_enabled='0'`.
+- [x] **Admin** — kartu **Absensi Harian (Daily Check-in)** di `/admin/settings` (toggle + bonus hari pertama + batas harian + kebijakan streak; error inline `checkin_*` di kartunya sendiri, repopulasi via `settings_form_state`), all-or-nothing + audit `admin_update_settings` (key `checkin_*` otomatis tercatat).
+- [x] **Kamus EN/ID** — +19 key (18 `home_checkin_*` + `ledger_checkin`) → **621** identik di kedua idiom; `audit_i18n_parity.php` exit 0, `audit_i18n_hardcoded.php` 0 temuan.
+- [x] **Ringkasan** — `plan/112_DAILY_CHECKIN_FEATURE_SUMMARY.md`.
 
 ### Dynamic WhatsApp Group Link (Help & FAQ + Admin Settings) ✅ COMPLETED (plan/105)
 - [x] **Key konfigurasi** — `system_settings.wa_group_link` (default `''`, **tanpa DDL**), seed kanonik `INSERT IGNORE` di `database.sql` + `database_seed.sql` (tidak pernah menimpa nilai live); baris hilang ≡ `''` ≡ kartu tersembunyi (fail-safe).

@@ -93,3 +93,8 @@ $route['admin/ewallet-providers'] = 'admin/ewallet_providers';
 $route['admin/ewallet-providers/create'] = 'admin/create_ewallet_provider';
 $route['admin/ewallet-providers/update/(:num)'] = 'admin/update_ewallet_provider/$1';
 $route['admin/ewallet-providers/toggle_status/(:num)'] = 'admin/toggle_ewallet_provider/$1';
+
+// plan/112: klaim bonus absensi harian (member, POST + AJAX-only; seluruh gate
+// & TX di Checkin_model). Route eksplisit: sub-path multi-segmen — tanpa ini
+// CI3 memetakan /checkin/claim sebagai Checkin::index('claim').
+$route['checkin/claim'] = 'checkin/claim';

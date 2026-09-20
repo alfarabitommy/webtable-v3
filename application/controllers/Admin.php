@@ -377,6 +377,8 @@ class Admin extends CI_Controller {
         $this->load->model('Wallet_model');
         // Plan 89: rebate 3-tier config — resolver GET + validator POST.
         $this->load->model('Rental_model');
+        // plan/112: absensi harian — resolver GET + validator POST.
+        $this->load->model('Checkin_model');
 
         // M7 (plan/70): satu endpoint pengaturan — GET merender form terpadu
         // (kontak + finansial), POST memproses keduanya dalam satu submit.
@@ -461,6 +463,20 @@ class Admin extends CI_Controller {
                 $errors = array_merge($errors, $rv['errors']);
             }
 
+            // ── Absensi Harian (plan/112): raw POST → normalizer ketat
+            //    Checkin_model (toggle '1'/'0', integer IDR + invarian
+            //    1 ≤ base ≤ max, whitelist kebijakan streak).
+            $checkin_raw = [
+                'checkin_enabled'       => $this->input->post('checkin_enabled'),
+                'checkin_base_reward'   => $this->input->post('checkin_base_reward'),
+                'checkin_max_reward'    => $this->input->post('checkin_max_reward'),
+                'checkin_streak_policy' => $this->input->post('checkin_streak_policy'),
+            ];
+            $cv = $this->Checkin_model->validate_checkin_settings($checkin_raw);
+            if (!$cv['ok']) {
+                $errors = array_merge($errors, $cv['errors']);
+            }
+
             // All-or-nothing: satu error → tidak ada satupun yang disimpan.
             // plan/110: state form disimpan sebagai flashdata sehingga admin
             // TIDAK kehilangan satu pun input (dulu seluruh ketikan finansial
@@ -469,13 +485,16 @@ class Admin extends CI_Controller {
                 $this->session->set_flashdata('error', 'Validasi gagal: ' . implode(' ', $errors));
                 $this->session->set_flashdata(
                     'settings_form_state',
-                    $this->_settings_form_state($tier_rows, $errors, isset($v['field_errors']) ? $v['field_errors'] : [])
+                    $this->_settings_form_state($tier_rows, $errors, array_merge(
+                        isset($v['field_errors']) ? $v['field_errors'] : [],
+                        isset($cv['field_errors']) ? $cv['field_errors'] : []
+                    ))
                 );
                 redirect('admin/settings');
                 return;
             }
 
-            $final = array_merge($contact, $v['values'], $rv['values']);
+            $final = array_merge($contact, $v['values'], $rv['values'], $cv['values']);
 
             // M5/A1: snapshot nilai lama per key SEBELUM persist (audit before→after).
             $before = [];
@@ -583,6 +602,13 @@ class Admin extends CI_Controller {
         $data['rebate_l2_percent'] = (int) $rebate_cfg['rebate_l2_percent'];
         $data['rebate_l3_percent'] = (int) $rebate_cfg['rebate_l3_percent'];
 
+        // plan/112: nilai Absensi Harian dari merged dynamic config (fallback-safe).
+        $checkin_cfg = $this->Checkin_model->get_config();
+        $data['checkin_enabled']       = $checkin_cfg['enabled'] ? 1 : 0;
+        $data['checkin_base_reward']   = (int) $checkin_cfg['base'];
+        $data['checkin_max_reward']    = (int) $checkin_cfg['max'];
+        $data['checkin_streak_policy'] = $checkin_cfg['policy'];
+
         $this->load->view('admin/templates/header', $data);
         $this->load->view('admin/templates/sidebar', $data);
         $this->load->view('admin/templates/topbar', $data);
@@ -675,6 +701,11 @@ class Admin extends CI_Controller {
             'rebate_l1_percent'   => (string) $this->input->post('rebate_l1_percent', TRUE),
             'rebate_l2_percent'   => (string) $this->input->post('rebate_l2_percent', TRUE),
             'rebate_l3_percent'   => (string) $this->input->post('rebate_l3_percent', TRUE),
+            // plan/112: Absensi Harian (satu form dengan finansial → ikut repopulasi).
+            'checkin_enabled'       => (string) $this->input->post('checkin_enabled'),
+            'checkin_base_reward'   => (string) $this->input->post('checkin_base_reward', TRUE),
+            'checkin_max_reward'    => (string) $this->input->post('checkin_max_reward', TRUE),
+            'checkin_streak_policy' => (string) $this->input->post('checkin_streak_policy', TRUE),
             'errors'              => array_values($errors),
             'field_errors'        => $field_errors,
             'notices'             => [],

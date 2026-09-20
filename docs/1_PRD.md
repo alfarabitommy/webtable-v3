@@ -1,8 +1,15 @@
-# Product Requirements Document (PRD) v5.1
+# Product Requirements Document (PRD) v5.2
 **Project Name:** Synapse (AI GPU Rental)
 **Platform:** Web Application (100% Mobile-First / SPA-like Experience)
 **Core Tech Stack:** CodeIgniter 3 (CI3), PHP 8.3.6, MySQL/MariaDB, Vanilla JavaScript, Tailwind CSS
 
+> **v5.2 — catatan sinkronisasi (plan/112).** Menambahkan **mesin klaim manual
+> baru: Bonus Absensi Harian** (daily check-in) — §F: bonus berjenjang
+> `min(base × hari_streak, cap)` dengan kebijakan streak `reset`/`continue`,
+> gerbang fail-closed `checkin_enabled`, dan kredit ledger ber-ID
+> `CHK-{user_id}-{Ymd}`; dikonfigurasi di kartu **Absensi Harian** pada
+> `/admin/settings`. Sumber kebenaran tetap **kode** (AGENTS.md).
+>
 > **v5.1 — catatan sinkronisasi (plan/111).** Dokumen ini disinkronkan ulang
 > dengan **kode sebagai sumber kebenaran** (AGENTS.md) untuk rentang
 > plan/102–110. Perubahan besar: alur deposit QRIS manual berkode unik
@@ -191,7 +198,7 @@ The modal overlay (`bg-black/60 backdrop-blur-sm`) closes on tap. The sheet anim
 
 ### F. Otomatisasi Lazy / Klaim Manual (TANPA Cron)
 
-**Tidak ada cron job di repo ini.** Seluruh "otomatisasi" bersifat **lazy/event-driven** pada request member, atau **dipicu manual** oleh admin/CLI (batasan owner). Tiga mesin utama:
+**Tidak ada cron job di repo ini.** Seluruh "otomatisasi" bersifat **lazy/event-driven** pada request member, atau **dipicu manual** oleh admin/CLI (batasan owner). Empat mesin utama:
 
 * **Distribusi ROI Harian — KLAIM MANUAL:**
     * User mengklaim ROI per kontrak via `POST /rentals/claim/{id}` → `Rental_model::claim_roi()` (idempotensi `transaction_id = ROI-{rental_id}-D{n}`, gate T+1).
@@ -202,6 +209,13 @@ The modal overlay (`bg-black/60 backdrop-blur-sm`) closes on tap. The sheet anim
 * **Expiry Deposit — LAZY SWEEP:**
     * `MY_Controller` menjalankan `Wallet_model::expire_user_deposits()` (per-user, `pending` yang lewat `expires_at` → `expired`); alat global: `Wallet_model::expire_stale_deposits()` (entry admin/CLI).
     * **`waiting_approval` tidak pernah disentuh** oleh sweep (keputusan D1 plan/102).
+* **Bonus Absensi Harian — KLAIM MANUAL (1× per hari WIB; plan/112):**
+    * User mengklaim bonus harian via `POST /checkin/claim` → `Checkin_model::claim()` (POST + AJAX-only, rate limit `checkin_claim:{user_id}` 5/60 dtk). Idempotensi `transaction_id = CHK-{user_id}-{Ymd}`; UNIQUE `(user_id, transaction_id, type)` pada `wallet_ledger` menjamin **maksimal satu kredit per user per hari** di tingkat DB (duplikat 1062 ditranslasi menjadi `already_claimed`, bukan error).
+    * **Bonus = `min(bonus_hari_pertama × hari_streak, batas_harian)`** — integer IDR (default base **Rp 50**, cap **Rp 10.000**/hari); seluruh aritmetika di server (`_reward_for()`, tanpa float).
+    * **State:** `users.checkin_streak` + `users.checkin_last_date`. Otoritas "hari" = **PHP WIB** (`date('Y-m-d')`), bukan `NOW()`/`CURDATE()` MySQL. Kebijakan saat bolong (`checkin_streak_policy`): `reset` (kembali hari ke-1) atau `continue` (lanjut N+1 — gap tidak mereset, hari terlewat tidak dihitung). Tanggal di masa depan diperlakukan "sudah klaim" (fail-closed).
+    * **Konfigurasi `system_settings`:** `checkin_enabled` (**fail-closed**: `'0'` → widget member tidak dirender **dan** endpoint menolak HTTP 403) · `checkin_base_reward` · `checkin_max_reward` · `checkin_streak_policy`, dengan invarian **`1 ≤ base ≤ max`**; fallback per-key `application/config/checkin_rewards.php`; diatur admin di `/admin/settings` (kartu **Absensi Harian**) — all-or-nothing + audit `admin_update_settings`.
+    * **Ledger:** kredit ditulis lewat `Wallet_model::credit()` (satu-satunya jalur uang) dengan deskripsi kanonik `Bonus Absensi Harian Hari ke-{N}` (dirender dalam idiom aktif via key `ledger_checkin`). **Histori absensi tidak punya tabel sendiri** — cukup query `wallet_ledger` berprefix `CHK-` (tanpa kolom total tambahan).
+    * **UI member:** widget dashboard (`views/home/index.php`, scoped `hm112-*`, Font Awesome) menampilkan rentetan hari, bonus hari ini, progres ke cap, pratinjau 7 hari, hitung mundur ke tengah malam WIB, dan tombol klaim (POST AJAX ber-CSRF via `csrfFetch`, tanpa reload).
 
 > **Catatan migrasi dokumen:** bagian ini dahulu mendeskripsikan cron `00:01 WIB` untuk pendapatan harian dan cron Senin `01:00` untuk gaji. Keduanya **tidak ada** di kode — jangan dihidupkan kembali tanpa pekerjaan pengembangan terpisah.
 

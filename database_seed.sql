@@ -317,6 +317,11 @@ INSERT IGNORE INTO `system_settings` (`key_name`, `key_value`) VALUES
 ('qris_payment_instructions', 'Scan QRIS di atas menggunakan aplikasi bank/e-wallet Anda, lalu transfer sejumlah TEPAT nominal yang tertera (termasuk 3 digit kode unik). Deposit diverifikasi manual oleh admin pada jam kerja.'),
 ('deposit_expiry_minutes', '60'),
 ('deposit_min_amount', '10000'),
-('deposit_max_amount', '50000000');
+('deposit_max_amount', '50000000'),
+-- plan/112: Absensi Harian (daily check-in) — gerbang + bonus + kebijakan streak.
+('checkin_enabled', '1'),
+('checkin_base_reward', '50'),
+('checkin_max_reward', '10000'),
+('checkin_streak_policy', 'reset');
 
 -- ============ SEED COMPLETE ============

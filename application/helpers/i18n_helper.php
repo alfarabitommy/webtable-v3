@@ -447,6 +447,9 @@ if ( ! function_exists('i18n_ledger_description'))
             // Deposit / top up
             '/^(?:Deposit|Top Up)\b/u'
                 => 'ledger_deposit',
+            // plan/112: bonus absensi harian ("Bonus Absensi Harian Hari ke-7")
+            '/^Bonus Absensi Harian Hari ke-(\d+)$/u'
+                => 'ledger_checkin',
         );
 
         foreach ($patterns as $re => $key)
