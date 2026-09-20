@@ -55,6 +55,14 @@ $excludePaths = [
     // ── Kamus & builder non-copy.
     '/application/language/',
     '/application/helpers/captcha_helper.php',   // aria-label SVG captcha (builder)
+    // ── plan/110: choke-point tier penarikan HANYA memuat pesan OPERATOR
+    //    (panel admin 100% Indonesia — invarian L1) + teks diagnostik CLI.
+    //    Tidak satu pun string di dalamnya dirender ke surface member: jalur
+    //    member hanya MEMBACA tier (Wallet_model::_norm_tiers() dan
+    //    calculate_withdrawal_fee()) dan tidak pernah memanggil validator
+    //    input ini. Bila suatu saat helper ini perlu menampilkan copy ke
+    //    member, HAPUS pengecualian ini dan alihkan ke lang().
+    '/application/helpers/withdrawal_fee_helper.php',
 ];
 
 // ---------------------------------------------------------------------------

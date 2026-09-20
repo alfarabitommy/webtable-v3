@@ -105,7 +105,50 @@ class Admin_model extends CI_Model {
         $this->db->where_in('w.status', ['success', 'failed']);
         $this->db->order_by('w.created_at', 'DESC');
         $this->db->limit($limit, $offset);
-        return $this->db->get()->result();
+
+        // plan/109: gross/fee/net dipisah eksplisit di tabel riwayat admin →
+        // baris di-dekorasi model (gross_eff/fee_eff/net_eff) agar audit
+        // "dipotong" vs "ditransfer" tidak ambigu.
+        $rows = $this->db->get()->result();
+
+        return withdrawal_amount_decorate($rows, $this->_withdrawal_fee_calculator());
+    }
+
+    /**
+     * plan/109 — Antrean PENDING WITHDRAWALS untuk Command Center.
+     *
+     * Dipindahkan APA ADANYA dari `Admin::index()` (dulu SQL inline di
+     * controller — pelanggaran invariant "semua akses DB di model"),
+     * mengikuti pola `get_deposit_queue()` (plan/102). Select/join/where/order
+     * tidak berubah; satu-satunya tambahan adalah dekorasi nominal:
+     * `gross_eff` = penarikan, `fee_eff` = biaya admin,
+     * `net_eff` = **yang wajib ditransfer admin** (nilai primer kartu).
+     *
+     * @return array Baris `withdrawals` + join (users, bank_accounts) terdekorasi.
+     */
+    public function get_withdrawal_queue() {
+        $rows = $this->db->select('w.*, u.phone, ba.bank_name, ba.account_number, ba.account_holder AS account_name')
+            ->from('withdrawals w')
+            ->join('users u', 'u.id = w.user_id', 'left')
+            ->join('bank_accounts ba', 'ba.id = w.bank_account_id', 'left')
+            ->where('w.status', 'pending')
+            ->order_by('w.created_at', 'ASC')
+            ->get()->result();
+
+        return withdrawal_amount_decorate($rows, $this->_withdrawal_fee_calculator());
+    }
+
+    /**
+     * plan/109 — kalkulator fee tier untuk fallback baris legacy (read-side).
+     * Sumber tunggal sama dengan `Wallet_model::calculate_withdrawal_fee()`
+     * (dipakai juga jalur export CSV) — tidak ada duplikasi rumus.
+     *
+     * @return callable `fn(int $gross): array{fee:int,net:int,bps:int}`
+     */
+    private function _withdrawal_fee_calculator() {
+        $this->load->model('Wallet_model');
+
+        return [$this->Wallet_model, 'calculate_withdrawal_fee'];
     }
 
     // ===================================================================

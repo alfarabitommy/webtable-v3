@@ -267,22 +267,51 @@
             <?php else: ?>
                 <div class="divide-y divide-[var(--t-border)]">
                     <?php foreach ($pending_withdrawals as $wd): ?>
+                    <?php
+                        // plan/109: nilai yang WAJIB ditransfer admin = NET
+                        // (gross − biaya admin). `gross_eff/fee_eff/net_eff`
+                        // sudah di-dekorasi model (Admin_model::get_withdrawal_queue)
+                        // termasuk fallback baris legacy.
+                        $wd_gross = (int) $wd->gross_eff;
+                        $wd_fee   = (int) $wd->fee_eff;
+                        $wd_net   = (int) $wd->net_eff;
+                        // Tujuan transfer = data yang berasal dari MEMBER
+                        // (account_number/account_holder) dan katalog provider
+                        // (bank_name) → selalu di-escape saat dirender.
+                        $wd_provider = html_escape((string) $wd->bank_name);
+                        $wd_account  = html_escape((string) $wd->account_number);
+                        $wd_holder   = html_escape((string) $wd->account_name);
+                        $wd_confirm  = 'Pastikan Anda SUDAH mentransfer Rp ' . number_format($wd_net, 0, ',', '.')
+                            . ' ke ' . $wd->bank_name . ' - ' . $wd->account_number . ' a/n ' . $wd->account_name
+                            . '. Setujui ' . $wd->wd_number . '?'
+                            . ' (Penarikan Rp ' . number_format($wd_gross, 0, ',', '.')
+                            . ' | Biaya Rp ' . number_format($wd_fee, 0, ',', '.') . ')';
+                        // Konfirmasi memuat data dari member → dua lapis escape:
+                        // 1) literal string JS (backslash & kutip tunggal),
+                        // 2) atribut HTML onsubmit (kutip ganda dsb).
+                        $wd_confirm_js  = str_replace(['\\', "'"], ['\\\\', "\\'"], $wd_confirm);
+                        $wd_confirm_attr = html_escape("return confirm('" . $wd_confirm_js . "')");
+                    ?>
                     <div class="px-5 py-4 t-row-hover transition-colors">
-                        <div class="flex items-start justify-between mb-2">
-                            <div>
-                                <div class="text-sm font-semibold text-[var(--t-text)]"><?= $wd->wd_number ?></div>
-                                <div class="text-xs text-[var(--t-muted)] mt-0.5"><?= $wd->phone ?></div>
-                                <div class="text-xs text-[var(--t-muted)] mt-0.5">
-                                    <?= $wd->bank_name ?> · <?= $wd->account_number ?> · <?= $wd->account_name ?>
+                        <div class="flex items-start justify-between mb-2 gap-3">
+                            <div class="min-w-0">
+                                <div class="text-sm font-semibold text-[var(--t-text)]"><?= html_escape((string) $wd->wd_number) ?></div>
+                                <div class="text-xs text-[var(--t-muted)] mt-0.5"><?= html_escape((string) $wd->phone) ?></div>
+                                <div class="text-xs text-[var(--t-muted)] mt-0.5 font-mono">
+                                    <?= $wd_provider ?> · <?= $wd_account ?> · <?= $wd_holder ?>
                                 </div>
                             </div>
-                            <div class="text-right">
-                                <div class="text-sm font-bold text-[var(--t-text)] font-mono">Rp <?= number_format($wd->amount, 0, ',', '.') ?></div>
+                            <div class="text-right shrink-0">
+                                <div class="text-[10px] uppercase tracking-widest text-amber-600 dark:text-amber-400 font-extrabold">Wajib Transfer (Net)</div>
+                                <div class="text-base font-extrabold text-amber-600 dark:text-amber-300 font-mono">Rp <?= number_format($wd_net, 0, ',', '.') ?></div>
+                                <div class="text-[11px] text-[var(--t-muted)] mt-0.5 font-mono">
+                                    (Penarikan: Rp <?= number_format($wd_gross, 0, ',', '.') ?> | Biaya: Rp <?= number_format($wd_fee, 0, ',', '.') ?>)
+                                </div>
                                 <div class="text-[11px] text-[var(--t-muted)] mt-0.5"><?= date('d M Y H:i', strtotime($wd->created_at)) ?></div>
                             </div>
                         </div>
                         <div class="flex gap-2 items-start mt-3">
-                            <?= form_open('admin/approve_withdrawal/' . $wd->id, ['class' => 'flex-1', 'data-guard-submit' => '1', 'onsubmit' => "return confirm('Approve withdrawal {$wd->wd_number}?')"]) ?>
+                            <?= form_open('admin/approve_withdrawal/' . $wd->id, ['class' => 'flex-1', 'data-guard-submit' => '1', 'onsubmit' => $wd_confirm_attr]) ?>
                                 <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
                                     <i class="fas fa-check mr-1"></i> Approve
                                 </button>

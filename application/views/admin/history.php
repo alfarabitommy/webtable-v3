@@ -59,8 +59,14 @@
                         <th class="text-left px-5 py-3 t-th">No. Transaksi</th>
                         <?php if ($type === 'withdrawal'): ?>
                             <th class="text-left px-5 py-3 t-th">E-Wallet</th>
+                            <?php /* plan/109: gross/fee/net dipisah agar audit jelas:
+                                     "dipotong dari saldo" vs "ditransfer admin". */ ?>
+                            <th class="text-right px-5 py-3 t-th">Gross</th>
+                            <th class="text-right px-5 py-3 t-th">Biaya</th>
+                            <th class="text-right px-5 py-3 t-th">Net (ditransfer)</th>
+                        <?php else: ?>
+                            <th class="text-right px-5 py-3 t-th">Nominal</th>
                         <?php endif; ?>
-                        <th class="text-right px-5 py-3 t-th">Nominal</th>
                         <th class="text-center px-5 py-3 t-th">Status</th>
                     </tr>
                 </thead>
@@ -80,7 +86,22 @@
                         <td class="px-5 py-3.5 t-text-2 text-xs">
                             <?= $row->bank_name ?> · <?= $row->account_number ?>
                         </td>
-                        <?php endif; ?>
+                        <?php
+                            // plan/109: tiga kolom terpisah — Gross (dipotong dari
+                            // saldo member), Biaya (ditahan platform), Net (yang
+                            // benar-benar ditransfer admin). Nilai *_eff sudah
+                            // di-dekorasi model (fallback baris legacy).
+                        ?>
+                        <td class="px-5 py-3.5 text-right font-mono t-text-2 whitespace-nowrap">
+                            Rp <?= number_format((int) $row->gross_eff, 0, ',', '.') ?>
+                        </td>
+                        <td class="px-5 py-3.5 text-right font-mono text-rose-600 dark:text-rose-400 whitespace-nowrap">
+                            Rp <?= number_format((int) $row->fee_eff, 0, ',', '.') ?>
+                        </td>
+                        <td class="px-5 py-3.5 text-right font-mono font-extrabold text-amber-600 dark:text-amber-300 whitespace-nowrap">
+                            Rp <?= number_format((int) $row->net_eff, 0, ',', '.') ?>
+                        </td>
+                        <?php else: ?>
                         <td class="px-5 py-3.5 text-right font-mono font-semibold text-[var(--t-text)] whitespace-nowrap">
                             <?php
                                 // plan/102: baris deposit menampilkan NOMINAL
@@ -90,7 +111,7 @@
                                 $row_total = ((int) ($row->total_amount ?? 0) > 0) ? (int) $row->total_amount : (int) $row->amount;
                             ?>
                             Rp <?= number_format($row_total, 0, ',', '.') ?>
-                            <?php if ($type === 'deposit' && $row_total !== (int) $row->amount): ?>
+                            <?php if ($row_total !== (int) $row->amount): ?>
                                 <div class="text-[10px] font-normal text-[var(--t-muted)]">
                                     pokok Rp <?= number_format($row->amount, 0, ',', '.') ?>
                                     <?php if (($row->unique_code ?? null) !== null): ?>
@@ -99,6 +120,7 @@
                                 </div>
                             <?php endif; ?>
                         </td>
+                        <?php endif; ?>
                         <td class="px-5 py-3.5 text-center">
                             <?php if ($row->status === 'success'): ?>
                                 <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">

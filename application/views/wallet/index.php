@@ -240,9 +240,21 @@
                                 <p class="text-xs u-text-2 uppercase"><?= htmlspecialchars($wd->account_name) ?></p>
                             </div>
                             <div class="text-right">
-                                <p class="text-sm font-bold u-text">Rp <?= number_format($wd->amount, 0, ',', '.') ?></p>
+                                <?php
+                                    // plan/109: nilai primer = NET (dana yang benar-benar
+                                    // masuk e-wallet); nominal diminta & biaya admin
+                                    // sebagai rincian kecil, agar member tidak mengira
+                                    // menerima kurang dari yang diajukan. gross_eff/
+                                    // fee_eff/net_eff di-dekorasi model.
+                                ?>
+                                <p class="text-[10px] uppercase tracking-widest u-muted font-bold"><?= lang('wd_received') ?></p>
+                                <p class="text-base font-extrabold u-text font-mono">Rp <?= number_format((int) $wd->net_eff, 0, ',', '.') ?></p>
+                                <p class="text-[10px] u-muted font-mono mt-0.5">
+                                    <?= lang('wd_amount_label') ?>: Rp <?= number_format((int) $wd->gross_eff, 0, ',', '.') ?>
+                                    · <?= lang('wd_admin_fee') ?>: Rp <?= number_format((int) $wd->fee_eff, 0, ',', '.') ?>
+                                </p>
                                 <?php /* plan/103: dulu literal "Pending" — bocor di mode id. */ ?>
-                                <p class="text-xs font-semibold text-orange-500 dark:text-orange-400"><?= lang('wallet_status_pending') ?></p>
+                                <p class="text-xs font-semibold text-orange-500 dark:text-orange-400 mt-0.5"><?= lang('wallet_status_pending') ?></p>
                             </div>
                         </div>
                         <span class="inline-block text-[10px] font-bold text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-500/10 px-2 py-0.5 rounded-full uppercase"><?= lang('wallet_wd_pending_btn') ?></span>

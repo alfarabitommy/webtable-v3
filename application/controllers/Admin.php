@@ -94,13 +94,10 @@ class Admin extends CI_Controller {
         // Urutan: waiting_approval (member sudah menyatakan transfer) lebih dulu.
         $pending_deposits = $this->Admin_model->get_deposit_queue();
 
-        $pending_withdrawals = $this->db->select('w.*, u.phone, ba.bank_name, ba.account_number, ba.account_holder AS account_name')
-            ->from('withdrawals w')
-            ->join('users u', 'u.id = w.user_id', 'left')
-            ->join('bank_accounts ba', 'ba.id = w.bank_account_id', 'left')
-            ->where('w.status', 'pending')
-            ->order_by('w.created_at', 'ASC')
-            ->get()->result();
+        // plan/109: antrean penarikan juga disediakan model (parity get_deposit_queue)
+        // — SQL inline di controller dihapus, dan baris di-dekorasi nominal
+        // gross/fee/net (net = yang WAJIB ditransfer admin).
+        $pending_withdrawals = $this->Admin_model->get_withdrawal_queue();
 
         // Phase 9A: Treasury Health + Circuit Breaker
         $treasury = $this->Admin_model->get_treasury_stats();
@@ -242,13 +239,29 @@ class Admin extends CI_Controller {
         if ($result['success'] && $result['withdrawal']) {
             $wd = $result['withdrawal'];
             $this->load->model('Notification_model');
+
+            // plan/109: notifikasi WAJIB menyebut NET (dana yang benar-benar
+            // dikirim ke e-wallet member) — bukan gross. Gross & fee ikut sebagai
+            // rincian agar member tidak mengira ada dana hilang. Baris legacy
+            // (fee/net 0) di-resolusi choke-point withdrawal_amount_parts().
+            $this->load->model('Wallet_model');
+            $parts = withdrawal_amount_parts($wd, [$this->Wallet_model, 'calculate_withdrawal_fee']);
+
             $this->Notification_model->insert_keyed(
                 $wd->user_id,
                 'notif_wd_approved',
-                [number_format($wd->amount, 0, ',', '.')],
+                [
+                    number_format($parts['gross'], 0, ',', '.'),
+                    number_format($parts['fee'], 0, ',', '.'),
+                    number_format($parts['net'], 0, ',', '.'),
+                ],
                 'success'
             );
-            $this->session->set_flashdata('success', 'Penarikan #' . $wd->wd_number . ' berhasil disetujui.');
+            $this->session->set_flashdata(
+                'success',
+                'Penarikan #' . $wd->wd_number . ' disetujui. Transfer NET Rp '
+                . number_format($parts['net'], 0, ',', '.') . ' ke akun e-wallet penarikan.'
+            );
         } else {
             $this->session->set_flashdata('error', $result['message']);
         }
@@ -402,6 +415,21 @@ class Admin extends CI_Controller {
 
             // ── Finansial (raw POST → normalizer ketat Wallet_model;
             //    validasi digit-only/regex/JSON decode sebelum disimpan) ──
+            // plan/110: tier dikirim sebagai ARRAY baris (wd_tier_min[]/max[]/pct[])
+            // supaya baris yang belum valid tetap terkirim & bisa direpopulasi;
+            // bila array tidak ada (halaman ter-cache) jatuh ke JSON legacy.
+            $tier_rows = $this->_collect_tier_rows();
+
+            // Jalur kompatibilitas mundur (halaman ter-cache): bila array tidak
+            // dikirim, JSON legacy diparse ULANG hanya untuk REPOPULASI editor —
+            // validasi tetap memakai string JSON (sumber kebenaran request ini).
+            if (count($tier_rows) === 0) {
+                $legacy_rows = withdrawal_fee_tier_rows_from_json($this->input->post('wd_fee_tiers'));
+                if (is_array($legacy_rows)) {
+                    $tier_rows = $legacy_rows;
+                }
+            }
+
             $raw = [
                 'wd_operational_days' => $this->input->post('wd_operational_days'),
                 'wd_open_time'        => $this->input->post('wd_open_time'),
@@ -409,12 +437,13 @@ class Admin extends CI_Controller {
                 'wd_fixed_fee'        => $this->input->post('wd_fixed_fee'),
                 'wd_min_amount'       => $this->input->post('wd_min_amount'),
                 'wd_max_amount'       => $this->input->post('wd_max_amount'),
-                'wd_fee_tiers'        => $this->input->post('wd_fee_tiers'),
+                'wd_fee_tiers'        => (count($tier_rows) > 0) ? $tier_rows : $this->input->post('wd_fee_tiers'),
                 'deposit_fee_enabled' => $this->input->post('deposit_fee_enabled'),
                 'deposit_fee_type'    => $this->input->post('deposit_fee_type'),
                 'deposit_fee_value'   => $this->input->post('deposit_fee_value'),
             ];
             $v = $this->Wallet_model->validate_financial_settings($raw);
+            $auto_notices = isset($v['notices']) && is_array($v['notices']) ? $v['notices'] : [];
             if (!$v['ok']) {
                 $errors = array_merge($errors, $v['errors']);
             }
@@ -433,8 +462,15 @@ class Admin extends CI_Controller {
             }
 
             // All-or-nothing: satu error → tidak ada satupun yang disimpan.
+            // plan/110: state form disimpan sebagai flashdata sehingga admin
+            // TIDAK kehilangan satu pun input (dulu seluruh ketikan finansial
+            // hilang karena render ulang dari DB).
             if (!empty($errors)) {
                 $this->session->set_flashdata('error', 'Validasi gagal: ' . implode(' ', $errors));
+                $this->session->set_flashdata(
+                    'settings_form_state',
+                    $this->_settings_form_state($tier_rows, $errors, isset($v['field_errors']) ? $v['field_errors'] : [])
+                );
                 redirect('admin/settings');
                 return;
             }
@@ -455,15 +491,22 @@ class Admin extends CI_Controller {
                 }
             }
 
+            // plan/110 D2: penyesuaian otomatis endpoint tier (bila ada) WAJIB
+            // terlacak — bukan perubahan senyap.
             $audit_ctx = $this->_audit_ctx(null, 'admin_update_settings', [
-                'keys'   => array_keys($changed),
-                'before' => array_intersect_key($before, $changed),
-                'after'  => $changed,
+                'keys'          => array_keys($changed),
+                'before'        => array_intersect_key($before, $changed),
+                'after'         => $changed,
+                'auto_adjusted' => $auto_notices,
             ]);
 
             // Persist atomik semua key (kontak + finansial) + audit dalam SATU TX.
             if ($this->Admin_model->update_system_settings($final, $audit_ctx)) {
-                $this->session->set_flashdata('success', 'Pengaturan berhasil disimpan dan langsung berlaku.');
+                $success = 'Pengaturan berhasil disimpan dan langsung berlaku.';
+                if (!empty($auto_notices)) {
+                    $success .= ' Penyesuaian otomatis: ' . implode(' ', $auto_notices);
+                }
+                $this->session->set_flashdata('success', $success);
             } else {
                 $this->session->set_flashdata('error', 'Gagal menyimpan pengaturan.');
             }
@@ -484,6 +527,21 @@ class Admin extends CI_Controller {
         $qris      = $this->Admin_model->get_settings_map(['qris_image', 'qris_merchant_name', 'qris_payment_instructions']);
         $depPolicy = $this->Wallet_model->get_deposit_policy();
 
+        // ── plan/110: REPOPULASI setelah validasi gagal ──────────────────
+        // Flashdata bertahan SATU request (pola CI3 flashdata): dibaca di sini
+        // lalu dihapus otomatis, sehingga tidak ada nilai basi yang tersangkut.
+        // Setiap nilai berasal dari input admin → view WAJIB meng-escape.
+        $form_state = $this->session->flashdata('settings_form_state');
+        $form_state = is_array($form_state) ? $form_state : [];
+        $qris_state = $this->session->flashdata('qris_form_state');
+        $qris_state = is_array($qris_state) ? $qris_state : [];
+
+        // Baris tier untuk editor: state form (apa yang diketik admin) →
+        // config DB (bentuk baris seragam ['min','max','pct']).
+        $tier_rows = (isset($form_state['tier_rows']) && is_array($form_state['tier_rows']) && count($form_state['tier_rows']) > 0)
+            ? $form_state['tier_rows']
+            : $this->_tier_rows_from_config($cfg['tiers']);
+
         $data = [
             'page_title'          => 'Pengaturan',
             'wa_number'           => $contact['wa_number'] ?? '',
@@ -494,12 +552,21 @@ class Admin extends CI_Controller {
             'open_time'           => $cfg['open_time'],
             'close_time'          => $cfg['close_time'],
             'fixed_fee'           => (int) $cfg['fixed_fee'],
+            // plan/110: `tiers` dipertahankan (konsumen lama/inspeksi) dan
+            // `tier_rows` adalah sumber render editor (bentuk baris seragam).
             'tiers'               => $cfg['tiers'],
+            'tier_rows'           => $tier_rows,
             'min_amount'          => (int) $cfg['min_amount'],
             'max_amount'          => (int) $cfg['max_amount'],
             'deposit_fee_enabled' => (int) $cfg['deposit_fee_enabled'],
             'deposit_fee_type'    => $cfg['deposit_fee_type'],
             'deposit_fee_value'   => $cfg['deposit_fee_value'],
+            // plan/110: state form (finansial + QRIS) & pesan inline.
+            'form_state'          => $form_state,
+            'qris_state'          => $qris_state,
+            'field_errors'        => isset($form_state['field_errors']) ? (array) $form_state['field_errors'] : [],
+            'qris_field_errors'   => isset($qris_state['field_errors']) ? (array) $qris_state['field_errors'] : [],
+            'notices'             => isset($form_state['notices']) ? (array) $form_state['notices'] : [],
             // plan/102
             'qris_image'          => (string) ($qris['qris_image'] ?? ''),
             'qris_merchant_name'  => (string) ($qris['qris_merchant_name'] ?? ''),
@@ -521,6 +588,97 @@ class Admin extends CI_Controller {
         $this->load->view('admin/templates/topbar', $data);
         $this->load->view('admin/settings', $data);
         $this->load->view('admin/templates/footer');
+    }
+
+    // ===================================================================
+    //  plan/110: HELPER FORM PENGATURAN (transport tier + repopulasi)
+    //  Panel admin tetap 100% Indonesia (invarian L1) — tanpa key i18n.
+    // ===================================================================
+
+    /**
+     * Rakitan baris tier dari input ARRAY (plan/110):
+     * `wd_tier_min[]` / `wd_tier_max[]` / `wd_tier_pct[]` dipasangkan per
+     * indeks. Mengembalikan [] bila transport array tidak dipakai (halaman
+     * ter-cache / JS lama) — pemanggil lalu jatuh ke JSON legacy
+     * `wd_fee_tiers`. Tidak ada normalisasi di sini: aturan tier hidup di
+     * `application/helpers/withdrawal_fee_helper.php` (choke-point tunggal).
+     *
+     * @return array<int,array{min:mixed,max:mixed,pct:mixed}>
+     */
+    private function _collect_tier_rows() {
+        $mins = $this->input->post('wd_tier_min');
+        $maxs = $this->input->post('wd_tier_max');
+        $pcts = $this->input->post('wd_tier_pct');
+
+        if (!is_array($mins)) {
+            return [];
+        }
+
+        $rows = [];
+        foreach (array_values($mins) as $i => $min) {
+            $rows[] = [
+                'min' => $min,
+                'max' => (is_array($maxs) && isset($maxs[$i])) ? $maxs[$i] : null,
+                'pct' => (is_array($pcts) && isset($pcts[$i])) ? $pcts[$i] : null,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Bentuk baris editor yang SERAGAM dari config tersimpan
+     * (`[[min,max,bps],…]` → `[['min','max','pct'],…]`) agar view dan state
+     * form memakai satu bentuk. Konversi bps → persen memakai helper yang
+     * sama dengan render (tidak ada rumus ganda).
+     */
+    private function _tier_rows_from_config(array $tiers) {
+        $rows = [];
+        foreach ($tiers as $tier) {
+            if (!is_array($tier) || count($tier) < 3) {
+                continue;
+            }
+            $rows[] = [
+                'min' => (int) $tier[0],
+                'max' => (int) $tier[1],
+                'pct' => withdrawal_fee_tier_bps_to_pct($tier[2]),
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * State form untuk repopulasi setelah validasi gagal (plan/110 P7/P8).
+     * Nilai disalin APA ADANYA dari POST (string/array) — view yang
+     * meng-escape saat render. Flashdata bertahan satu request sehingga tidak
+     * pernah ada nilai basi yang tersangkut.
+     */
+    private function _settings_form_state(array $tier_rows, array $errors, array $field_errors) {
+        $days = $this->input->post('wd_operational_days');
+
+        return [
+            'wa_number'           => (string) $this->input->post('wa_number', TRUE),
+            'support_email'       => (string) $this->input->post('support_email', TRUE),
+            'wa_group_link'       => (string) $this->input->post('wa_group_link', TRUE),
+            'wd_operational_days' => is_array($days) ? array_map('strval', $days) : [],
+            'wd_open_time'        => (string) $this->input->post('wd_open_time', TRUE),
+            'wd_close_time'       => (string) $this->input->post('wd_close_time', TRUE),
+            'wd_fixed_fee'        => (string) $this->input->post('wd_fixed_fee', TRUE),
+            'wd_min_amount'       => (string) $this->input->post('wd_min_amount', TRUE),
+            'wd_max_amount'       => (string) $this->input->post('wd_max_amount', TRUE),
+            'tier_rows'           => $tier_rows,
+            'deposit_fee_enabled' => (string) $this->input->post('deposit_fee_enabled'),
+            'deposit_fee_type'    => (string) $this->input->post('deposit_fee_type', TRUE),
+            'deposit_fee_value'   => (string) $this->input->post('deposit_fee_value', TRUE),
+            'rebate_enabled'      => (string) $this->input->post('rebate_enabled'),
+            'rebate_l1_percent'   => (string) $this->input->post('rebate_l1_percent', TRUE),
+            'rebate_l2_percent'   => (string) $this->input->post('rebate_l2_percent', TRUE),
+            'rebate_l3_percent'   => (string) $this->input->post('rebate_l3_percent', TRUE),
+            'errors'              => array_values($errors),
+            'field_errors'        => $field_errors,
+            'notices'             => [],
+        ];
     }
 
     // ===================================================================
@@ -556,6 +714,16 @@ class Admin extends CI_Controller {
 
         if (!$v['ok']) {
             $this->session->set_flashdata('error', 'Validasi QRIS gagal: ' . implode(' ', $v['errors']));
+            // plan/110 P8: repopulasi kartu QRIS/deposit — input admin TIDAK
+            // hilang saat validasi gagal (sebelumnya render ulang dari DB).
+            $this->session->set_flashdata('qris_form_state', [
+                'qris_merchant_name'        => (string) $this->input->post('qris_merchant_name', TRUE),
+                'qris_payment_instructions' => (string) $this->input->post('qris_payment_instructions'),
+                'deposit_expiry_minutes'    => (string) $this->input->post('deposit_expiry_minutes', TRUE),
+                'deposit_min_amount'        => (string) $this->input->post('deposit_min_amount', TRUE),
+                'deposit_max_amount'        => (string) $this->input->post('deposit_max_amount', TRUE),
+                'field_errors'              => ['qris' => $v['errors']],
+            ]);
             redirect('admin/settings');
             return;
         }
@@ -582,6 +750,16 @@ class Admin extends CI_Controller {
             $this->load->library('upload', $config);
 
             if (!$this->upload->do_upload('qris_image')) {
+                // plan/110 P8: field teks tetap direpopulasi walau unggahan gagal
+                // (berkas TIDAK tersimpan; hanya state form yang dibawa).
+                $this->session->set_flashdata('qris_form_state', [
+                    'qris_merchant_name'        => (string) $this->input->post('qris_merchant_name', TRUE),
+                    'qris_payment_instructions' => (string) $this->input->post('qris_payment_instructions'),
+                    'deposit_expiry_minutes'    => (string) $this->input->post('deposit_expiry_minutes', TRUE),
+                    'deposit_min_amount'        => (string) $this->input->post('deposit_min_amount', TRUE),
+                    'deposit_max_amount'        => (string) $this->input->post('deposit_max_amount', TRUE),
+                    'field_errors'              => ['qris' => ['Upload gambar QRIS gagal: ' . $this->upload->display_errors('', '')]],
+                ]);
                 $this->session->set_flashdata('error', 'Upload gambar QRIS gagal: ' . $this->upload->display_errors('', ''));
                 redirect('admin/settings');
                 return;
@@ -619,6 +797,15 @@ class Admin extends CI_Controller {
             if ($new_image !== null && file_exists('./uploads/qris/' . $new_image)) {
                 @unlink('./uploads/qris/' . $new_image);
             }
+            // plan/110 P8: state form tetap dibawa (input tidak hilang).
+            $this->session->set_flashdata('qris_form_state', [
+                'qris_merchant_name'        => (string) $this->input->post('qris_merchant_name', TRUE),
+                'qris_payment_instructions' => (string) $this->input->post('qris_payment_instructions'),
+                'deposit_expiry_minutes'    => (string) $this->input->post('deposit_expiry_minutes', TRUE),
+                'deposit_min_amount'        => (string) $this->input->post('deposit_min_amount', TRUE),
+                'deposit_max_amount'        => (string) $this->input->post('deposit_max_amount', TRUE),
+                'field_errors'              => [],
+            ]);
             $this->session->set_flashdata('error', 'Gagal menyimpan konfigurasi QRIS.');
             redirect('admin/settings');
             return;

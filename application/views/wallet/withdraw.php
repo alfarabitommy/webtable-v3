@@ -102,9 +102,13 @@ if (!$wd_open) {
             <p id="wdAmountError" class="hidden mt-1.5 text-xs font-bold text-rose-500 dark:text-rose-400"></p>
         </div>
 
-        <!-- Fee Display (dynamic tier preview — M1) -->
+        <!-- Fee Display (dynamic tier preview — M1; plan/109: 3 baris eksplisit gross/fee/net) -->
         <div class="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl p-3 mb-4">
             <div class="flex items-center justify-between mb-1">
+                <span class="text-[11px] text-amber-700 dark:text-amber-400 font-bold"><?= lang('wd_amount_label') ?></span>
+                <span class="text-[11px] font-mono font-bold text-amber-700 dark:text-amber-400" id="wd_gross">Rp 0</span>
+            </div>
+            <div class="flex items-center justify-between border-t border-amber-200 dark:border-amber-500/20 pt-2 mb-1">
                 <span class="text-[11px] text-amber-700 dark:text-amber-400 font-bold">
                     <?= lang('wd_admin_fee') ?> <span id="wd_bps_label" class="opacity-70"><?= lang('wd_tier_label') ?></span>
                 </span>
@@ -140,6 +144,7 @@ if (!$wd_open) {
     var WD_CONFIG = <?= json_encode($wd_config); ?>;
 
     var amountInput = document.getElementById('wd_amount');
+    var grossEl = document.getElementById('wd_gross');
     var feeEl = document.getElementById('wd_fee');
     var netEl = document.getElementById('wd_net');
     var bpsLabelEl = document.getElementById('wd_bps_label');
@@ -247,11 +252,14 @@ if (!$wd_open) {
             var res = calcFee(amount);
             var pct = (res.bps / 100).toLocaleString('id-ID');
             bpsLabelEl.textContent = '(' + pct + '% + Rp ' + WD_CONFIG.fixed_fee.toLocaleString('id-ID') + ')';
+            // plan/109: baris Gross = nominal yang diajukan (dipotong dari saldo).
+            if (grossEl) { grossEl.textContent = formatRupiah(amount); }
             feeEl.textContent = formatRupiah(res.fee);
             netEl.textContent = formatRupiah(res.net);
             submitBtn.disabled = false;
         } else {
             bpsLabelEl.textContent = L.tier_label;
+            if (grossEl) { grossEl.textContent = 'Rp 0'; }
             feeEl.textContent = 'Rp 0';
             netEl.textContent = 'Rp 0';
             if (op.open) { submitBtn.disabled = true; } // nominal belum valid

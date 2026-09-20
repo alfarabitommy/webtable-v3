@@ -12,6 +12,26 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  * PRD docs/1_PRD.md §121-125 — Withdrawal rules:
  *   - Window: Mon–Sat (1..6), 07:00–19:00 WIB (submission gate only).
  *   - Min Rp 100.000, Max Rp 50.000.000 per withdrawal.
+ *
+ *   CATATAN plan/110 (Q1): nilai min/max di berkas ini adalah **FAIL-SAFE**,
+ *   bukan otoritas operasional. Nilai operasional hidup di system_settings
+ *   (dapat diubah admin di /admin/settings) dan boleh BERBEDA — mis. minimal
+ *   penarikan diturunkan ke Rp 50.000 tanpa menyentuh berkas ini, sementara
+ *   docs/1_PRD.md §122 masih menyebut Rp 100.000. Bila baris
+ *   wd_min_amount/wd_max_amount/wd_fee_tiers hilang atau tidak koheren,
+ *   Wallet_model::_resolve_financial_config() mengembalikan bundle ini
+ *   (bound → 100.000/50.000.000) dan mencatat log error — perilaku yang
+ *   SENGAJA dipertahankan sebagai pengaman (fail-safe), bukan bug.
+ *
+ *   ATURAN TIER (plan/110 §5.2 — amandemen plan/56 §2.3): tier half-open
+ *   [min, max) wajib KONTIGU PENUH menutupi [wd_min_amount, wd_max_amount],
+ *   dengan dua endpoint TURUNAN yang dinormalkan otomatis saat admin menyimpan
+ *   (bukan lagi ditolak): tier pertama `min` ← wd_min_amount dan tier terakhir
+ *   `max` ← max(…, wd_max_amount + 1). Jaminan cakupan penuh ini penting
+ *   karena calculate_withdrawal_fee() memakai tarif tier TERAKHIR sebagai
+ *   fallback bila nominal tidak masuk tier mana pun.
+ *   Implementasi: application/helpers/withdrawal_fee_helper.php (choke-point
+ *   input admin); parser strict jalur BACA tetap Wallet_model::_norm_tiers().
  *   - Fee = floor(gross * bps / 10000) + fixed_fee (integer IDR);
  *     half-open tiers [min, max): boundary amount belongs to the higher
  *     (more discounted) tier. Approved dec-30928987d7ae1c74 (plan/52 §1.4):
@@ -33,10 +53,14 @@ return [
     'close_time'       => '19:00',
 
     // Withdrawal fee structure.
+    // Endpoint turunan (plan/110): tier pertama `min` mengikuti
+    // system_settings.wd_min_amount dan tier terakhir `max` > wd_max_amount —
+    // keduanya dinormalkan otomatis saat admin menyimpan; nilai di bawah ini
+    // adalah bentuk FAIL-SAFE (lihat catatan ATURAN TIER di atas).
     'fixed_fee'        => 6500,
     'tiers'            => [
         // [min, max_exclusive, bps]
-        [100000,      500000,   1000],   // 10%   (effective floor = min WD 100.000)
+        [100000,      500000,   1000],   // 10%   (mengikuti min_amount fail-safe 100.000)
         [500000,     1000000,    750],   // 7,5%
         [1000000,    2000000,    650],   // 6,5%
         [2000000,    5000000,    500],   // 5%

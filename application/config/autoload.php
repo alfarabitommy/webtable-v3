@@ -105,7 +105,16 @@ $autoload['drivers'] = array();
 // Plan 108: 'referral' = choke-point tunggal kode undangan (normalisasi
 // [0-9A-Z] 6 karakter + validasi bentuk + prioritas prefill ref>session>cookie).
 // Fungsi murni tanpa efek samping → netral bagi member, admin, dan CLI.
-$autoload['helper'] = array('url', 'file', 'form', 'security', 'language', 'i18n', 'maintenance', 'product_image', 'wa_group', 'ewallet', 'referral');
+// Plan 109: 'withdrawal_amount' = choke-point tunggal resolusi nominal
+// penarikan (gross/fee/net + fallback baris legacy) yang dipakai MODEL untuk
+// mendekorasi baris (gross_eff/fee_eff/net_eff) sebelum sampai ke view.
+// Fungsi murni tanpa efek samping → netral bagi member, admin, dan CLI.
+// Plan 110: 'withdrawal_fee' = choke-point tunggal aturan tier biaya
+// penarikan dari INPUT ADMIN (kontiguitas half-open [min,max), endpoint
+// turunan tier pertama/terakhir dinormalkan otomatis + notice, skala
+// bps 10% = 1000). Fungsi murni tanpa efek samping → netral bagi admin,
+// CLI, dan member; sumber aturan sama untuk aplikasi & verifier CLI.
+$autoload['helper'] = array('url', 'file', 'form', 'security', 'language', 'i18n', 'maintenance', 'product_image', 'wa_group', 'ewallet', 'referral', 'withdrawal_amount', 'withdrawal_fee');
 
 /*
 | -------------------------------------------------------------------

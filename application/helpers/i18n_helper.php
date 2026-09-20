@@ -296,6 +296,10 @@ if ( ! function_exists('i18n_notification_text'))
         $title_key = $key . '_title';
         $body_key  = $key . '_body';
 
+        // plan/109: snapshot teks tersimpan (dipakai sebagai fallback bila arity
+        // `params` tidak cocok dengan kamus terbaru).
+        $stored = isset($row['message']) ? (string) $row['message'] : '';
+
         $title = lang($title_key);
         $body  = lang($body_key);
 
@@ -306,7 +310,7 @@ if ( ! function_exists('i18n_notification_text'))
         }
         if ( ! is_string($body) || $body === '')
         {
-            $body = isset($row['message']) ? (string) $row['message'] : '';
+            $body = $stored;
         }
 
         $params = array();
@@ -319,9 +323,69 @@ if ( ! function_exists('i18n_notification_text'))
             }
         }
 
+        // plan/109: GUARD ARITY. `params` sebuah baris dibekukan saat notifikasi
+        // dibuat, sedangkan kamus bisa berubah (mis. notif_wd_approved_body naik
+        // dari 1 ke 3 placeholder). PHP 8 melempar ArgumentCountError (Error,
+        // bukan Exception — `@` tidak menolong) saat argumen kurang. Jadi:
+        // hitung dulu kebutuhan argumen sebenarnya, pad slot yang belum terisi
+        // dengan em-dash (slot 1 = gross tetap benar untuk baris lama), dan
+        // jangan pernah fatal — jatuh ke snapshot `message` bila tetap gagal.
+        //
+        // PENTING: hitungan HARUS mencakup SEMUA conversion specifier, bukan
+        // hanya `%s` — kamus memakai `%d` (notif_roi, notif_rental_*) dan
+        // positional `%1$d`/`%2$s` (notif_rebate). Menghitung `%s` saja membuat
+        // body tanpa `%s` tidak pernah dirender (specifier mentah bocor ke
+        // member) dan `array_slice()` memotong argumen positional.
         if ($params)
         {
-            $body = vsprintf($body, $params);
+            $specifiers = array();
+            if (preg_match_all('/%(?:(\d+)\$)?[bcdeEfFgGosuxX]/', $body, $m, PREG_SET_ORDER))
+            {
+                $specifiers = $m;
+            }
+
+            if ($specifiers)
+            {
+                // Butuh minimal: max(indeks positional tertinggi, jumlah
+                // specifier sequential).
+                $expected = 0;
+                $sequential = 0;
+                foreach ($specifiers as $spec)
+                {
+                    if (isset($spec[1]) && $spec[1] !== '')
+                    {
+                        $expected = max($expected, (int) $spec[1]);
+                    }
+                    else
+                    {
+                        $sequential++;
+                    }
+                }
+                $expected = max($expected, $sequential);
+
+                while (count($params) < $expected)
+                {
+                    $params[] = '—';
+                }
+
+                try
+                {
+                    // Seluruh `params` diteruskan (vsprintf mengabaikan argumen
+                    // berlebih) agar specifier positional tetap valid.
+                    $rendered = vsprintf($body, $params);
+                    if (is_string($rendered))
+                    {
+                        $body = $rendered;
+                    }
+                }
+                catch (Throwable $e)
+                {
+                    if ($stored !== '')
+                    {
+                        $body = $stored;
+                    }
+                }
+            }
         }
 
         return array('title' => $title, 'message' => $body);

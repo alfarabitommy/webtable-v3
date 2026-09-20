@@ -235,17 +235,31 @@ class Wallet_model extends CI_Model {
     /**
      * Validasi input admin (plan/56 §4.1) untuk halaman
      * admin/financial-settings. Aturan identik dengan normalizer model
-     * (fallback chain), tapi dengan pesan error eksplisit per field dan
-     * aturan save-time: tier pertama wajib mulai dari nominal minimal &
-     * batas atas tier terakhir harus DI ATAS nominal maksimal.
+     * (fallback chain), tapi dengan pesan error eksplisit per field.
+     *
+     * Plan 110 (amandemen plan/56 §2.3): aturan tier TIDAK lagi hidup di sini
+     * — ia pindah ke choke-point `application/helpers/withdrawal_fee_helper.php`
+     * (satu sumber untuk aplikasi, CLI, dan view) dengan dua perubahan:
+     *   - transport baru: `wd_fee_tiers` boleh berupa ARRAY baris
+     *     (['min','max','pct']) dari input `wd_tier_min[]/max[]/pct[]`;
+     *     bentuk JSON lama tetap diterima (kompatibilitas mundur);
+     *   - endpoint turunan (tier pertama `min`, tier terakhir `max`)
+     *     DINORMALKAN OTOMATIS + dilaporkan lewat `notices[]`, bukan ditolak.
+     * `_norm_tiers()` (parser strict JALUR BACA) sengaja TIDAK diubah.
      *
      * @param array $raw Map key system_settings → nilai mentah dari $_POST.
-     * @return array{ok:bool, errors:string[], values:array<string,string>}
-     *   values berisi key yang valid & ternormalisasi (siap set_setting).
+     * @return array{ok:bool, errors:string[], notices:string[],
+     *               field_errors:array<string,string[]>, values:array<string,string>}
+     *   errors       : pesan gagal (banner flash, bentuk lama dipertahankan).
+     *   notices      : penyesuaian otomatis yang dilakukan server (plan/110 D2).
+     *   field_errors : peta key → pesan, untuk penandaan inline di form.
+     *   values       : key valid & ternormalisasi (siap disimpan).
      */
     public function validate_financial_settings(array $raw) {
-        $errors = [];
-        $values = [];
+        $errors       = [];
+        $notices      = [];
+        $field_errors = [];
+        $values       = [];
 
         // ── Hari operasional: checkbox array atau CSV.
         $daysRaw = isset($raw['wd_operational_days']) ? $raw['wd_operational_days'] : null;
@@ -257,6 +271,7 @@ class Wallet_model extends CI_Model {
         }
         if ($days === null) {
             $errors[] = 'Pilih minimal 1 hari operasional (Senin–Minggu).';
+            $field_errors['wd_operational_days'][] = 'Pilih minimal 1 hari operasional (Senin–Minggu).';
         } else {
             $values['wd_operational_days'] = $days;
         }
@@ -266,8 +281,10 @@ class Wallet_model extends CI_Model {
         $close = isset($raw['wd_close_time']) ? $this->_norm_time(trim((string) $raw['wd_close_time'])) : null;
         if ($open === null || $close === null) {
             $errors[] = 'Jam operasional harus berformat HH:MM (contoh: 07:00).';
+            $field_errors['wd_open_time'][] = 'Jam operasional harus berformat HH:MM (contoh: 07:00).';
         } elseif ($open >= $close) {
             $errors[] = 'Jam buka harus lebih awal dari jam tutup.';
+            $field_errors['wd_open_time'][] = 'Jam buka harus lebih awal dari jam tutup.';
         } else {
             $values['wd_open_time']  = $open;
             $values['wd_close_time'] = $close;
@@ -277,6 +294,7 @@ class Wallet_model extends CI_Model {
         $fixed = isset($raw['wd_fixed_fee']) ? $this->_norm_int((string) $raw['wd_fixed_fee'], 0) : null;
         if ($fixed === null || $fixed > 100000) {
             $errors[] = 'Biaya tetap penarikan harus angka bulat 0–100000.';
+            $field_errors['wd_fixed_fee'][] = 'Biaya tetap penarikan harus angka bulat 0–100000.';
         } else {
             $values['wd_fixed_fee'] = (string) $fixed;
         }
@@ -286,26 +304,43 @@ class Wallet_model extends CI_Model {
         $max = isset($raw['wd_max_amount']) ? $this->_norm_int((string) $raw['wd_max_amount'], 1) : null;
         if ($min === null || $max === null || $min >= $max) {
             $errors[] = 'Minimal & maksimal penarikan tidak valid (min harus lebih kecil dari max).';
+            $field_errors['wd_min_amount'][] = 'Minimal & maksimal penarikan tidak valid (min harus lebih kecil dari max).';
         } else {
             $values['wd_min_amount'] = (string) $min;
             $values['wd_max_amount'] = (string) $max;
         }
 
-        // ── Tier JSON.
+        // ── Tier biaya (plan/110): transport BARU = array baris
+        //    (`wd_tier_min[]/wd_tier_max[]/wd_tier_pct[]` dirakit controller),
+        //    ATAU JSON legacy `[[min,max,bps],…]` untuk halaman ter-cache.
+        //    Aturan kontiguitas + penurunan endpoint hidup di choke-point
+        //    helper (satu sumber bersama view & verifier CLI); endpoint
+        //    turunan dinormalkan otomatis + dilaporkan via `notices[]`.
+        //    Bound yang tidak valid → tier divalidasi struktural saja
+        //    (tanpa penurunan endpoint) agar admin tidak menerima dua pesan
+        //    yang saling menutupi.
         $tiersRaw = isset($raw['wd_fee_tiers']) ? $raw['wd_fee_tiers'] : null;
-        $tiers    = $this->_norm_tiers(is_string($tiersRaw) ? $tiersRaw : null);
-        if ($tiers === null) {
-            $errors[] = 'Tier biaya tidak valid: butuh JSON [[min,max,bps],...] terurut & kontigu (max baris ini = min baris berikutnya).';
+        $tierRows = is_array($tiersRaw)
+            ? $tiersRaw
+            : (is_string($tiersRaw) ? withdrawal_fee_tier_rows_from_json($tiersRaw) : null);
+
+        $tn = withdrawal_fee_tier_normalize(
+            is_array($tierRows) ? $tierRows : [],
+            ($min !== null ? $min : 0),
+            ($max !== null ? $max : 0)
+        );
+
+        if (!empty($tn['notices'])) {
+            $notices = array_merge($notices, $tn['notices']);
+        }
+        if (!$tn['ok']) {
+            $errors = array_merge($errors, $tn['errors']);
+            $field_errors['wd_fee_tiers'] = array_merge(
+                isset($field_errors['wd_fee_tiers']) ? $field_errors['wd_fee_tiers'] : [],
+                $tn['errors']
+            );
         } else {
-            $first = $tiers[0];
-            $last  = end($tiers);
-            if ($min !== null && $first[0] !== $min) {
-                $errors[] = 'Tier pertama harus dimulai dari nominal minimal penarikan (Rp ' . number_format($min, 0, ',', '.') . ').';
-            }
-            if ($max !== null && $last[1] <= $max) {
-                $errors[] = 'Batas atas tier terakhir harus di atas nominal maksimal penarikan (Rp ' . number_format($max, 0, ',', '.') . ').';
-            }
-            $values['wd_fee_tiers'] = json_encode($tiers);
+            $values['wd_fee_tiers'] = withdrawal_fee_tier_json($tn['tiers']);
         }
 
         // ── Biaya deposit.
@@ -315,6 +350,7 @@ class Wallet_model extends CI_Model {
         $depType = isset($raw['deposit_fee_type']) ? (string) $raw['deposit_fee_type'] : 'flat';
         if ($depType !== 'flat' && $depType !== 'percent') {
             $errors[] = 'Tipe biaya deposit harus flat atau percent.';
+            $field_errors['deposit_fee_type'][] = 'Tipe biaya deposit harus flat atau percent.';
             $depType = 'flat';
         }
         $values['deposit_fee_type'] = $depType;
@@ -324,6 +360,7 @@ class Wallet_model extends CI_Model {
             $depVal = $this->_norm_int($depValRaw, 0);
             if ($depVal === null || $depVal > 100000) {
                 $errors[] = 'Biaya deposit flat harus angka bulat 0–100000 (IDR).';
+                $field_errors['deposit_fee_value'][] = 'Biaya deposit flat harus angka bulat 0–100000 (IDR).';
             } else {
                 $values['deposit_fee_value'] = (string) $depVal;
             }
@@ -331,12 +368,19 @@ class Wallet_model extends CI_Model {
             $depVal = $this->_norm_pct($depValRaw);
             if ($depVal === null || $depVal > 5) {
                 $errors[] = 'Biaya deposit persen maksimal 5% (contoh: 0.70 = 0.70%).';
+                $field_errors['deposit_fee_value'][] = 'Biaya deposit persen maksimal 5% (contoh: 0.70 = 0.70%).';
             } else {
                 $values['deposit_fee_value'] = (string) $depVal;
             }
         }
 
-        return ['ok' => count($errors) === 0, 'errors' => $errors, 'values' => $values];
+        return [
+            'ok'           => count($errors) === 0,
+            'errors'       => $errors,
+            'notices'      => $notices,
+            'field_errors' => $field_errors,
+            'values'       => $values,
+        ];
     }
 
     // =====================================================================
@@ -1277,7 +1321,13 @@ class Wallet_model extends CI_Model {
         $this->db->where('w.user_id', $user_id);
         $this->db->where('w.status', 'pending');
         $this->db->order_by('w.created_at', 'DESC');
-        return $this->db->get()->result();
+
+        // plan/109: dekorasi nominal (gross_eff/fee_eff/net_eff) di lapisan model
+        // — view member menampilkan NET sebagai nilai primer + rincian
+        // gross/fee, tanpa aritmetika uang di view.
+        $rows = $this->db->get()->result();
+
+        return withdrawal_amount_decorate($rows, [$this, 'calculate_withdrawal_fee']);
     }
 
     public function has_pending_withdrawal($user_id) {
