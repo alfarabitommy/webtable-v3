@@ -216,6 +216,8 @@ The modal overlay (`bg-black/60 backdrop-blur-sm`) closes on tap. The sheet anim
     * **Konfigurasi `system_settings`:** `checkin_enabled` (**fail-closed**: `'0'` → widget member tidak dirender **dan** endpoint menolak HTTP 403) · `checkin_base_reward` · `checkin_max_reward` · `checkin_streak_policy`, dengan invarian **`1 ≤ base ≤ max`**; fallback per-key `application/config/checkin_rewards.php`; diatur admin di `/admin/settings` (kartu **Absensi Harian**) — all-or-nothing + audit `admin_update_settings`.
     * **Ledger:** kredit ditulis lewat `Wallet_model::credit()` (satu-satunya jalur uang) dengan deskripsi kanonik `Bonus Absensi Harian Hari ke-{N}` (dirender dalam idiom aktif via key `ledger_checkin`). **Histori absensi tidak punya tabel sendiri** — cukup query `wallet_ledger` berprefix `CHK-` (tanpa kolom total tambahan).
     * **UI member:** widget dashboard (`views/home/index.php`, scoped `hm112-*`, Font Awesome) menampilkan rentetan hari, bonus hari ini, progres ke cap, pratinjau 7 hari, hitung mundur ke tengah malam WIB, dan tombol klaim (POST AJAX ber-CSRF via `csrfFetch`, tanpa reload).
+    * **Kontrak endpoint (POST + AJAX-only; plan/113):** `POST /checkin/claim` **menolak** (`show_404()`) bila bukan POST atau bukan AJAX (nol HTML di jalur JSON). Rate limit `checkin_claim:{user_id}` = **5 percobaan / 60 detik** → kelebihan → HTTP **429** (JSON terlokalisasi). Semua respons lewat `api_helper` (`api_success()`/`api_error()`) + key legacy di root; kode hasil dan HTTP-nya: `ok` (200) · `already_claimed` (200) · `user_unavailable` (200) · `disabled` (**403**, fail-closed) · `error` (500) · `unauthenticated` (**401**). Respons **sukses maupun penolakan** menyertakan `status` segar (`Checkin_model::get_status()`) sehingga widget memutakhirkan diri tanpa reload halaman.
+    * **Urutan transaksi yang mengikat (plan/113):** satu TX — anchor `SELECT … FROM users WHERE id = ? FOR UPDATE` (statement DB pertama, C5) → hitung hari (`_streak_next()`; `last === today` atau tanggal masa depan → `already_claimed`) → `UPDATE users SET checkin_streak/checkin_last_date` **kondisional** (`checkin_last_date IS NULL OR checkin_last_date < ?`) dengan guard `affected_rows() === 1` (M4) → `Wallet_model::credit()` untuk `CHK-{user_id}-{Ymd}` → commit. `db_debug` dimatikan lokal (save/restore) dan `$this->db->error()` dibaca **sebelum** rollback, sehingga kegagalan duplikat `1062`/`23000` tetap berwujud JSON `already_claimed` — bukan halaman error (M9/P7).
 
 > **Catatan migrasi dokumen:** bagian ini dahulu mendeskripsikan cron `00:01 WIB` untuk pendapatan harian dan cron Senin `01:00` untuk gaji. Keduanya **tidak ada** di kode — jangan dihidupkan kembali tanpa pekerjaan pengembangan terpisah.
 
@@ -249,7 +251,7 @@ The modal overlay (`bg-black/60 backdrop-blur-sm`) closes on tap. The sheet anim
 
 A DB-driven, AJAX-powered notification system that delivers alerts for commissions, system messages, and account events — without requiring page reloads. **Notifikasi bersifat keyed** (`user_notifications.title_key` + `params`) dan dirender dalam **idiom pembaca** (EN/ID) oleh `i18n_notification_text()`; kolom `title`/`message` dipertahankan sebagai retensi + fallback baris legacy.
 
-* **Database:** `user_notifications` table (see ERD v5.1 §5). Stores notification records per-user with `is_read` state + `title_key`/`params` (plan/103).
+* **Database:** `user_notifications` table (see ERD v5.2 §5). Stores notification records per-user with `is_read` state + `title_key`/`params` (plan/103).
 * **Bell Icon (Global Header):**
     * Rendered in `header.php` inside the sticky top bar — **satu dari tiga grup header** (Brand · Balance Pill · Notification Bell — plan/100).
     * Container: `<button id="notif-bell" class="relative p-2 rounded-full ...">` with FontAwesome `fa-bell`.
@@ -293,7 +295,7 @@ A DB-driven, AJAX-powered notification system that delivers alerts for commissio
 * **Z-Index Layering:** Bottom Navigation sits at `z-50`. All Bottom Sheet Modals and Notification Dropdowns MUST be `z-[60]` to render above the nav bar.
 * **Financial Display:** All IDR values formatted via `Intl.NumberFormat('id-ID')` in JavaScript or `number_format($val, 0, ',', '.')` in PHP with `Rp ` prefix. **Uang tidak pernah dilokalisasi i18n** (L6). **Standar NET (plan/109):** tampilkan **NET** sebagai nilai primer dengan gross/fee sebagai sub-teks (lihat `docs/4_UI_UX_GUIDELINES.md` §5.H).
 * **Form Visibility:** Secondary input forms (Top-Up amount selection, custom amount input) are hidden by default (`hidden` class) and toggled via a primary action button to conserve screen real estate.
-* **Detail lengkap** komponen, palet, tipografi, dan z-index ada di `docs/4_UI_UX_GUIDELINES.md` (v5.1) — dokumen ini hanya menetapkan prinsip.
+* **Detail lengkap** komponen, palet, tipografi, dan z-index ada di `docs/4_UI_UX_GUIDELINES.md` (v5.2) — dokumen ini hanya menetapkan prinsip.
 
 ---
 
@@ -373,7 +375,7 @@ Admin has two privileged user-management operations accessible from the Command 
 
 This section cross-references the Interactive Notification System (§4.H) and provides the architectural overview.
 
-* **DB Table:** `user_notifications` — see ERD v5.1 §5 (`title_key` + `params` untuk i18n keyed, plan/103).
+* **DB Table:** `user_notifications` — see ERD v5.2 §5 (`title_key` + `params` untuk i18n keyed, plan/103).
 * **State Injection:** `MY_Controller` meng-inject `$global_unread_count` + `$global_notifications` pada **setiap** request terautentikasi (server-rendered). Tidak ada polling timer untuk badge/dropdown; interaksi AJAX hanya untuk **mark-read** (`POST /notification/mark_all_read`, `POST /user/read_notifications`).
 * **Security:** All notification endpoints require authenticated user session (`user_id`). Users can only read/mark their own notifications — `WHERE user_id = session.user_id`.
 * **Performance:** Composite index `idx_user_read` (user_id, is_read) mempercepat unread count. Riwayat lengkap dipaginasi di `GET /notification` (dropdown menampilkan subset terbaru).

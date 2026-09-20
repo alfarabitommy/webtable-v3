@@ -1,10 +1,20 @@
-# Entity Relationship Diagram (ERD) & Database Schema v5.1
+# Entity Relationship Diagram (ERD) & Database Schema v5.2
 **Project Name:** Synapse
 **Database Engine:** MySQL 8.4 (InnoDB)
 **Character Set / Collation:** utf8mb4 / utf8mb4_unicode_ci
 **Sinkronisasi skema:** penuh dengan `database.sql` — closure plan/89–92
 (3-Tier Rebate Engine & Promoter Program, 100% runtime-verified, `dec-94563cfd1af2c22e`).
 
+> **v5.2 — catatan sinkronisasi (plan/112 + plan/113).** Menambahkan **Absensi
+> Harian (daily check-in)**: 2 kolom `users` (`checkin_streak INT UNSIGNED NOT
+> NULL DEFAULT 0`, `checkin_last_date DATE NULL DEFAULT NULL`), 4 kunci
+> `system_settings` (`checkin_enabled`/`checkin_base_reward`/`checkin_max_reward`/
+> `checkin_streak_policy`), dan **idempotensi ledger harian** —
+> `wallet_ledger.transaction_id` = `CHK-{user_id}-{Ymd}`. **14 tabel kanonik
+> tetap** (tanpa tabel baru, tanpa index baru, tanpa kolom total: histori klaim
+> adalah derivasi `wallet_ledger` berprefix `CHK-%`). Invariant plan/112
+> didaftarkan di §7.
+>
 > **v5.1 — catatan sinkronisasi (plan/111).** Dokumen ini disinkronkan dengan
 > **kode sebagai sumber kebenaran** (AGENTS.md) untuk rentang plan/102–110.
 > Perubahan utama: skema `deposits` (gateway QRIS manual, kode unik 3 digit —
@@ -44,6 +54,8 @@ erDiagram
         TINYINT1 must_change_password
         TINYINT1 is_level_1_claimed
         DATETIME last_wage_claimed_at
+        INTU checkin_streak "plan/112: hari beruntun terakhir DIBAYAR (0 = belum pernah)"
+        DATE checkin_last_date "plan/112: tanggal WIB klaim terakhir (otoritas harian)"
         TIMESTAMP created_at
         TIMESTAMP updated_at
     }
@@ -234,10 +246,13 @@ Menyimpan data autentikasi, profil pengguna, saldo utama, dan struktur *Adjacenc
 * `must_change_password` (TINYINT 1, NOT NULL, DEFAULT 0) - 1 = paksa ganti sandi saat login berikutnya.
 * `is_level_1_claimed` (TINYINT 1, NOT NULL, DEFAULT 0) - Idempotensi bonus Level 1 (Rp 80.000 sekali).
 * `last_wage_claimed_at` (DATETIME, NULLABLE) - Stamp klaim wage mingguan (anti double-claim).
+* `checkin_streak` (INT UNSIGNED, NOT NULL, DEFAULT 0) - **plan/112:** hari beruntun terakhir yang **DIBAYAR** lewat Absensi Harian (0 = belum pernah klaim). Bukan jumlah hari dalam kalender, tetapi state pembayaran terakhir.
+* `checkin_last_date` (DATE, NULLABLE) - **plan/112:** tanggal **WIB** klaim absensi terakhir. Pembanding harian murni (jam tidak relevan), selaras pola `last_wage_claimed_at`.
 * `created_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP)
 * `updated_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)
 **Index Optimization:** `UNIQUE (phone)` = `uk_phone`, `UNIQUE (invite_code)` = `uk_invite_code`, `INDEX (parent_id)` = `idx_parent_id`, `INDEX (invite_code)` = `idx_invite_code`.
 **Foreign Keys:** `fk_users_parent` → `users.id` ON DELETE SET NULL (self-referencing adjacency list).
+**Invariant absensi harian (plan/112):** otoritas "hari" adalah **PHP WIB** (`date('Y-m-d')`), **bukan** `NOW()`/`CURDATE()` MySQL (M2/M3); tanggal di masa depan diperlakukan **"sudah klaim"** (fail-closed). **Tanpa index tambahan** — seluruh baca jalur uang memakai `WHERE id = ?` (Primary Key). Histori klaim **tidak** memiliki tabel sendiri: derivasi `SELECT … FROM wallet_ledger WHERE user_id = ? AND transaction_id LIKE 'CHK-%'` (terlayani `idx_user_id`), sehingga tidak ada sumber kebenaran ganda dan tidak ada kolom total.
 
 ### Tabel: `gpu_products`
 Katalog paket GPUaaS (Marketplace). Data master; **tidak boleh** hard-delete (soft via `is_active`). 8 paket kanonik id 1–8 di-seed dari `database.sql` (Rp 150.000–Rp 10.000.000).
@@ -334,7 +349,7 @@ Immutable, append-only ledger yang mencatat setiap pergerakan dana masuk (credit
 
 * `id` (BIGINT, Primary Key, Auto Increment, Unsigned)
 * `user_id` (BIGINT, Unsigned, NOT NULL) - **[Foreign Key -> users.id, ON DELETE RESTRICT]**
-* `transaction_id` (VARCHAR 50, NOT NULL) - Referensi ke sumber transaksi (contoh: invoice number deposit, `RBT-{id}-L{tier}` rebate, `ROI-{rental_id}-D…`).
+* `transaction_id` (VARCHAR 50, NOT NULL) - Referensi ke sumber transaksi (contoh: invoice number deposit, `RBT-{id}-L{tier}` rebate, `ROI-{rental_id}-D…`, **`CHK-{user_id}-{Ymd}` absensi harian — plan/112**).
 * `type` (ENUM('credit', 'debit'), NOT NULL) - `credit` = dana masuk, `debit` = dana keluar.
 * `amount` (DECIMAL 15,2, NOT NULL) - Selalu positif. Arah ditentukan oleh kolom `type`.
 * `description` (VARCHAR 255, NOT NULL) - Keterangan transaksi (contoh: "Top Up via INV-20260620123456-1").
@@ -342,11 +357,15 @@ Immutable, append-only ledger yang mencatat setiap pergerakan dana masuk (credit
 
 **Index/Uniqueness:** `UNIQUE (user_id, transaction_id, type)` = `uk_wallet_ledger_user_tx_type` (idempotensi/anti-duplikasi); `INDEX (user_id)`, `INDEX (type)`, `INDEX (created_at)`.
 
+> **Idempotensi harian absensi (plan/112):** `transaction_id` = **`CHK-{user_id}-{Ymd}`** (mis. `CHK-12-20260920`) dikombinasikan dengan `uk_wallet_ledger_user_tx_type` menjamin **maksimal satu kredit per user per hari** di tingkat DB. Duplikat `1062`/`23000` ditranslasi menjadi **`already_claimed`** (bukan error) — jalur AJAX tidak pernah mengembalikan HTML. Informasi "hari ke-N" hidup di `description`, **bukan** di ID: deskripsi kanonik `Bonus Absensi Harian Hari ke-{N}` (tanpa nominal → kamus tetap bersih dari angka, P3/L6), dirender dalam idiom aktif via pola `ledger_checkin` di `application/helpers/i18n_helper.php`.
+
 > **Balance Calculation:** `SELECT SUM(CASE WHEN type = 'credit' THEN amount ELSE 0 END) - SUM(CASE WHEN type = 'debit' THEN amount ELSE 0 END) AS balance FROM wallet_ledger WHERE user_id = ?`
 
 > **ACID Rule:** Every write to `wallet_ledger` MUST be wrapped in `$this->db->trans_start()` / `$this->db->trans_complete()`. A failed ledger insert MUST rollback all preceding operations in the same transaction (deposit status update, user balance adjustment, etc.).
 
 > **Z1 / C4 (plan/89–92):** omzet-burn promotor (`promoter_claims`) dan penerbitan kontrak reward **tidak pernah** menyentuh `wallet_ledger` (burn = bookkeeping; reward `purchase_price = 0`). Semua kredit rebate lewat satu-satunya jalur `Wallet_model::credit()`.
+
+> **C4 / M8 (plan/112):** kredit absensi harian juga ditulis **hanya** lewat `Wallet_model::credit()` (satu-satunya jalur uang: `credit()`/`debit()` → `_post()` dengan `(int)` choke-point + assertion positif). Jalur klaim tidak pernah menjalankan `UPDATE users SET balance` secara langsung.
 
 ### ~~Tabel: `transactions`~~ — DECOMMISSIONED (M6)
 Tabel double-entry ledger lama. **TIDAK ADA LAGI** — telah dihapus pada M6 pragmatic path (audit: `plan/68_M6_TRANSACTIONS_TABLE_AUDIT_REPORT.md`; eksekusi: `plan/69_M6_DECOMMISSION_TRANSACTIONS_SUMMARY.md`). Aplikasi tidak pernah membaca/menulis tabel ini; seluruh pencatatan finansial memakai `wallet_ledger` (single ledger). Jangan membuat ulang tabel ini.
@@ -425,8 +444,26 @@ Key-value store konfigurasi runtime (circuit breaker + config finansial + rebate
 | **`rebate_l1_percent`** | `5` | **Plan 89:** persen rebate L1 (integer 0–100) |
 | **`rebate_l2_percent`** | `3` | **Plan 89:** persen rebate L2 |
 | **`rebate_l3_percent`** | `1` | **Plan 89:** persen rebate L3 |
+| **`checkin_enabled`** | `1` | **Plan 112:** gerbang **fail-closed** Absensi Harian — nilai sah `'0'`/`'1'`; `'0'` → widget dashboard member **tidak dirender** (DOM kosong) DAN endpoint `POST /checkin/claim` menolak dengan **HTTP 403** (`code: 'disabled'`). Nilai asing → fallback `1`. |
+| **`checkin_base_reward`** | `50` | **Plan 112:** bonus hari ke-1 (IDR). Nilai sah integer `^[1-9][0-9]*$` dengan `1 … 1.000.000` (`Checkin_model::BASE_MAX`). |
+| **`checkin_max_reward`** | `10000` | **Plan 112:** cap harian keras (IDR). Nilai sah integer `^[1-9][0-9]*$` dengan `1 … 10.000.000` (`Checkin_model::MAX_MAX`); bonus = `min(base × hari_streak, max)`. |
+| **`checkin_streak_policy`** | `reset` | **Plan 112:** kebijakan saat bolong — whitelist `'reset'` (kembali ke hari 1) \| `'continue'` (**lanjut N+1**: gap dibekukan, hari terlewat tidak dihitung). Nilai asing → fallback `'reset'` (paling ketat). |
 
 > Fallback kode: `application/config/rebate_commission.php` (1/5/3/1) dipakai bila baris belum ada. Admin mengubah via Card 5 di `admin/settings` (validasi 0–100 all-or-nothing + audit atomik).
+>
+> **Fallback absensi harian (plan/112):** `application/config/checkin_rewards.php`
+> — `checkin_enabled` `1`, `checkin_base_reward` `50`, `checkin_max_reward`
+> `10000`, `checkin_streak_policy` `'reset'` — dipakai **per-key** bila baris
+> hilang/rusak. Invarian **`1 ≤ base ≤ max`** ditegakkan
+> `Checkin_model::_resolve_config()`: pelanggaran mengembalikan **pasangan
+> base+max sekaligus secara ATOMIK** ke fallback + `log_message('error')`,
+> sehingga setelan rusak **tidak pernah** membuat request fatal. Ambang
+> administratif hidup **satu sumber** di `Checkin_model::BASE_MAX`/`MAX_MAX`
+> (dipakai validator form admin **dan** CLI verifier); validator admin memakai
+> kontrak aditif `{ok, errors, notices, field_errors, values}` (F12);
+> `scripts/migrate_112_daily_checkin.php --verify` mendeteksi tamper →
+> **exit 2**. Diatur admin di kartu **Absensi Harian (Card 6)** pada
+> `/admin/settings` (all-or-nothing + audit `admin_update_settings`).
 >
 > Fallback deposit/withdrawal: `application/config/withdrawal_fees.php` — berisi
 > `operational_days`/`open_time`/`close_time`, `fixed_fee`, `min_amount`
@@ -553,3 +590,10 @@ Tabel `user_rentals` juga berfungsi sebagai tabel `rentals` di dalam kode (`appl
 - **T1 (plan/110) — Endpoint tier turunan:** `wd_fee_tiers` wajib kontigu penuh; dua endpoint dinormalkan otomatis (bukan ditolak) karena `calculate_withdrawal_fee()` memakai tarif tier terakhir sebagai fallback — celah tier = potensi kurang potong biaya secara senyap.
 - **N1 (plan/109) — Ledger tidak diubah:** tampilan NET/gross/fee adalah **presentasi**; debit `wallet_ledger` tetap merekam **gross penuh**.
 - **Z2 (plan/102–106) — `wallet_ledger` satu-satunya ledger:** deprecation tabel `transactions` (M6) dan `rentals` (M10) tetap berlaku; tidak ada kode baru yang menulis ke keduanya.
+
+### Invariant arsitektural tambahan (plan/112 — Daily Check-in)
+- **C1 (plan/112) — Idempotensi harian tingkat DB:** satu kredit per user per hari dijamin `transaction_id = CHK-{user_id}-{Ymd}` + `UNIQUE uk_wallet_ledger_user_tx_type (user_id, transaction_id, type)`; duplikat `1062`/`23000` ditranslasi `already_claimed` (bukan error) sehingga jalur AJAX tidak pernah HTML.
+- **C2 (plan/112) — Fail-closed dua sisi:** `checkin_enabled = '0'` → widget tidak dirender di DOM **dan** endpoint klaim menolak HTTP 403; nilai setelan rusak/asing → fallback per-key (pasangan `base`+`max` dikembalikan **atomik**).
+- **C3 (plan/112) — Otoritas tanggal = PHP WIB:** perhitungan hari memakai `date('Y-m-d')` (timezone di-pin `Asia/Jakarta`), **bukan** `NOW()`/`CURDATE()`; tanggal di masa depan → "sudah klaim" (fail-closed).
+- **C4 (plan/112) — Tanpa tabel/index/kolom total baru:** state absensi = 2 kolom di `users` (`checkin_streak`, `checkin_last_date`); histori = derivasi `wallet_ledger` berprefix `CHK-%` (terlayani `idx_user_id`); inventory kanonik tetap **14 tabel**.
+- **C5 (plan/112) — Satu jalur uang:** seluruh kredit lewat `Wallet_model::credit()` di dalam satu TX terkunci (`SELECT … FROM users … FOR UPDATE` → `UPDATE users` **kondisional** + `affected_rows() === 1` → `credit()` → commit); tidak ada mutasi saldo di jalur lain.

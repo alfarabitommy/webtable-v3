@@ -1,8 +1,14 @@
-# UI/UX & Component Guidelines v5.1 (Strict AI Specification)
+# UI/UX & Component Guidelines v5.2 (Strict AI Specification)
 **Project Name:** Synapse
 **CSS Framework:** Tailwind CSS (Strictly Utility Classes)
 **Design Philosophy:** Minimalist, High-Density Data Presentation, Bloomberg Terminal Aesthetic, Mobile-First.
 
+> **v5.2 — catatan sinkronisasi (plan/112 + plan/113).** Tambahan: **§5.I**
+> widget Absensi Harian dashboard member (`.hm112-card`, scoped CSS `hm112-*`,
+> Font Awesome, nol aset/CDN baru) dan **§8.D** kartu setelan admin **Absensi
+> Harian (Card 6)** di `/admin/settings`. Penyesuaian kecil: **§2** (toast member
+> mendaftar pada layer `z-[60]`) dan **§7** (pulse tombol klaim).
+>
 > **v5.1 — catatan sinkronisasi (plan/111).** Disinkronkan dengan kode sebagai
 > sumber kebenaran untuk rentang plan/102–110. Tambahan: **§5.G** provider
 > e-wallet card selector 2×2 (plan/106), **§5.H** hierarki nominal NET penarikan
@@ -30,10 +36,10 @@ Strict z-index management is critical to prevent UI overlap issues. The followin
 | Content | `z-10` / `z-20` | Page content, card overlays, decorative elements |
 | Sticky Header | `z-40` | Top App Bar (`sticky top-0`) |
 | Bottom Navigation | **`z-50`** | Fixed bottom nav bar |
-| Bottom Sheet Modal | **`z-[60]`** | All modal overlays, transaction sheets, confirmation dialogs, Notification Dropdown |
+| Bottom Sheet Modal | **`z-[60]`** | All modal overlays, transaction sheets, confirmation dialogs, Notification Dropdown, **Toast notifikasi member (`.u-toast`, mis. `#hm112-toast` — plan/112)** |
 | Modal Backdrop | `z-[59]` | Overlay behind sheet (same modal container) |
 
-> **Rule:** Any Bottom Sheet Modal or Notification Dropdown MUST use `z-[60]` on its container. This ensures it renders above the Bottom Navigation (`z-50`) and does not conflict with the sticky header (`z-40`).
+> **Rule:** Any Bottom Sheet Modal or Notification Dropdown MUST use `z-[60]` on its container. This ensures it renders above the Bottom Navigation (`z-50`) and does not conflict with the sticky header (`z-40`). **Toast** non-blocking (`pointer-events-none`) juga memakai `z-[60]` — jangan memperkenalkan layer liar di luar tabel ini.
 
 > **Anti-pattern:** Using `z-50` on modals will cause them to render BEHIND the Bottom Navigation on certain scroll positions. Always use `z-[60]` for modals and dropdowns.
 
@@ -304,6 +310,47 @@ All withdrawal surfaces MUST present the **NET** (the amount the admin actually 
 * **`wallet_ledger` is never altered** by this presentation — the debit records the **full gross**.
 * **Anti-pattern:** showing gross as the only/primary number on any withdrawal card.
 
+### I. Member Dashboard Check-in Widget (`.hm112-card`) — plan/112
+
+Widget Absensi Harian adalah **satu-satunya mesin klaim manual yang tinggal di dashboard member** (kode: `application/views/home/index.php`; state dari `Checkin_model::get_status()` via `Home::index()`).
+
+**Lokasi (STRICT):** disisipkan **di antara kartu hero (plan/99) dan kartu identitas** — area lipatan atas, tanpa menggeser struktur dashboard lain. Urutan dashboard tidak boleh diubah.
+
+**Fail-closed (STRICT):** seluruh blok dibungkus `if (!empty($checkin['enabled']))`. Saat `system_settings.checkin_enabled = '0'` **tidak ada elemen** widget di DOM (hanya CSS-nya yang tetap terkirim) — bukan sekadar disembunyikan.
+
+**Hierarki visual (atas → bawah):**
+
+| # | Elemen | Markup / aturan |
+|---|---|---|
+| 1 | Header kartu | Badge ikon `fa-calendar-check` (`w-11 h-11 rounded-2xl`, `.hm112-ic`) + judul (`text-[10px] uppercase tracking-wider`) + subjudul (`text-[11px]`) |
+| 2 | **Chip rentetan hari** | `.hm112-chip` (amber) + `fa-fire` + `<span id="hm112-streak-days">N</span>` + `home_checkin_streak_label` |
+| 3 | **Bonus hari ini** | `Rp <span id="hm112-amount">` `text-2xl font-extrabold` + label hari `#hm112-day-label` (`sprintf(home_checkin_day)`, `font-mono`) |
+| 4 | **Bar progres ke cap** | `.u-progress-track` `h-1.5` + `#hm112-bar`; persen = **`intdiv` ceil** (hari 1 → 1%, cap → 100%); label `home_checkin_cap_label · Rp {max}` |
+| 5 | **Strip pratinjau 7 hari** | `grid grid-cols-7 gap-1`; tiap hari `.hm112-day` (`data-day`), hari berikutnya `.hm112-day-next` (ring indigo); angka hari `text-[9px]`, nominal `text-[10px]` — aman pada 360 px |
+| 6 | **Hitung mundur WIB** | `#hm112-timer` (`font-mono text-[10px]`, `HH:MM:SS`); epoch batas datang dari **server** (`data-window-ts`) — klien tidak pernah menghitung ulang tanggal |
+| 7 | Tombol klaim | `#hm112-claim` full-width `h-12`, gradien indigo→cyan `.hm112-btn` |
+| 8 | Hint kebijakan | `home_checkin_hint_reset` \| `home_checkin_hint_continue` (mengikuti `policy` aktif) |
+| 9 | Region status | `#hm112-status` (`aria-live="polite"`, `hidden` sampai ada pesan) |
+
+**Label timer dua-keadaan (STRICT):** belum klaim → `home_checkin_window_left` ("jendela klaim berakhir dalam"); sudah klaim → `home_checkin_next_in` ("klaim berikutnya dibuka dalam").
+
+**State tombol (STRICT):**
+
+| State | Markup | Perilaku |
+|---|---|---|
+| Belum klaim | `.hm112-btn` + **`hm112-pulse`** (ring `box-shadow` 0→12 px, 2.4 s `ease-out` `infinite`) + ikon `fa-hand-holding-usd` + label `home_checkin_claim_btn` | Aktif, target sentuh ≥ 44 px |
+| Sudah klaim | `disabled` **nyata** + `opacity`/`--u-surface-3` muted + `fa-circle-check` + label `home_checkin_claimed_btn` (**tanpa** `hm112-pulse`) | Tidak dapat diklik; pulse berhenti |
+
+**Alur klaim (tanpa reload):** `csrfFetch('checkin/claim', { method: 'POST' })` (helper CSRF dari `templates/csrf_meta.php`) → respons sukses **memuat `status` segar** → widget **di-repaint dari server** (streak, nominal, bar, 7 pill, tombol). Kode `disabled` → reload agar widget hilang. Teks dinamis diambil dari `window.SYNAPSE_I18N`; toast scoped `#hm112-toast` (`u-toast`, `z-[60]`, `pointer-events-none`, auto-hide 2.6 s).
+
+**A11y:** `aria-label` pada tombol, `aria-live="polite"` pada region status, target sentuh ≥ 44 px (`h-12`), dan `disabled` bersifat fungsional (bukan hanya visual).
+
+**Tema, CSS, & animasi:** CSS scoped prefix `hm112-*` di blok `<style>` view yang sudah ada — **hanya** `color`/`background`/`border`/`box-shadow`/`animation`; radius & spacing tetap utility Tailwind (pola §5.F / plan/99). Warna memakai token tema `--u-*` + varian `html.dark .hm112-*`; **tanpa** `<defs>`/`id` ganda. Blok `prefers-reduced-motion: reduce` mematikan seluruh animasi widget (`.hm112-card *`).
+
+**Uang & i18n (L6/P3):** nominal dirender PHP `number_format($v, 0, ',', '.')` dengan prefix `Rp `; pembaruan pasca-klaim di JS memakai `Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 })`. **Angka tidak pernah masuk kamus bahasa.** Ikon **Font Awesome saja** (nol aset/CDN baru); setiap string tampil ber-`lang('<key>')`.
+
+**Anti-pattern:** (a) merender widget saat fitur OFF; (b) menghitung ulang tanggal/nominal di klien (server yang menentukan); (c) memakai `placehold.co` atau ikon gambar; (d) animasi tanpa jalur `prefers-reduced-motion`.
+
 ---
 
 ## 6. Header Elements (v5.0 New)
@@ -397,6 +444,7 @@ AJAX-driven notification system rendered in the sticky header bar. MUST follow t
 * **Modal backdrop:** `transition-opacity` for fade in/out.
 * **Form toggle:** `origin-top` transform origin for natural expand feel.
 * **Notification badge pulse:** Optional `animate-pulse` on red badge when new notification arrives (subtle attention-grabber).
+* **Check-in claim pulse (plan/112):** `box-shadow` ring `hm112-pulse` — 0 → 12 px, **2.4 s `ease-out` `infinite`** — **hanya** saat tombol klaim absensi aktif (belum klaim hari ini). Dimatikan saat tombol `disabled` (sudah klaim) dan oleh `prefers-reduced-motion: reduce`.
 
 ---
 
@@ -506,4 +554,35 @@ Editor tier biaya penarikan pada `application/views/admin/settings.php` MUST fol
 **Server-side contract (`Wallet_model::validate_financial_settings()`):** bentuk kembalian **aditif** — `{ ok, errors[], notices[], field_errors{key→pesan}, values{} }`; `errors`/`values` tetap (aman bagi pemanggil lama). Choke-point aturan: `application/helpers/withdrawal_fee_helper.php`.
 
 **Anti-pattern:** menjadikan `Min` baris 1 / `Maks` baris terakhir sebagai input bebas yang "kebetulan harus sama" dengan `wd_min_amount`/`wd_max_amount` (root cause deadlock plan/110 RC4) — jangan dihidupkan kembali.
+
+### D. Check-in Settings — Admin (`/admin/settings`, **Kartu 6**) — plan/112
+
+Kartu **Absensi Harian (Daily Check-in)** adalah **kartu ke-6 dari 6** pada `application/views/admin/settings.php` (urutan: 1 Kontak & Bantuan · 2 Operational Hours · 3 Biaya Penarikan · 4 Deposit Fee · 5 Komisi Rebate · **6 Absensi Harian**). Kode menandainya `Card 6` — pertahankan penomoran itu.
+
+**Posisi & form (STRICT):** kartu berada **di dalam** `form_open('admin/settings')`, tepat **sebelum** blok tombol simpan, sehingga otomatis mewarisi **CSRF** + guard `data-guard-submit` milik form finansial. Copy kartu **100% Bahasa Indonesia** (invarian L1 — **tanpa** key i18n).
+
+**Layout input (top → bottom):**
+
+| # | Elemen | Spesifikasi |
+|---|---|---|
+| 1 | Judul & deskripsi | `<i class="fas fa-calendar-check text-amber-500"></i> Absensi Harian (Daily Check-in)` + paragraf penjelas (klaim sekali/hari WIB, rumus `min(bonus hari pertama × hari, batas harian)`, dibayarkan ke `wallet_ledger`, dan perilaku fail-closed saat dinonaktifkan) |
+| 2 | Toggle aktif | Label kiri `Aktifkan Absensi Harian` + `<input type="checkbox" id="checkin_enabled" name="checkin_enabled" value="1">` (satu baris `flex items-center justify-between`) |
+| 3 | Blok error inline | `<div>` merah berisi `<ul>` `Periksa kembali:` — **hanya** pesan `checkin_*` (lihat aturan di bawah) |
+| 4 | Grid `grid-cols-1 sm:grid-cols-3` | **Bonus Hari Pertama (Rp)** → `#checkin_base_reward` (`type="number" min="1" max="1000000" step="1" required`, `font-mono`) · **Batas Harian (Rp)** → `#checkin_max_reward` (`type="number" min="1" max="10000000" step="1" required`) · **Kebijakan Bila Bolong** → `#checkin_streak_policy` (`<select>`) |
+| 5 | Paragraf contoh perhitungan | Angka bulat IDR (tanpa pecahan) + invarian **bonus hari pertama ≤ batas harian** + contoh `50 & 10.000 → 50/100/150 … cap 10.000` + penjelasan kedua kebijakan |
+
+**Dropdown kebijakan (`reset` / `continue`) — STRICT:** dua opsi saja, label Indonesia:
+
+| Value | Label | Semantik yang harus benar |
+|---|---|---|
+| `reset` | `Reset ke Hari 1` | Bolong sehari → rentetan hilang, klaim berikutnya kembali **hari ke-1** |
+| `continue` | `Lanjutkan (streak dibekukan)` | Bolong sehari → rentetan **tetap tersimpan**; klaim berikutnya melanjutkan **hari ke-(N+1)** — gap tidak mereset dan hari terlewat **tidak dihitung** |
+
+**Error inline blocking (STRICT):** pesan validasi `checkin_*` ditampilkan **di dalam kartu absensi sendiri** — view memfilter `field_errors` dengan prefix `checkin_` (`$checkin_errors`), sehingga kartu finansial (Kartu 2–5) **tidak** ikut tercemar, dan sebaliknya. Karena form bersifat **all-or-nothing**, satu pelanggaran (mis. bonus hari pertama > batas harian) membatalkan **seluruh** penyimpanan setelan: **DB tidak berubah**, flash gagal, dan kartu menampilkan pesan.
+
+**Repopulasi form (STRICT):** nilai yang sudah diketik **wajib** dikembalikan setelah simpan gagal — via `flashdata('settings_form_state')` + `$state_val($fs, 'checkin_*', <nilai DB>)` + `htmlspecialchars()`. Toggle memakai pola `array_key_exists('checkin_enabled', $fs) ? !empty($fs[...]) : (bool) <nilai DB>`, sehingga "sengaja dimatikan" tidak kembali menyala saat validasi gagal.
+
+**Persist & audit:** penyimpanan memakai jalur generik `Admin_model::update_system_settings()` di dalam satu TX → audit `admin_update_settings` dengan `keys`/`before`/`after` yang **otomatis** memuat `checkin_*` (hanya saat nilainya berubah). Aturan validasi satu sumber: `Checkin_model::validate_checkin_settings()` (+ ambang `BASE_MAX`/`MAX_MAX`).
+
+**Anti-pattern:** (a) menaruh pesan error absensi di kartu finansial (atau sebaliknya); (b) melewatkan repopulasi hingga admin kehilangan ketikan; (c) menampilkan nominal dengan pecahan atau format non-IDR; (d) menerjemahkan copy kartu ini ke bahasa Inggris (melanggar L1).
 

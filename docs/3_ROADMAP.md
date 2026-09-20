@@ -10,7 +10,10 @@
 > dokumen **tidak** diubah (struktur fase tetap). Beberapa catatan fase lama
 > dianotasi agar tidak menyesatkan (lihat Fase 1 & Strict Rule 6).
 > **plan/112** menambah blok **Daily Check-in — Bonus Absensi Harian** di log
-> milestone (kode otoritatif; lihat juga PRD v5.2 §F).
+> milestone (kode otoritatif; lihat juga PRD v5.2 §F). **plan/113** menyinkronkan
+> `docs/2_ERD.md` **v5.2** & `docs/4_UI_UX_GUIDELINES.md` **v5.2** dengan ground
+> truth plan/112 — nomor versi ROADMAP tetap **v6.0**. Ringkasan:
+> `plan/113_SYNC_CHECKIN_DOCS_SUMMARY.md`.
 
 ---
 
@@ -79,7 +82,7 @@
 - [x] **7C3: Profile & Settings** — Avatar upload, display name, invite code display for sharing.
 
 ### Phase 7D: Notification System Foundation ✅ COMPLETED
-- [x] **7D1: Database Table** — `user_notifications` table created (ERD v5.1 §5): `id`, `user_id` (FK → `users.id` CASCADE), `title`, `message`, `type` (ENUM: info/warning/success/commission), `is_read` (TINYINT DEFAULT 0), `created_at`, index `idx_user_read` (user_id, is_read). *(plan/103 menambah `title_key` + `params` untuk i18n keyed.)*
+- [x] **7D1: Database Table** — `user_notifications` table created (ERD v5.2 §5): `id`, `user_id` (FK → `users.id` CASCADE), `title`, `message`, `type` (ENUM: info/warning/success/commission), `is_read` (TINYINT DEFAULT 0), `created_at`, index `idx_user_read` (user_id, is_read). *(plan/103 menambah `title_key` + `params` untuk i18n keyed.)*
 - [x] **7D2: Backend Model** — `Notification_model`: `create()`, `get_unread_count($user_id)`, `get_latest($user_id, $limit)`, `mark_read($id, $user_id)`, `mark_all_read($user_id)`.
 - [x] **7D3: AJAX Endpoints** — *(plan/111: endpoint lama di bawah **tidak pernah ada** di kode — digantikan kontrak aktual: `GET /notification` (riwayat) + `POST /notification/mark_all_read` + `POST /user/read_notifications`; badge/lists **server-rendered** dari `$global_unread_count`.)* ~~`GET /notifications/unread-count` → JSON `{ count: N }`. `GET /notifications/list` → JSON array (last 20). `POST /notifications/mark-read/{id}`. `POST /notifications/mark-all-read`.~~
 - [x] **7D4: Bell Icon + Red Badge** — Header bell icon in `header.php`. Badge `<span id="notif-badge">` hidden when count = 0, shows `N` (or `99+`) when > 0. *(plan/111: ~~60-second AJAX polling~~ — nilai badge **server-rendered** tiap page load, tanpa timer polling.)*
@@ -198,16 +201,6 @@
 - [x] **Kamus** — +6 key (`profile_pref_title`, `profile_lang_label`, `profile_theme_label`, `profile_theme_dark`, `profile_theme_light`, `profile_theme_hint`), −3 key usang (`profile_theme`, `js_theme_dark`, `js_theme_light`) → **332 key** identik di kedua idiom.
 - [x] **Ringkasan** — `plan/100_HEADER_DECLUTTER_AND_PROFILE_SETTINGS_SUMMARY.md`. *(QA live-browser V5–V11 tertunda karena sandbox tanpa MySQL; §2.1 memuat sanity lebar statis.)*
 
-### Daily Check-in — Bonus Absensi Harian (Member Widget + Admin Settings) ✅ COMPLETED (plan/112)
-- [x] **Skema** — dua kolom `users` (`checkin_streak INT UNSIGNED NOT NULL DEFAULT 0`, `checkin_last_date DATE NULL DEFAULT NULL`) + 4 kunci `system_settings` (`checkin_enabled` · `checkin_base_reward` · `checkin_max_reward` · `checkin_streak_policy`); **tanpa tabel baru** (histori = `wallet_ledger` berprefix `CHK-`, tanpa kolom total).
-- [x] **Migrasi CLI** — `scripts/migrate_112_daily_checkin.php` (`--dry-run` default / `--apply` / `--verify`, exit 0/1/2, pre-flight `information_schema`, DDL dijaga + `INSERT IGNORE`, tamper → exit 2, **tanpa backfill**); diterapkan ke DB lokal & re-run = no-op.
-- [x] **Jalur uang** — `Checkin_model::claim()`: satu TX (anchor `users FOR UPDATE` → hitung hari → `UPDATE` kondisional + `affected_rows() === 1` → `Wallet_model::credit()` `CHK-{user_id}-{Ymd}` → commit); `db_debug` dimatikan lokal + `error()` dibaca SEBELUM rollback → 1062 ditranslasi `already_claimed` (jalur AJAX tidak pernah HTML). Fungsi murni `_streak_next()` / `_reward_for()`.
-- [x] **Endpoint** — `POST /checkin/claim` (`Checkin`, POST+AJAX-only, rate limit `checkin_claim:{uid}` 5/60, envelope `api_*` + key legacy, `status` segar pada sukses & penolakan, `disabled` = HTTP 403). Rute eksplisit `checkin/claim`.
-- [x] **Widget member** — `views/home/index.php` scoped `hm112-*` (Font Awesome, pratinjau 7 hari, progres cap via `intdiv` ceil, hitung mundur WIB dari epoch server, klaim via `csrfFetch` tanpa reload, `prefers-reduced-motion`); **tidak dirender sama sekali** saat `checkin_enabled='0'`.
-- [x] **Admin** — kartu **Absensi Harian (Daily Check-in)** di `/admin/settings` (toggle + bonus hari pertama + batas harian + kebijakan streak; error inline `checkin_*` di kartunya sendiri, repopulasi via `settings_form_state`), all-or-nothing + audit `admin_update_settings` (key `checkin_*` otomatis tercatat).
-- [x] **Kamus EN/ID** — +19 key (18 `home_checkin_*` + `ledger_checkin`) → **621** identik di kedua idiom; `audit_i18n_parity.php` exit 0, `audit_i18n_hardcoded.php` 0 temuan.
-- [x] **Ringkasan** — `plan/112_DAILY_CHECKIN_FEATURE_SUMMARY.md`.
-
 ### Dynamic WhatsApp Group Link (Help & FAQ + Admin Settings) ✅ COMPLETED (plan/105)
 - [x] **Key konfigurasi** — `system_settings.wa_group_link` (default `''`, **tanpa DDL**), seed kanonik `INSERT IGNORE` di `database.sql` + `database_seed.sql` (tidak pernah menimpa nilai live); baris hilang ≡ `''` ≡ kartu tersembunyi (fail-safe).
 - [x] **Choke-point tunggal** — `application/helpers/wa_group_helper.php` (autoload `'wa_group'`): `wa_group_link_normalize()` (`''` = kosong sah / kanonik / `null` = invalid) + `wa_group_link_url()` (kanonik ATAU `''`, tidak pernah null). Allowlist ketat: host `chat.whatsapp.com` (https saja, tanpa userinfo/port), token `[A-Za-z0-9_-]{6,64}`, `www.` + `/invite/` + query/fragment/trailing-slash dinormalkan, input tanpa skema & `http://` → `https`, maks 512 char, ZWSP/BOM dibuang — dipakai **tiga** konsumen (admin POST, render member, CLI `--verify`).
@@ -279,6 +272,16 @@
 - [x] **Model** — `Wallet_model::validate_financial_settings()` bentuk kembalian aditif (`notices` + `field_errors`); `_norm_tiers`/`_resolve_financial_config`/`calculate_withdrawal_fee`/`_post` **identik** (nol perubahan jalur uang).
 - [x] **View** — `admin/settings.php` Card 3 direnovasi (transport array `wd_tier_min[]/max[]/pct[]`, tombol "Rapikan Tier"/"Sesuaikan Batas Atas", `Min` baris 1 `readonly`, error inline per baris, repopulasi via `flashdata('settings_form_state')`).
 - [x] **Nol DDL, nol route, nol key kamus**; gate i18n tetap exit 0. **Ringkasan** — `plan/110_FIX_WITHDRAWAL_TIER_VALIDATION_SUMMARY.md`.
+
+### Daily Check-in — Bonus Absensi Harian (Member Widget + Admin Settings) ✅ COMPLETED (plan/112)
+- [x] **Skema** — dua kolom `users` (`checkin_streak INT UNSIGNED NOT NULL DEFAULT 0`, `checkin_last_date DATE NULL DEFAULT NULL`) + 4 kunci `system_settings` (`checkin_enabled` · `checkin_base_reward` · `checkin_max_reward` · `checkin_streak_policy`); **tanpa tabel baru** (histori = `wallet_ledger` berprefix `CHK-`, tanpa kolom total).
+- [x] **Migrasi CLI** — `scripts/migrate_112_daily_checkin.php` (`--dry-run` default / `--apply` / `--verify`, exit 0/1/2, pre-flight `information_schema`, DDL dijaga + `INSERT IGNORE`, tamper → exit 2, **tanpa backfill**); diterapkan ke DB lokal & re-run = no-op.
+- [x] **Jalur uang** — `Checkin_model::claim()`: satu TX (anchor `users FOR UPDATE` → hitung hari → `UPDATE` kondisional + `affected_rows() === 1` → `Wallet_model::credit()` `CHK-{user_id}-{Ymd}` → commit); `db_debug` dimatikan lokal + `error()` dibaca SEBELUM rollback → 1062 ditranslasi `already_claimed` (jalur AJAX tidak pernah HTML). Fungsi murni `_streak_next()` / `_reward_for()`.
+- [x] **Endpoint** — `POST /checkin/claim` (`Checkin`, POST+AJAX-only, rate limit `checkin_claim:{uid}` 5/60, envelope `api_*` + key legacy, `status` segar pada sukses & penolakan, `disabled` = HTTP 403). Rute eksplisit `checkin/claim`.
+- [x] **Widget member** — `views/home/index.php` scoped `hm112-*` (Font Awesome, pratinjau 7 hari, progres cap via `intdiv` ceil, hitung mundur WIB dari epoch server, klaim via `csrfFetch` tanpa reload, `prefers-reduced-motion`); **tidak dirender sama sekali** saat `checkin_enabled='0'`.
+- [x] **Admin** — kartu **Absensi Harian (Daily Check-in)** — **Card 6 dari 6** — di `/admin/settings` (toggle + bonus hari pertama + batas harian + kebijakan streak; error inline `checkin_*` di kartunya sendiri, repopulasi via `settings_form_state`), all-or-nothing + audit `admin_update_settings` (key `checkin_*` otomatis tercatat).
+- [x] **Kamus EN/ID** — +19 key (18 `home_checkin_*` + `ledger_checkin`, pola renderer deskripsi ledger di `application/helpers/i18n_helper.php`) → **621** identik di kedua idiom; `audit_i18n_parity.php` exit 0, `audit_i18n_hardcoded.php` 0 temuan.
+- [x] **Ringkasan** — `plan/112_DAILY_CHECKIN_FEATURE_SUMMARY.md`.
 
 ---
 
