@@ -60,6 +60,17 @@ CREATE TABLE IF NOT EXISTS `gpu_products` (
   -- plan/83: gating & per-user purchase limits engine.
   -- 0 = unlimited; N >= 1 = lifetime rental cap per user.
   `max_per_user` INT UNSIGNED NOT NULL DEFAULT 0,
+  -- plan/114: penanda PRODUK TRIAL ("GPU Magang"). 1 = produk trial
+  -- (activation hook) — harga WAJIB 0, `max_per_user` WAJIB 1, dan checkout
+  -- TIDAK memotong saldo (tanpa baris `wallet_ledger`), TIDAK memicu rebate
+  -- 3-tier, dan TIDAK menambah omzet upline (omzet = derivasi
+  -- SUM(purchase_price) → kontrak bernilai 0 menyumbang 0).
+  -- Invarian: TEPAT SATU baris dengan is_trial = 1 (dijaga admin product CRUD
+  -- + `scripts/migrate_114_trial_product_wd_gate.php --verify`).
+  -- Gerbang penarikan anti free-rider memakai kolom ini:
+  -- `Rental_model::has_paid_rental()` = riwayat >= 1 kontrak dari produk
+  -- NON-trial. Baris lama otomatis 0 (DEFAULT) — tanpa backfill.
+  `is_trial` TINYINT(1) NOT NULL DEFAULT 0 AFTER `max_per_user`,
   -- DEPRECATED (plan/87): prerequisite-chain gating decommissioned.
   -- Product availability is 100% admin-controlled via `is_active`.
   -- Column/index/FK retained non-destructively (all rows NULL); no
@@ -449,24 +460,36 @@ CREATE TABLE IF NOT EXISTS `rate_limits` (
 -- Seed `gpu_products` (plan/82 + plan/83): DB canonical — Product_model tidak lagi
 -- memakai fallback mock. 8 paket komersial final (id 1-8 eksplisit agar
 -- referensi `user_rentals.product_id` lama tetap valid; nilai adalah lineup
--- resmi Rp 150.000 s.d. Rp 10.000.000, semuanya integer IDR).
+-- resmi Rp 150.000 s.d. Rp 10.000.000, semuanya integer IDR) + 1 paket trial
+-- plan/114 (id 9, `is_trial` = 1).
 -- plan/87: gating & limits engine disederhanakan — `max_per_user` (0 = tanpa
 -- batas) tetap aktif sebagai satu-satunya batas pembelian per-user;
 -- `unlock_prerequisite_id` DICOMMISSIONED (rantai progresif 4→5→6→7→8
 -- dihapus): ketersediaan produk 100% via toggle admin `is_active`.
 -- Idempotent-uppsert: ON DUPLICATE KEY UPDATE menyegarkan baris id 1-4 bila
--- sudah ada (migrasi lineup), menyisipkan id 5-8 pada instalasi bersih, dan
+-- sudah ada (migrasi lineup), menyisipkan id 5-9 pada instalasi bersih, dan
 -- mengunci nilai gating/limits kanonik pada setiap re-run.
+-- ⚠️ BLOK INI UNTUK INSTALASI BERSIH / DB DUMMY SAJA. JANGAN dijalankan pada
+--    DB yang sudah berisi lineup berbeda (id live ≠ id seed — mis. pada DB
+--    aktif id 9 = 'RTX 4090 Pro'): penulisan `id` eksplisit akan menimpa baris
+--    tersebut. Untuk DB yang SUDAH ADA gunakan migrasi plan/114 yang DIKUNCI
+--    OLEH `name` (lihat blok "Plan 114 — MIGRASI LIVE" di bawah).
 -- -----------------------------------------------------
-INSERT INTO `gpu_products` (`id`, `name`, `type`, `price`, `daily_rate`, `duration_days`, `is_refundable`, `max_per_user`, `unlock_prerequisite_id`, `is_active`) VALUES
-(1, 'RTX 3060 Starter', 'short_term', 150000.00, 7500.00, 25, 0, 1, NULL, 1),
-(2, 'RTX 4060 Lite', 'short_term', 300000.00, 13500.00, 30, 0, 2, NULL, 1),
-(3, 'RTX 4070 Basic', 'short_term', 600000.00, 28000.00, 30, 0, 3, NULL, 1),
-(4, 'RTX 4080 Prime', 'short_term', 1200000.00, 57600.00, 35, 0, 5, NULL, 1),
-(5, 'RTX 4090 Pro', 'long_term', 2500000.00, 125000.00, 40, 0, 5, NULL, 1),
-(6, 'A100 Cloud Cluster', 'long_term', 4500000.00, 234000.00, 45, 0, 5, NULL, 1),
-(7, 'H100 Tensor Node', 'long_term', 7000000.00, 378000.00, 50, 0, 0, NULL, 1),
-(8, 'H200 Sovereign', 'long_term', 10000000.00, 560000.00, 60, 0, 0, NULL, 1)
+INSERT INTO `gpu_products` (`id`, `name`, `type`, `price`, `daily_rate`, `duration_days`, `is_refundable`, `max_per_user`, `unlock_prerequisite_id`, `is_active`, `is_trial`) VALUES
+(1, 'RTX 3060 Starter', 'short_term', 150000.00, 7500.00, 25, 0, 1, NULL, 1, 0),
+(2, 'RTX 4060 Lite', 'short_term', 300000.00, 13500.00, 30, 0, 2, NULL, 1, 0),
+(3, 'RTX 4070 Basic', 'short_term', 600000.00, 28000.00, 30, 0, 3, NULL, 1, 0),
+(4, 'RTX 4080 Prime', 'short_term', 1200000.00, 57600.00, 35, 0, 5, NULL, 1, 0),
+(5, 'RTX 4090 Pro', 'long_term', 2500000.00, 125000.00, 40, 0, 5, NULL, 1, 0),
+(6, 'A100 Cloud Cluster', 'long_term', 4500000.00, 234000.00, 45, 0, 5, NULL, 1, 0),
+(7, 'H100 Tensor Node', 'long_term', 7000000.00, 378000.00, 50, 0, 0, NULL, 1, 0),
+(8, 'H200 Sovereign', 'long_term', 10000000.00, 560000.00, 60, 0, 0, NULL, 1, 0),
+-- plan/114: PRODUK TRIAL ("GPU Magang") — Rp 0 / Rp 10.000 per hari / 3 hari
+-- (total potensi Rp 30.000 lewat mesin klaim ROI existing), batas 1x per user.
+-- id 9 pada INSTALASI BERSIH. Produk trial TIDAK BOLEH memakai id yang ada di
+-- peta reward promotor (`application/config/promoter_rewards.php`) — pada
+-- instalasi ini peta = id 5..8.
+(9, 'GPU Magang (Trial)', 'short_term', 0.00, 10000.00, 3, 0, 1, NULL, 1, 1)
 ON DUPLICATE KEY UPDATE 
   `name` = VALUES(`name`),
   `type` = VALUES(`type`),
@@ -476,7 +499,8 @@ ON DUPLICATE KEY UPDATE
   `is_refundable` = VALUES(`is_refundable`),
   `max_per_user` = VALUES(`max_per_user`),
   `unlock_prerequisite_id` = NULL,
-  `is_active` = VALUES(`is_active`);
+  `is_active` = VALUES(`is_active`),
+  `is_trial` = VALUES(`is_trial`);
 
 SET FOREIGN_KEY_CHECKS = 1;
 
@@ -671,4 +695,51 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- menjadi jaminan tingkat DB "satu kredit per user per hari". Histori absensi
 -- karena itu TIDAK memerlukan tabel baru: cukup query `wallet_ledger`
 -- dengan prefix `CHK-%` (terlayani `idx_user_id`).
+-- -----------------------------------------------------
+
+-- -----------------------------------------------------
+-- Plan 114 — MIGRASI LIVE (one-time; jalankan manual di DB aktif).
+-- Kolom `is_trial` + seed produk trial sudah masuk blok CREATE TABLE / seed di
+-- atas (instalasi baru otomatis). Untuk DB yang SUDAH ADA, gunakan tool:
+--
+--   php scripts/migrate_114_trial_product_wd_gate.php --dry-run   # inspeksi, tanpa tulis
+--   php scripts/migrate_114_trial_product_wd_gate.php --apply     # DDL + seed + verify
+--   php scripts/migrate_114_trial_product_wd_gate.php --verify     # read-only; exit 2 bila drift
+--
+-- Referensi SQL yang dijalankan tool tersebut (urutan wajib):
+--
+--   1) ALTER TABLE `gpu_products`
+--        ADD COLUMN `is_trial` TINYINT(1) NOT NULL DEFAULT 0 AFTER `max_per_user`;
+--      -- TANPA backfill: DEFAULT 0 mengisi seluruh baris lama (semua non-trial).
+--      -- MariaDB: ADD COLUMN IF NOT EXISTS …; MySQL 8 tidak punya IF NOT EXISTS
+--      -- → tool memeriksa information_schema lebih dulu (idempoten).
+--
+--   2) INSERT INTO `gpu_products` … ON DUPLICATE KEY UPDATE — DIKUNCI OLEH `name`
+--        ('GPU Magang (Trial)'), BUKAN oleh `id`: id live ≠ id seed (preseden
+--        plan/104). Nilai: type='short_term', price=0, daily_rate=10000,
+--        duration_days=3, is_refundable=0, max_per_user=1, is_active=1,
+--        is_trial=1.
+--      -- Nama produk TIDAK PERNAH menjadi identitas teknis aplikasi
+--      -- (identitas = `is_trial`); `name` hanya kunci pencocokan migrasi.
+--
+--   3) Verifikasi invarian (harapan: 1 baris trial / 0 inconsistent):
+--        SELECT COUNT(*) FROM `gpu_products` WHERE `is_trial` = 1;            -- = 1
+--        SELECT COUNT(*) FROM `gpu_products`
+--         WHERE `is_trial` = 1 AND (`price` <> 0 OR `max_per_user` <> 1
+--                                    OR `daily_rate` <> 10000 OR `duration_days` <> 3
+--                                    OR `is_active` <> 1);                   -- = 0
+--        -- tamper (exit 2): > 1 baris is_trial=1, atau id baris trial masuk
+--        -- peta reward promotor (`application/config/promoter_rewards.php`)
+--
+-- ⚠️ URUTAN RILIS: migrasi ini WAJIB dijalankan SEBELUM kode baru di-deploy —
+--    `Rental_model::has_paid_rental()` (gerbang penarikan) dan GATE 0
+--    `checkout_rental()` membaca `gpu_products.is_trial`. Kolom yang belum ada
+--    = error query pada /wallet, /wallet/withdraw, dan checkout.
+--
+-- Catatan ekonomi (mengapa TIDAK ada `_add_omzet` untuk di-bypass): omzet
+-- upline dihitung DERIVATIF — `Promoter_model::get_omzet_summary()` =
+-- `COALESCE(SUM(ur.purchase_price), 0)`. Kontrak trial ber-`purchase_price` 0
+-- menyumbang 0 secara otomatis; rebate 3-tier dilewati di `checkout_rental()`
+-- dan debit saldo TIDAK dijalankan (`Wallet_model::_post()` menolak amount ≤ 0,
+-- sehingga Rp 0 tidak pernah menghasilkan baris `wallet_ledger`).
 -- -----------------------------------------------------

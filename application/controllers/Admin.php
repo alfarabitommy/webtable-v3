@@ -2452,10 +2452,18 @@ class Admin extends CI_Controller {
             $errors[] = 'Tipe paket tidak valid.';
         }
 
+        // ── plan/114: penanda produk TRIAL (activation hook) ──
+        // Harga Rp 0 HANYA sah untuk produk trial; invarian produk trial
+        // (harga 0 + kuota 1/user) dipakai jalur bebas checkout & migrasi 114.
+        $is_trial = (isset($p['is_trial']) && (int) $p['is_trial'] === 1) ? 1 : 0;
+
         // ── M8 integer IDR & durasi/kuota ──
         $price_raw = (string) ($p['price'] ?? '');
-        if (!preg_match('/^[1-9][0-9]*$/', $price_raw)) {
-            $errors[] = 'Harga sewa harus bilangan bulat positif (IDR).';
+        $price_pattern = ($is_trial === 1) ? '/^(0|[1-9][0-9]*)$/' : '/^[1-9][0-9]*$/';
+        if (!preg_match($price_pattern, $price_raw)) {
+            $errors[] = $is_trial === 1
+                ? 'Harga produk trial wajib 0 (Rp 0).'
+                : 'Harga sewa harus bilangan bulat positif (IDR).';
         }
         $roi_raw = (string) ($p['daily_rate'] ?? '');
         if (!preg_match('/^[1-9][0-9]*$/', $roi_raw)) {
@@ -2473,6 +2481,22 @@ class Admin extends CI_Controller {
         // plan/87: validasi prasyarat DIHAPUS — gating produk murni via
         // is_active (toggle admin). Kolom unlock_prerequisite_id dormant.
 
+        // plan/114 — INVARIAN & GUARD PRODUK TRIAL (all-or-nothing).
+        if ($is_trial === 1) {
+            if ((int) $price_raw !== 0) {
+                $errors[] = 'Produk trial wajib berharga Rp 0.';
+            }
+            if ((int) $quota_raw !== 1) {
+                $errors[] = 'Produk trial wajib dibatasi 1 sewa per user.';
+            }
+            if ($this->Admin_model->count_other_trial_products($is_edit ? (int) $product_id : 0) > 0) {
+                $errors[] = 'Hanya satu produk trial yang diizinkan.';
+            }
+            if ($is_edit && $this->Admin_model->product_has_paid_rentals((int) $product_id)) {
+                $errors[] = 'Produk sudah memiliki kontrak berbayar — tidak dapat dijadikan trial.';
+            }
+        }
+
         if (count($errors) > 0) {
             return ['ok' => false, 'errors' => $errors, 'fields' => []];
         }
@@ -2485,6 +2509,8 @@ class Admin extends CI_Controller {
             'duration_days'            => (int) $dur_raw,
             'is_refundable'            => isset($p['is_refundable']) ? 1 : 0,
             'max_per_user'             => (int) $quota_raw,
+            // plan/114: koersi 0/1 (kolom TINYINT; hanya 1 yang berarti trial).
+            'is_trial'                 => $is_trial,
         ];
         if (!$is_edit) {
             $fields['is_active'] = (isset($p['is_active']) && (int) $p['is_active'] === 1) ? 1 : 0;
@@ -2513,6 +2539,9 @@ class Admin extends CI_Controller {
             'is_refundable'          => (int) $row->is_refundable,
             'max_per_user'           => (int) $row->max_per_user,
             'is_active'              => (int) $row->is_active,
+            // plan/114: `??` menjaga kompatibilitas bila DDL `is_trial`
+            // belum dijalankan pada DB target (deploy kode mendahului DDL).
+            'is_trial'               => (int) ($row->is_trial ?? 0),
         ];
     }
 

@@ -50,14 +50,29 @@ ON DUPLICATE KEY UPDATE `username` = VALUES(`username`), `password` = VALUES(`pa
 -- s.d. H200 Sovereign) dilakukan oleh migrasi plan/104 yang KEYED BY
 -- `name`, bukan oleh seed ini:
 --   php scripts/migrate_104_gpu_product_images.php --apply
-INSERT INTO `gpu_products` (`id`, `name`, `image`, `type`, `price`, `daily_rate`, `duration_days`, `is_refundable`, `is_active`, `created_at`) VALUES
-(1, 'RTX 4090 Node (Entry)',           NULL, 'short_term', 1000000.00,  40000.00,   30,  0, 1, DATE_SUB(NOW(), INTERVAL 90 DAY)),
-(2, 'RTX 4090 Dual Cluster (Mid)',     NULL, 'long_term',  5000000.00,  185000.00,  90,  1, 1, DATE_SUB(NOW(), INTERVAL 90 DAY)),
-(3, 'A100 Tensor Cloud (High)',        NULL, 'long_term',  15000000.00, 520000.00,  180, 1, 1, DATE_SUB(NOW(), INTERVAL 90 DAY)),
-(4, 'H100 Sovereign Node (Enterprise)',NULL, 'long_term',  50000000.00, 1650000.00, 365, 1, 1, DATE_SUB(NOW(), INTERVAL 90 DAY))
+-- plan/114: baris produk trial "GPU Magang" (id 9, `is_trial` = 1) ditambahkan
+-- dengan `max_per_user` = 1 eksplisit agar invarian produk trial terpenuhi juga
+-- pada DB dummy yang belum menjalankan migrasi plan/114.
+INSERT INTO `gpu_products` (`id`, `name`, `image`, `type`, `price`, `daily_rate`, `duration_days`, `is_refundable`, `max_per_user`, `is_active`, `is_trial`, `created_at`) VALUES
+(1, 'RTX 4090 Node (Entry)',           NULL, 'short_term', 1000000.00,  40000.00,   30,  0, 0, 1, 0, DATE_SUB(NOW(), INTERVAL 90 DAY)),
+(2, 'RTX 4090 Dual Cluster (Mid)',     NULL, 'long_term',  5000000.00,  185000.00,  90,  1, 0, 1, 0, DATE_SUB(NOW(), INTERVAL 90 DAY)),
+(3, 'A100 Tensor Cloud (High)',        NULL, 'long_term',  15000000.00, 520000.00,  180, 1, 0, 1, 0, DATE_SUB(NOW(), INTERVAL 90 DAY)),
+(4, 'H100 Sovereign Node (Enterprise)',NULL, 'long_term',  50000000.00, 1650000.00, 365, 1, 0, 1, 0, DATE_SUB(NOW(), INTERVAL 90 DAY)),
+-- plan/114: PRODUK TRIAL ("GPU Magang") — Rp 0 / Rp 10.000 per hari / 3 hari,
+-- batas 1x per user (`max_per_user` = 1), `is_trial` = 1. `image` NULL →
+-- marketplace merender fallback banner plan/104 (bukan gambar rusak).
+-- ⚠️ Blok ini untuk DB dummy / instalasi bersih: id live ≠ id seed (pada DB
+--    aktif id 9 bisa berupa produk komersial). Untuk DB yang SUDAH ADA gunakan
+--    `scripts/migrate_114_trial_product_wd_gate.php` (DIKUNCI OLEH `name`).
+(9, 'GPU Magang (Trial)',              NULL, 'short_term', 0.00,       10000.00,   3,   0, 1, 1, 1, DATE_SUB(NOW(), INTERVAL 1 DAY))
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`), `type` = VALUES(`type`), `price` = VALUES(`price`),
                          `daily_rate` = VALUES(`daily_rate`), `duration_days` = VALUES(`duration_days`),
-                         `is_refundable` = VALUES(`is_refundable`), `is_active` = VALUES(`is_active`);
+                         `is_refundable` = VALUES(`is_refundable`), `is_active` = VALUES(`is_active`),
+                         -- plan/114: `max_per_user` ikut dinormalkan agar invarian
+                         -- produk trial (kuota 1/user) tetap utuh bila baris id 9
+                         -- sudah ada; baris 1-4 memakai nilai 0 yang sama.
+                         `max_per_user` = VALUES(`max_per_user`),
+                         `is_trial` = VALUES(`is_trial`);
 
 -- ============ SECTION: users ============
 -- 13 users, 3-tier MLM. parent_id rows are inserted before their children.

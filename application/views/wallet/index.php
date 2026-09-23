@@ -40,6 +40,11 @@
                 <button disabled class="flex-1 bg-slate-400 text-white text-sm font-bold py-2.5 rounded-xl cursor-not-allowed opacity-60">
                     <i class="fas fa-lock mr-1"></i> <?= lang('wallet_loan_active') ?>
                 </button>
+                <?php elseif (empty($has_paid_rental)): ?>
+                <!-- plan/114: anti free-rider — riwayat sewa produk BERBAYAR wajib -->
+                <button disabled class="flex-1 bg-slate-400 text-white text-sm font-bold py-2.5 rounded-xl cursor-not-allowed opacity-60">
+                    <i class="fas fa-lock mr-1"></i> <?= lang('wallet_wd_need_paid') ?>
+                </button>
                 <?php elseif (!empty($daily_limit_reached)): ?>
                 <button disabled class="flex-1 bg-slate-600 text-slate-300 text-sm font-bold py-2.5 rounded-xl cursor-not-allowed opacity-60">
                     <i class="fas fa-calendar-check mr-1"></i> <?= lang('wallet_daily_limit') ?>

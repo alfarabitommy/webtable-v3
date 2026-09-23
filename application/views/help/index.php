@@ -138,6 +138,7 @@
                         <li><?= sprintf(lang('help_q_wd_fail_req3'), 'Rp ' . number_format(100000, 0, ',', '.')) ?></li>
                         <li><?= lang('help_q_wd_fail_req4') ?></li>
                         <li><?= lang('help_q_wd_fail_req5') ?></li>
+                        <li><?= lang('help_q_wd_fail_req6') ?></li>
                     </ul>
                 </div>
             </div>

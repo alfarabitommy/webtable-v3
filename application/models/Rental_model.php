@@ -79,6 +79,18 @@ class Rental_model extends CI_Model {
      *      breakage tanpa pass-up; kegagalan kredit → rollback penuh.
      *   8. Commit → success.
      *
+     * plan/114 — JALUR TRIAL GRATIS (produk `is_trial = 1` berharga 0):
+     *   2b. klasifikasi `$free_trial` dari snapshot DB (fail-closed: harga 0
+     *       TANPA penanda trial ditolak; trial berharga > 0 = jalur berbayar);
+     *   4/5. pemeriksaan saldo + debit DILEWATI — Rp 0 tidak boleh menyentuh
+     *       `Wallet_model::_post()` yang menolak amount <= 0, dan tidak ada
+     *       baris `wallet_ledger` bernilai 0 (Z1/M8);
+     *   6. kontrak tetap dibuat dengan `purchase_price` 0 (source 'purchase');
+     *   7. rebate 3-tier DILEWATI (komisi 0 IDR untuk semua tier); omzet
+     *       upline tidak terpengaruh karena DIHITUNG DERIVATIF dari
+     *       `SUM(purchase_price)` downline (tidak ada `_add_omzet`).
+     *   Kuota GATE 2 tetap berlaku → trial = 1x per user via `max_per_user`.
+     *
      * @param int   $user_id
      * @param array $product Produk dari Product_model::get_product() — hanya
      *                       dipakai untuk id & UX fast-fail; nilai finansial
@@ -86,6 +98,8 @@ class Rental_model extends CI_Model {
      * @return array{success:bool, code:string, message:string, rental_id:int|null}
      *   code: 'ok' | 'product_unavailable' | 'quota_exceeded'
      *         | 'insufficient' | 'error'
+     *   plan/114 (E4b): 'quota_exceeded' menyertakan key `max` sehingga
+     *   controller dapat merender `rental_err_max_per_user` dengan angka benar.
      */
     public function checkout_rental($user_id, $product) {
         $this->db->trans_begin();
@@ -103,9 +117,12 @@ class Rental_model extends CI_Model {
             //    read SETELAH lock wait). Baris hilang / non-aktif → tolak:
             //    produk non-aktif tidak boleh dibeli via POST tamper.
             //    (plan/87: tanpa join/kolom prasyarat.)
+            //    plan/114: `p.is_trial` ikut di-snapshot — klasifikasi jalur
+            //    bebas (trial) diambil dari DB segar, bukan dari argumen
+            //    controller (anti POST-tamper, pola GATE 0 plan/83).
             $product = $this->db->query(
                 "SELECT p.id, p.name, p.price, p.daily_rate, p.duration_days,
-                        p.is_active, p.max_per_user
+                        p.is_active, p.max_per_user, p.is_trial
                    FROM gpu_products p
                   WHERE p.id = ?",
                 [(int) $product['id']]
@@ -113,6 +130,32 @@ class Rental_model extends CI_Model {
 
             if (!$product || (int) $product['is_active'] !== 1) {
                 $this->db->trans_rollback();
+                return ['success' => false, 'code' => 'product_unavailable', 'message' => 'Sistem: Produk tidak ditemukan di database.', 'rental_id' => null];
+            }
+
+            // 2b. plan/114 — KLASIFIKASI JALUR (fail-closed).
+            //     Jalur BEBAS (trial gratis) aktif HANYA bila produk ditandai
+            //     `is_trial = 1` DAN harganya 0. Wajib: Rp 0 tidak boleh
+            //     melewati `debit()` karena `Wallet_model::_post()` menolak
+            //     amount <= 0 (M8) → debit 0 akan menggagalkan seluruh checkout.
+            //     Kombinasi aneh ditangani eksplisit:
+            //       • is_trial = 0 & price <= 0 → TOLAK (produk harga 0
+            //         non-trial tidak boleh melahirkan kontrak gratis);
+            //       • is_trial = 1 & price > 0  → jalur BERBAYAR normal
+            //         (data aneh tetap tidak eksploitatif; dicatat di log).
+            $price      = (int) $product['price'];
+            $is_trial   = ((int) $product['is_trial'] === 1);
+            $free_trial = ($is_trial && $price === 0);
+
+            if ($is_trial && $price > 0) {
+                log_message('warning', 'Rental_model::checkout_rental — produk id ' . (int) $product['id']
+                    . ' bertanda trial tetapi berharga ' . $price . ' (> 0) — diperlakukan sebagai sewa BERBAYAR.');
+            }
+
+            if (!$free_trial && $price < 1) {
+                $this->db->trans_rollback();
+                log_message('error', 'Rental_model::checkout_rental — produk id ' . (int) $product['id']
+                    . ' berharga <= 0 TANPA penanda trial — checkout ditolak (fail-closed).');
                 return ['success' => false, 'code' => 'product_unavailable', 'message' => 'Sistem: Produk tidak ditemukan di database.', 'rental_id' => null];
             }
 
@@ -138,41 +181,59 @@ class Rental_model extends CI_Model {
             }
 
             // GATE 2 — kuota lifetime (0 = tanpa batas).
+            // plan/114 (E4b): sertakan `max` agar controller bisa merender
+            // pesan kuota yang benar (dulu kode 'quota_exceeded' jatuh ke
+            // pesan generik "checkout gagal", padahal kodenya sudah dipetakan
+            // ke `rental_err_max_per_user`).
             $max = (int) $product['max_per_user'];
             if ($max > 0 && (int) $gates->own_count >= $max) {
                 $this->db->trans_rollback();
                 return ['success' => false, 'code' => 'quota_exceeded',
                     'message' => 'Sistem: Batas maksimal sewa paket ini telah tercapai (Maks. ' . $max . ').',
+                    'max' => $max,
                     'rental_id' => null];
             }
 
             // 4. Penolakan overspend STRICT di dalam TX terkunci.
             //    (M8: fresh_balance int & harga snapshot di-(int) kan.)
-            if ($fresh_balance < (int) $product['price']) {
+            //    plan/114: jalur trial gratis TIDAK memeriksa saldo — tidak ada
+            //    uang yang berpindah, sehingga saldo 0 tetap boleh mengaktifkan
+            //    trial (justru itu inti activation hook).
+            if (!$free_trial && $fresh_balance < $price) {
                 $this->db->trans_rollback();
                 return ['success' => false, 'code' => 'insufficient', 'message' => 'Sistem: Saldo USC/IDR Anda tidak mencukupi.', 'rental_id' => null];
             }
 
             // 5. Debit via ledger ingestion helper (ledger + cache atomik C4/W3);
             //    kegagalan → rollback seluruh TX (tidak ada kontrak tanpa debit).
-            $debited = $this->Wallet_model->debit(
-                $user_id,
-                (int) $product['price'],
-                'RENT-' . (int) $product['id'] . '-' . date('YmdHis'),
-                'Sewa ' . $product['name']
-            );
+            //    plan/114: DILEWATI untuk trial gratis (Rp 0). `_post()` menolak
+            //    amount <= 0, jadi memanggilnya dengan 0 akan merusak checkout
+            //    DAN berpotensi menulis baris ledger bernilai 0 — keduanya
+            //    dilarang (Z1/M8).
+            if (!$free_trial) {
+                $debited = $this->Wallet_model->debit(
+                    $user_id,
+                    $price,
+                    'RENT-' . (int) $product['id'] . '-' . date('YmdHis'),
+                    'Sewa ' . $product['name']
+                );
 
-            if (!$debited) {
-                $this->db->trans_rollback();
-                return ['success' => false, 'code' => 'error', 'message' => 'Sistem: Gagal memotong saldo atau membuat kontrak sewa.', 'rental_id' => null];
+                if (!$debited) {
+                    $this->db->trans_rollback();
+                    return ['success' => false, 'code' => 'error', 'message' => 'Sistem: Gagal memotong saldo atau membuat kontrak sewa.', 'rental_id' => null];
+                }
             }
 
             // 6. Buat kontrak sewa (dengan expired_at = now + duration_days)
             //    M8: snapshot harga & ROI harian disimpan sebagai integer IDR.
+            //    plan/114: kontrak trial = kontrak NORMAL dengan
+            //    purchase_price 0 (source default 'purchase' → kuota/klaim ROI
+            //    memakai jalur existing tanpa cabang baru), sehingga ROI harian
+            //    trial cair lewat `claim_roi()` yang sudah teruji (ROI-{id}-D{n}).
             $this->db->insert('user_rentals', [
                 'user_id'        => $user_id,
                 'product_id'     => (int) $product['id'],
-                'purchase_price' => (int) $product['price'],
+                'purchase_price' => $price,
                 'daily_roi'      => (int) $product['daily_rate'],
                 'total_days'     => (int) $product['duration_days'],
                 'status'         => 'active',
@@ -186,7 +247,14 @@ class Rental_model extends CI_Model {
             //    RBT-{rental_id}-L{tier} (C4/Z1); upline inaktif → breakage
             //    (no pass-up). Gagal → rollback penuh (zero rebate rows).
             //    Engine nonaktif / tanpa upline → no-op sukses.
-            if (!$this->_distribute_rebate($user_id, (int) $product['price'], $rental_id)) {
+            //    plan/114: jalur trial gratis DILEWATI sepenuhnya — harga 0
+            //    berarti komisi 0 untuk SEMUA tier, sehingga traversal upline +
+            //    query kelayakan per tier hanya membuang kerja. Omzet upline
+            //    juga tidak terpengaruh: omzet = DERIVASI
+            //    `Promoter_model::get_omzet_summary()` = SUM(purchase_price)
+            //    downline → kontrak bernilai 0 menyumbang 0 secara otomatis
+            //    (tidak ada `_add_omzet` untuk di-bypass — fungsi itu tidak ada).
+            if (!$free_trial && !$this->_distribute_rebate($user_id, $price, $rental_id)) {
                 $this->db->trans_rollback();
                 log_message('error', 'Rental_model::checkout_rental — distribusi rebate gagal (rental '
                     . (int) $rental_id . ', user ' . (int) $user_id . ')');
@@ -814,6 +882,45 @@ class Rental_model extends CI_Model {
               WHERE user_id = ? AND status = 'active' AND expired_at > ?
               LIMIT 1",
             [$user_id, date('Y-m-d H:i:s')]
+        )->row();
+        return $row !== null;
+    }
+
+    /**
+     * plan/114 — GERBANG PENARIKAN anti free-rider: user wajib punya RIWAYAT
+     * kontrak dari produk NON-trial (keputusan owner D-A: predikat literal
+     * `gpu_products.is_trial = 0`).
+     *
+     * Sengaja TANPA filter `status` — berbeda dari predikat kuota GATE 2
+     * (plan/83 D1) yang berbicara tentang KEPEMILIKAN SAAT INI. Di sini yang
+     * diuji adalah RIWAYAT pernah bertransaksi produk berbayar, sehingga
+     * 'completed' maupun 'cancelled' tetap memenuhi (soft-cancel admin tanpa
+     * refund tidak membatalkan status pelanggan user).
+     *
+     * Konsekuensi yang diterima owner: kontrak reward promotor
+     * (`source='promoter_reward'`, `purchase_price` 0) atas produk NON-trial
+     * IKUT membuka gerbang. Jalur penutupnya (predikat lebih ketat
+     * `AND ur.purchase_price > 0`) sengaja TIDAK dipakai.
+     *
+     * Produk trial (`is_trial = 1`) TIDAK PERNAH membuka gerbang — inilah inti
+     * kontrol anti free-rider (trial + absensi harian tidak bisa langsung
+     * dicairkan).
+     *
+     * Index: terlayani leftmost prefix `idx_user_status_expired (user_id, …)`
+     * + PK join `gpu_products.id` → tanpa index baru.
+     *
+     * @param int $user_id
+     * @return bool
+     */
+    public function has_paid_rental($user_id) {
+        $row = $this->db->query(
+            "SELECT 1
+               FROM user_rentals ur
+               JOIN gpu_products p ON p.id = ur.product_id
+              WHERE ur.user_id = ?
+                AND p.is_trial = 0
+              LIMIT 1",
+            [(int) $user_id]
         )->row();
         return $row !== null;
     }

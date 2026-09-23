@@ -97,14 +97,21 @@ class Rentals extends MY_Controller {
     /**
      * Plan 103: kode hasil Rental_model::checkout_rental() → pesan idiom aktif.
      *
-     * @param  array $result {success, code, message}
+     * plan/114 (E4b): kode yang BENAR-BENAR dikembalikan model adalah
+     * 'quota_exceeded' (bukan 'max_per_user'), sehingga sebelumnya penolakan
+     * kuota — termasuk batas trial 1x per user — jatuh ke pesan generik
+     * "checkout gagal". Model kini menyertakan key `max` juga, jadi pesan kuota
+     * dapat memuat angka batas yang benar.
+     *
+     * @param  array $result {success, code, message, max?}
      * @return string
      */
     private function _checkout_message(array $result) {
         $map = [
             'product_unavailable' => 'rental_err_product_missing',
             'insufficient'        => 'rental_err_insufficient',
-            'max_per_user'        => 'rental_err_max_per_user',
+            'quota_exceeded'      => 'rental_err_max_per_user',
+            'max_per_user'        => 'rental_err_max_per_user', // alias defensif (legacy)
         ];
         $key = $map[$result['code'] ?? 'error'] ?? 'rental_err_checkout_failed';
 

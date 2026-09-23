@@ -35,6 +35,12 @@ class Wallet_model extends CI_Model {
         // tunggal. Entry point web juga mem-pin lebih awal (MY_Controller,
         // Auth, Admin, Admin_auth) — konstruktor ini backstop untuk CLI/cron.
         $this->db->query("SET time_zone = '+07:00'");
+
+        // plan/114: gerbang penarikan anti free-rider membutuhkan riwayat sewa
+        // produk NON-trial (`Rental_model::has_paid_rental`) DI DALAM TX
+        // create_withdrawal() — otoritas finansial hidup di model ini, jadi
+        // Rental_model di-load di sini (pola cross-model loader repo).
+        $this->load->model('Rental_model');
     }
 
     // =====================================================================
@@ -1195,7 +1201,10 @@ class Wallet_model extends CI_Model {
      * @param int $bank_account_id
      * @return array{success:bool, code:string, message:string, wd_number:string|null}
      *   code: 'ok' | 'insufficient' | 'pending_exists' | 'daily_limit'
-     *         | 'closed_day' | 'closed_time' | 'below_min' | 'above_max' | 'error'
+     *         | 'closed_day' | 'closed_time' | 'below_min' | 'above_max'
+     *         | 'no_ewallet' | 'no_paid_rental' | 'error'
+     *   plan/114: 'no_paid_rental' = user belum pernah memiliki kontrak dari
+     *   produk NON-trial (gerbang anti free-rider; trial gratis tidak membuka).
      */
     public function create_withdrawal($user_id, $amount, $bank_account_id) {
         $wd_number = 'WD-' . date('YmdHis') . '-' . $user_id;
@@ -1229,7 +1238,24 @@ class Wallet_model extends CI_Model {
                 return ['success' => false, 'code' => 'no_ewallet', 'message' => 'Akun e-wallet tidak valid atau sudah tidak aktif.', 'wd_number' => null];
             }
 
-            // 1b. Kebijakan operasional & batas nominal (M1, plan/56) —
+            // 1b. plan/114 — GERBANG ANTI FREE-RIDER (OTORITAS, di dalam TX
+            //     terkunci). Penarikan mensyaratkan RIWAYAT >= 1 kontrak dari
+            //     produk NON-trial; trial gratis (Rp 0, `is_trial = 1`) dan
+            //     bonus absensi harian TIDAK boleh langsung dicairkan.
+            //     Read view dibuat SETELAH lock wait (anchor `users`), jadi
+            //     admin yang meng-cancel/meng-inject sewa secara bersamaan
+            //     tidak bisa menembus gate. Cermin UX di controller hanya untuk
+            //     pesan cepat — keputusan finansial tetap di sini.
+            //     Rolling back di sini = 0 baris `withdrawals` + 0 baris
+            //     `wallet_ledger` (imutabilitas Z1 utuh).
+            if (!$this->Rental_model->has_paid_rental($user_id)) {
+                $this->db->trans_rollback();
+                return ['success' => false, 'code' => 'no_paid_rental',
+                    'message' => 'Anda harus menyewa minimal 1 produk berbayar untuk dapat melakukan penarikan.',
+                    'wd_number' => null];
+            }
+
+            // 1c. Kebijakan operasional & batas nominal (M1, plan/56) —
             //     otoritatif di dalam TX terkunci (re-check setelah lock wait),
             //     jadi perubahan jam/hari/tier langsung berlaku tanpa race.
             $amount = (int) $amount;

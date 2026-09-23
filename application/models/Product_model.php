@@ -40,7 +40,8 @@ class Product_model extends CI_Model {
      * refund) tidak memakan kuota.
      *
      * @param int $user_id
-     * @return array  Produk aktif (result_array, order id ASC) dengan ekstra:
+     * @return array  Produk aktif (result_array, order is_trial DESC lalu id ASC)
+     *   dengan ekstra:
      *   user_rentals_count (int), quota_max (int), is_unlimited (bool),
      *   quota_remaining (int|null), is_quota_exhausted (bool),
      *   can_rent (bool). Produk non-aktif / katalog kosong → array kosong
@@ -52,11 +53,16 @@ class Product_model extends CI_Model {
         // Query A — produk aktif SAJA (is_active = 1). Tanpa self-join
         // prasyarat (plan/87): gating 100% via toggle admin; produk
         // non-aktif tidak pernah dirender dalam bentuk apa pun.
+        //
+        // plan/115: kartu produk TRIAL selalu di posisi paling atas
+        // (`is_trial DESC`) tanpa memandang harganya. Kunci kedua TIDAK
+        // diubah — sisa katalog tetap `p.id ASC` (urutan existing).
+        // Deterministik karena invarian plan/114 = TEPAT SATU baris trial.
         $rows = $this->db->query(
             "SELECT p.*
                FROM gpu_products p
               WHERE p.is_active = 1
-              ORDER BY p.id ASC"
+              ORDER BY p.is_trial DESC, p.id ASC"
         )->result_array();
 
         // Query B — SATU agregat untuk seluruh riwayat kualifikasi user.
@@ -95,5 +101,34 @@ class Product_model extends CI_Model {
         unset($p);
 
         return $rows;
+    }
+
+    /**
+     * plan/115 — Produk trial AKTIF untuk promo dashboard (READ-ONLY, display only).
+     *
+     * Fail-closed: mengembalikan NULL bila tidak ada baris `is_trial = 1` yang
+     * aktif DAN berharga 0 — sehingga modal promo tidak pernah menjanjikan
+     * "Gratis" untuk produk yang tidak gratis, dan promo otomatis hilang bila
+     * admin mematikan produk trial atau mengubah harganya.
+     *
+     * Otoritas ekonomi tetap Rental_model::checkout_rental (TX terkunci);
+     * nilai `daily_rate`/`duration_days` di sini HANYA untuk render copy.
+     * `LIMIT 1` + `ORDER BY id ASC` → deterministik walau invarian "tepat satu
+     * produk trial" dilanggar manual.
+     *
+     * @return array|null  Baris produk trial, atau NULL bila tidak layak.
+     */
+    public function get_active_trial_product() {
+        $row = $this->db->query(
+            "SELECT id, name, price, daily_rate, duration_days, max_per_user
+               FROM gpu_products
+              WHERE is_trial = 1
+                AND is_active = 1
+                AND price = 0
+              ORDER BY id ASC
+              LIMIT 1"
+        )->row_array();
+
+        return $row ?: null;
     }
 }

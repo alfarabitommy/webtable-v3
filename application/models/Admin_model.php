@@ -1014,6 +1014,38 @@ class Admin_model extends CI_Model {
     }
 
     /**
+     * plan/114 — jumlah produk trial SELAIN baris ini. Invarian aplikasi:
+     * TEPAT SATU produk dengan `is_trial = 1` (jalur bebas checkout & gerbang
+     * penarikan membaca kolom ini). Dipakai validasi admin product CRUD.
+     *
+     * @param int $except_id Baris yang dikecualikan (0 saat create).
+     * @return int
+     */
+    public function count_other_trial_products($except_id = 0) {
+        return (int) $this->db
+            ->where('is_trial', 1)
+            ->where('id !=', (int) $except_id)
+            ->count_all_results('gpu_products');
+    }
+
+    /**
+     * plan/114 — apakah produk ini sudah punya kontrak BERBAYAR
+     * (`purchase_price > 0`)? Dipakai guard: produk berbayar yang sudah
+     * dibeli TIDAK boleh diubah menjadi trial, karena gerbang penarikan
+     * membaca `gpu_products.is_trial` SAAT INI (bukan snapshot kontrak) —
+     * mengubahnya akan mencabut hak penarikan pembeli lama secara retroaktif.
+     *
+     * @param int $product_id
+     * @return bool
+     */
+    public function product_has_paid_rentals($product_id) {
+        return $this->db
+            ->where('product_id', (int) $product_id)
+            ->where('purchase_price >', 0)
+            ->count_all_results('user_rentals') > 0;
+    }
+
+    /**
      * Normalisasi + koersi (int) kolom produk sebelum write (M8). Kolom
      * finansial & durasi sudah divalidasi regex di controller; model tetap
      * memaksa integer & whitelist kolom (anti mass-assignment).
@@ -1029,7 +1061,9 @@ class Admin_model extends CI_Model {
         $allowed = ['name', 'type', 'price', 'daily_rate', 'duration_days',
                     'is_refundable', 'max_per_user', 'is_active',
                     // plan/104: gambar produk (basename di uploads/products/).
-                    'image'];
+                    'image',
+                    // plan/114: penanda produk trial (koersi 0/1 di cabang default).
+                    'is_trial'];
         $clean = [];
         foreach ($allowed as $key) {
             if (!array_key_exists($key, $data)) {

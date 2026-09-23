@@ -34,6 +34,34 @@ class Home extends MY_Controller {
             $promoter_available = $this->Promoter_model->get_omzet_summary($user_id)['available'];
         }
 
+        // plan/115: promo produk trial untuk member yang BELUM PERNAH menyewa
+        // (lifetime_rentals === 0) — gerbang SERVER. HTML modal hanya dirender
+        // bila produk trial aktif berharga 0 benar-benar ada di DB (fail-closed:
+        // produk dimatikan / harganya diubah admin → promo hilang sendiri).
+        // Seluruh nominal DIHITUNG di server (L6/M8: integer murni, tanpa float);
+        // kamus i18n tidak pernah memuat angka. Dipanggil HANYA di cabang ini →
+        // user yang sudah pernah menyewa tidak menambah query apa pun.
+        $trial_promo = null;
+        if ($lifetime === 0) {
+            $this->load->model('Product_model');
+            $trial = $this->Product_model->get_active_trial_product();
+
+            if ($trial) {
+                $days  = max(1, (int) $trial['duration_days']);
+                $daily = (int) $trial['daily_rate'];
+
+                $trial_promo = [
+                    // O1 (plan/115, disetujui owner): scope gerbang klien
+                    // per-user → localStorage `trial_popup_dismissed_<user_id>`,
+                    // sehingga perangkat bersama tidak menekan promo user lain.
+                    'user_id' => (int) $user_id,
+                    'days'    => $days,
+                    'daily'   => $daily,
+                    'total'   => $daily * $days,
+                ];
+            }
+        }
+
         $data = [
             'page_title'           => lang('home_page_title'),
             'user'                 => $user,
@@ -43,6 +71,8 @@ class Home extends MY_Controller {
             'referral_locked'      => ($lifetime === 0 && !$is_promoter),
             'is_promoter'          => $is_promoter,
             'promoter_available'   => $promoter_available,
+            // plan/115: NULL → view TIDAK merender modal sama sekali.
+            'trial_promo'          => $trial_promo,
             // plan/112: status absensi harian (read-only). `enabled=false` →
             // view TIDAK merender widget sama sekali (guard di view).
             'checkin'              => $this->Checkin_model->get_status($user_id),

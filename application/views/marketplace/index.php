@@ -106,10 +106,23 @@
             <?php endif; ?>
         </span>
 
+        <?php if ((int) ($product['is_trial'] ?? 0) === 1): ?>
+        <!-- plan/114: chip produk trial (activation hook). Harga tetap dirender
+             lewat jalur uang existing; label "Gratis" bukan nominal (L6). -->
+        <span class="mt-1.5 inline-flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full w-fit bg-cyan-500/10 text-cyan-600 dark:text-cyan-400">
+            <i class="fas fa-flask text-[9px]"></i> <?= lang('market_trial_badge') ?>
+        </span>
+        <?php endif; ?>
+
         <div class="flex items-center gap-4 mt-3">
             <div>
                 <span class="text-[10px] u-muted font-semibold uppercase tracking-wider"><?= lang('common_rent_price_label') ?></span>
-                <p class="text-lg font-extrabold u-text">Rp <?= number_format((int) $product['price'], 0, ',', '.') ?></p>
+                <p class="text-lg font-extrabold u-text">
+                    Rp <?= number_format((int) $product['price'], 0, ',', '.') ?>
+                    <?php if ((int) ($product['is_trial'] ?? 0) === 1): ?>
+                    <span class="ml-1 align-middle text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"><?= lang('market_trial_free') ?></span>
+                    <?php endif; ?>
+                </p>
             </div>
             <div class="ml-auto text-right">
                 <span class="text-[10px] u-muted font-semibold uppercase tracking-wider"><?= lang('common_daily_roi_label') ?></span>

@@ -109,6 +109,12 @@ $IDR = static function ($v) { return 'Rp ' . number_format((int) $v, 0, ',', '.'
                                             : 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400' ?>">
                                 <?= $p->type === 'short_term' ? 'short' : 'long' ?> term
                             </span>
+                            <?php if ((int) ($p->is_trial ?? 0) === 1): ?>
+                            <!-- plan/114: penanda produk trial (harga Rp 0, 1x per user) -->
+                            <span class="ml-1 inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                                Trial
+                            </span>
+                            <?php endif; ?>
                         </td>
                         <td class="px-4 py-3 font-mono text-xs text-emerald-600 dark:text-emerald-400 font-semibold"><?= $IDR($p->price) ?></td>
                         <td class="px-4 py-3 font-mono text-xs t-text-2"><?= $IDR($p->daily_rate) ?></td>
@@ -139,6 +145,7 @@ $IDR = static function ($v) { return 'Rp ' . number_format((int) $v, 0, ',', '.'
                                         'is_refundable'        => (int) $p->is_refundable,
                                         'max_per_user'         => (int) $p->max_per_user,
                                         'is_active'            => (int) $p->is_active,
+                                        'is_trial'             => (int) ($p->is_trial ?? 0),
                                         // plan/104: nama berkas + URL siap-render untuk
                                         // preview modal (URL '' bila fallback).
                                         'image'                => (string) ($p->image ?? ''),
@@ -252,6 +259,21 @@ $IDR = static function ($v) { return 'Rp ' . number_format((int) $v, 0, ',', '.'
                     </select>
                 </div>
 
+                <!-- plan/114: PRODUK TRIAL (activation hook) — harga Rp 0,
+                     kuota 1 sewa per user, checkout tanpa debit & tanpa rebate.
+                     Divalidasi ulang server-side (invarian + guard satu-trial). -->
+                <div class="sm:col-span-2 rounded-xl border border-[var(--t-border)] bg-[var(--t-surface-2)] p-3">
+                    <label class="inline-flex items-center gap-2 text-xs t-text-2 cursor-pointer">
+                        <input type="checkbox" name="is_trial" id="f_trial" value="1" class="accent-amber-600">
+                        Produk Trial (harga Rp 0)
+                    </label>
+                    <p class="text-[11px] text-[var(--t-muted)] mt-1.5">
+                        Produk trial wajib berharga Rp 0 dan dibatasi 1 sewa per user. Hanya satu produk trial
+                        diizinkan. Sewa trial tidak memotong saldo, tidak memicu komisi rebate, dan tidak menambah
+                        omzet promotor. Produk yang sudah memiliki kontrak berbayar tidak dapat dijadikan trial.
+                    </p>
+                </div>
+
                 <!-- plan/104: GAMBAR PRODUK (16:9) — preview server-rendered +
                      pratinjau langsung via URL.createObjectURL saat berkas dipilih. -->
                 <div class="sm:col-span-2">
@@ -343,6 +365,34 @@ $IDR = static function ($v) { return 'Rp ' . number_format((int) $v, 0, ',', '.'
         }
     }
 
+    // plan/114: kunci kuantitatif produk trial (harga Rp 0 + kuota 1/user) —
+    // cermin client-side dari validasi server (all-or-nothing di controller).
+    // Input readonly TETAP terkirim (berbeda dari disabled), sehingga form
+    // create/update selalu membawa harga 0 & kuota 1 saat trial dicentang.
+    var trialBox = document.getElementById('f_trial');
+
+    function applyTrialLock(isTrial) {
+        var priceEl = document.getElementById('f_price');
+        var quotaEl = document.getElementById('f_quota');
+        if (trialBox) { trialBox.checked = (isTrial === true || isTrial === 1); }
+        if (trialBox && trialBox.checked) {
+            priceEl.value    = '0';
+            priceEl.min      = '0';
+            priceEl.readOnly = true;
+            quotaEl.value    = '1';
+            quotaEl.readOnly = true;
+        } else {
+            priceEl.min      = '1';
+            priceEl.readOnly = false;
+            quotaEl.readOnly = false;
+            if (priceEl.value === '0') { priceEl.value = ''; }
+        }
+    }
+
+    if (trialBox) {
+        trialBox.addEventListener('change', function () { applyTrialLock(trialBox.checked); });
+    }
+
     function resetForm() {
         var csrfValue = (csrfInput && csrfInput.value !== '') ? csrfInput.value : null;
         clearObjectUrl();
@@ -358,6 +408,7 @@ $IDR = static function ($v) { return 'Rp ' . number_format((int) $v, 0, ',', '.'
         document.getElementById('productSubmitLabel').textContent = 'Buat Paket';
         document.getElementById('edit_status_hint').classList.add('hidden');
         document.getElementById('f_active_wrap').classList.remove('hidden');
+        applyTrialLock(false);   // plan/114: create = bukan trial
 
         // plan/104: mode create → belum ada gambar; kontrol hapus disembunyikan.
         showImagePreview('');
@@ -386,6 +437,8 @@ $IDR = static function ($v) { return 'Rp ' . number_format((int) $v, 0, ',', '.'
         document.getElementById('f_duration').value = d.duration_days;
         document.getElementById('f_quota').value    = d.max_per_user;
         document.getElementById('f_refundable').checked = (d.is_refundable === 1);
+        // plan/114: mode trial → harga 0 & kuota 1 terkunci (selaras server).
+        applyTrialLock(d.is_trial === 1);
 
         // plan/104: tampilkan gambar saat ini (server-rendered URL) + kontrol
         // hapus hanya bila produk memang sudah punya gambar.

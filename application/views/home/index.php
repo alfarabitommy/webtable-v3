@@ -769,6 +769,122 @@
 
 </div>
 
+<?php if (!empty($trial_promo)): ?>
+<!-- ═══ TRIAL PROMO MODAL (plan/115) ═══
+     Gerbang SERVER: dirender HANYA bila `lifetime_rentals === 0` DAN produk
+     trial aktif berharga 0 benar-benar ada di DB (`$trial_promo` tidak null).
+     Gerbang KLIEN: localStorage `trial_popup_dismissed_<user_id>` (O1 —
+     per-user, agar perangkat bersama tidak menekan promo user lain).
+     Default `hidden` → tanpa JS modal tidak pernah tampil (tanpa CTA mati).
+     z-[60] sesuai docs/4_UI_UX_GUIDELINES.md §2 (bottom nav z-50, header z-40).
+     Nominal uang DIHITUNG & DIFORMAT di server (L6) — kamus tidak memuat angka. -->
+<div id="trialPromoModal" class="fixed inset-0 z-[60] hidden"
+     role="dialog" aria-modal="true" aria-labelledby="trialPromoTitle">
+    <div id="trialPromoBackdrop" class="absolute inset-0 u-modal-backdrop backdrop-blur-sm"></div>
+
+    <div class="absolute bottom-0 left-0 right-0 u-modal rounded-t-3xl px-5 pt-4 pb-6 max-h-[85vh] overflow-y-auto">
+        <div class="w-10 h-1 bg-slate-300 dark:bg-slate-600 rounded-full mx-auto mb-4"></div>
+
+        <!-- Tombol tutup: target sentuh >= 44px + aria-label i18n -->
+        <button type="button" id="trialPromoClose" aria-label="<?= lang('home_trial_modal_close') ?>"
+                class="absolute top-3 right-3 w-11 h-11 rounded-full flex items-center justify-center u-btn-ghost">
+            <i class="fas fa-xmark text-base" aria-hidden="true"></i>
+        </button>
+
+        <div class="flex items-start gap-3 mb-3 pr-12">
+            <div class="w-11 h-11 shrink-0 rounded-2xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center">
+                <i class="fas fa-flask text-cyan-500 text-lg" aria-hidden="true"></i>
+            </div>
+            <div class="min-w-0">
+                <!-- Chip identitas: REUSE kunci plan/114 (nol duplikasi kamus) -->
+                <span class="inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 mb-1.5">
+                    <i class="fas fa-flask text-[9px]" aria-hidden="true"></i> <?= lang('market_trial_badge') ?>
+                </span>
+                <h3 id="trialPromoTitle" class="text-sm font-extrabold u-text leading-snug"><?= lang('home_trial_modal_title') ?></h3>
+            </div>
+        </div>
+
+        <p class="text-xs u-text-2 leading-relaxed"><?= lang('home_trial_modal_subtitle') ?></p>
+
+        <!-- Callout bonus: nominal dari server, 3 placeholder (L6/P3) -->
+        <div class="mt-3 rounded-xl p-3 bg-emerald-500/10 border border-emerald-500/30">
+            <p class="text-xs font-semibold text-emerald-700 dark:text-emerald-400 leading-relaxed">
+                <?= sprintf(
+                        lang('home_trial_modal_potential'),
+                        number_format((int) $trial_promo['total'], 0, ',', '.'),
+                        number_format((int) $trial_promo['daily'], 0, ',', '.'),
+                        (int) $trial_promo['days']
+                    ) ?>
+            </p>
+            <span class="mt-2 inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
+                <?= lang('market_trial_free') ?>
+            </span>
+        </div>
+
+        <!-- Keterbukaan gerbang penarikan (plan/114) + nada anti-scam (plan/107) -->
+        <p class="mt-3 text-[11px] u-muted leading-relaxed flex items-start gap-2">
+            <i class="fas fa-circle-info mt-0.5" aria-hidden="true"></i>
+            <span><?= lang('home_trial_modal_rule') ?></span>
+        </p>
+
+        <a id="trialPromoCta" href="<?= base_url('marketplace') ?>"
+           class="w-full mt-4 h-12 u-btn-cyber rounded-xl flex items-center justify-center gap-2 text-sm font-bold">
+            <?= lang('home_trial_modal_cta') ?> <i class="fas fa-arrow-right" aria-hidden="true"></i>
+        </a>
+        <button type="button" id="trialPromoLater"
+                class="w-full mt-2 py-3 u-btn-ghost rounded-xl text-xs font-bold u-text-2 transition-colors active:scale-[0.98]">
+            <?= lang('home_later') ?>
+        </button>
+    </div>
+</div>
+<script>
+(function () {
+    var modal = document.getElementById('trialPromoModal');
+    if (!modal) return;                       // gerbang server gagal → tidak ada modal
+
+    // O1: flag di-scope PER USER → perangkat bersama tidak saling menekan promo.
+    var FLAG = 'trial_popup_dismissed_' + <?= (int) $trial_promo['user_id'] ?>;
+
+    var suppressed = false;
+    try { suppressed = window.localStorage.getItem(FLAG) === '1'; } catch (e) { suppressed = false; }
+    if (suppressed) { return; }               // gerbang klien: sudah pernah ditutup user ini
+
+    var cta      = document.getElementById('trialPromoCta');
+    var closeBtn = document.getElementById('trialPromoClose');
+    var laterBtn = document.getElementById('trialPromoLater');
+    var backdrop = document.getElementById('trialPromoBackdrop');
+
+    function markDismissed() {
+        // Mode privat / storage diblokir: tulis gagal → modal tetap tertutup.
+        try { window.localStorage.setItem(FLAG, '1'); } catch (e) {}
+    }
+    function close() {
+        modal.classList.add('hidden');
+        markDismissed();
+        document.removeEventListener('keydown', onKey);
+    }
+    function onKey(e) {
+        if (e.key === 'Escape') { close(); return; }
+        if (e.key !== 'Tab') { return; }
+        var f = [closeBtn, cta, laterBtn].filter(Boolean);
+        if (!f.length) { return; }
+        var first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+
+    if (closeBtn) { closeBtn.addEventListener('click', close); }
+    if (laterBtn) { laterBtn.addEventListener('click', close); }
+    if (backdrop) { backdrop.addEventListener('click', close); }
+    if (cta) { cta.addEventListener('click', markDismissed); }   // interaksi = jangan tampil lagi
+
+    modal.classList.remove('hidden');
+    if (cta) { cta.focus(); }
+    document.addEventListener('keydown', onKey);
+})();
+</script>
+<?php endif; ?>
+
 <?php if (!empty($inactive_warning)): ?>
 <!-- ═══ WARNING MODAL: KONTAK SEWA TIDAK AKTIF (Plan 89 — Condition B) ═══
      Target: lifetime_rentals > 0 && active_rentals == 0. Muncul otomatis saat

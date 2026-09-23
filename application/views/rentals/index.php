@@ -154,6 +154,13 @@
             <div class="flex-1 min-w-0">
                 <h3 class="text-base font-extrabold text-white truncate"><?= htmlspecialchars($rental->product_name ?? 'Node #' . $rental->product_id) ?></h3>
                 <p class="text-[10px] text-slate-500 mt-0.5 font-mono">ID: #<?= $rental->id ?> · <?= i18n_date($rental->created_at) ?></p>
+                <?php if ((int) ($rental->purchase_price ?? 0) === 0): ?>
+                <!-- plan/114: kontrak trial (harga 0) ditandai agar "Rp 0" tidak
+                     terbaca sebagai bug. -->
+                <span class="inline-flex items-center gap-1.5 mt-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                    <i class="fas fa-flask text-[9px]"></i> <?= lang('rental_trial_badge') ?>
+                </span>
+                <?php endif; ?>
             </div>
             <div class="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2.5 py-1 ml-3 flex-shrink-0">
                 <div class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></div>

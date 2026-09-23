@@ -37,6 +37,11 @@ class Wallet extends MY_Controller {
         // (binding direset admin / nomor di luar aturan) → pesan yang sama
         // dengan gatekeeper GET/POST "belum mengikat akun e-wallet".
         'no_ewallet'     => 'wd_err_no_ewallet',
+        // plan/114: hardening di dalam TX — gerbang anti free-rider (belum
+        // pernah menyewa produk NON-trial). Kode dari
+        // Wallet_model::create_withdrawal() dipetakan ke pesan yang sama
+        // dengan gatekeeper GET/POST.
+        'no_paid_rental' => 'wd_err_no_paid_rental',
         'error'          => 'wd_err_process_failed',
     ];
 
@@ -130,6 +135,9 @@ class Wallet extends MY_Controller {
             'pending_withdrawals'   => $this->Wallet_model->get_pending_withdrawals($user_id),
             'has_pending_wd'        => $this->Wallet_model->has_pending_withdrawal($user_id),
             'has_active_rental'     => $this->Rental_model->has_active_rental($user_id),
+            // plan/114: gerbang anti free-rider (riwayat sewa produk non-trial)
+            // → state tombol penarikan "Perlu Sewa Berbayar" (disabled).
+            'has_paid_rental'       => $this->Rental_model->has_paid_rental($user_id),
             'daily_limit_reached'   => $this->Wallet_model->has_reached_daily_wd_limit($user_id),
             'ledger'                => $this->Wallet_model->get_ledger_history($user_id),
             // Deposit fee (dynamic, M1).
@@ -362,6 +370,16 @@ class Wallet extends MY_Controller {
             return;
         }
 
+        // Gatekeeper 2b (plan/114): ANTI FREE-RIDER — wajib punya RIWAYAT sewa
+        // produk BERBAYAR (non-trial). Trial gratis + bonus absensi harian
+        // tidak boleh langsung dicairkan. Cermin UX dari otoritas yang sama
+        // yang diuji ulang di dalam TX Wallet_model::create_withdrawal().
+        if (!$this->Rental_model->has_paid_rental($user_id)) {
+            $this->session->set_flashdata('error', lang('wd_err_no_paid_rental'));
+            redirect('wallet');
+            return;
+        }
+
         // Gatekeeper 3: daily limit
         if ($this->Wallet_model->has_reached_daily_wd_limit($user_id)) {
             $this->session->set_flashdata('error', lang('wd_err_daily_limit_done'));
@@ -446,6 +464,15 @@ class Wallet extends MY_Controller {
 
         if (!$this->Rental_model->has_active_rental($user_id)) {
             $this->session->set_flashdata('error', lang('wd_err_no_active_rental'));
+            redirect('wallet');
+            return;
+        }
+
+        // plan/114 — Gatekeeper 2b (POST): ANTI FREE-RIDER, cermin gatekeeper
+        // GET. Menutup jalur POST langsung (curl/tamper) yang melewati UI.
+        // Otoritas finansial tetap di TX Wallet_model::create_withdrawal().
+        if (!$this->Rental_model->has_paid_rental($user_id)) {
+            $this->session->set_flashdata('error', lang('wd_err_no_paid_rental'));
             redirect('wallet');
             return;
         }

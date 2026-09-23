@@ -150,6 +150,19 @@ $lang['market_quota_reached'] = 'Maximum Limit Reached';
 $lang['market_reload'] = 'Reload';
 $lang['market_rent_limit_max'] = 'Rental Limit: Max. %1$d (Remaining: %2$d)';
 $lang['market_rent_limit_unlimited'] = 'Rental Limit: Unlimited';
+// plan/114: produk trial ("GPU Magang") — chip identitas + label harga 0.
+// Nominal TIDAK pernah masuk kamus; "Free" adalah label, bukan angka (L6).
+$lang['market_trial_badge'] = 'Trial';
+$lang['market_trial_free'] = 'Free';
+// plan/115: dashboard trial promo welcome modal (member lifetime = 0).
+// `home_trial_modal_potential` uses sprintf placeholders only — every money
+// value is computed & formatted server-side (L6/P3), never stored in the dictionary.
+$lang['home_trial_modal_title'] = 'Free GPU Internship Rental';
+$lang['home_trial_modal_subtitle'] = 'Try the Synapse ROI engine with zero upfront cost, exclusive to first-time renters.';
+$lang['home_trial_modal_potential'] = 'Potential profit of Rp %s (Rp %s/day for %d days).';
+$lang['home_trial_modal_rule'] = 'Full disclosure: to withdraw your balance you will still need to rent at least 1 paid product (withdrawal gate).';
+$lang['home_trial_modal_cta'] = 'Claim Now';
+$lang['home_trial_modal_close'] = 'Close promo';
 $lang['market_rent_now_btn'] = 'Rent Now';
 $lang['market_your_balance'] = 'Your Balance';
 $lang['nav_account'] = 'Account';
@@ -345,6 +358,8 @@ $lang['wallet_fee_principal_label'] = 'Principal Rp ';
 $lang['wallet_fee_total_label'] = ' = Total Paid Rp ';
 $lang['wallet_ledger_title'] = 'Transaction History';
 $lang['wallet_loan_active'] = 'Active Loan';
+// plan/114: label tombol penarikan terkunci (belum pernah menyewa produk berbayar).
+$lang['wallet_wd_need_paid'] = 'Paid Rental Required';
 $lang['wallet_other'] = 'Other';
 $lang['wallet_page_title'] = 'Wallet';
 $lang['wallet_pay_back'] = 'Back to Wallet';
@@ -464,6 +479,8 @@ $lang['deposit_ok_simulated'] = 'Payment simulated successfully. Funds have been
 $lang['wd_err_invalid_amount'] = 'Invalid withdrawal amount.';
 $lang['wd_err_pending_exists'] = 'You still have a withdrawal being processed.';
 $lang['wd_err_no_active_rental'] = 'You need at least 1 active rental product to make a withdrawal.';
+// plan/114: gerbang anti free-rider (trial gratis tidak membuka penarikan).
+$lang['wd_err_no_paid_rental'] = 'You must rent at least 1 paid product before you can make a withdrawal.';
 $lang['wd_err_daily_limit'] = 'Daily withdrawal limit reached.';
 $lang['wd_err_daily_limit_done'] = 'Daily withdrawal limit reached. You already made a withdrawal today.';
 $lang['wd_err_no_ewallet'] = 'You have not linked an e-wallet account yet.';
@@ -494,6 +511,8 @@ $lang['rental_err_max_per_user'] = 'System: the maximum rental limit for this pa
 $lang['rental_err_checkout_failed'] = 'System: failed to process the rental. Please try again.';
 $lang['rental_err_claim_failed'] = 'System: failed to process the claim. Please try again.';
 $lang['rental_ok_activated'] = 'Rental activated successfully! Infrastructure is online.';
+// plan/114: penanda kontrak trial (harga 0) di daftar sewa.
+$lang['rental_trial_badge'] = 'Trial Contract';
 $lang['auth_err_account_inactive'] = 'Your account has been deactivated. Please contact admin.';
 $lang['auth_err_captcha'] = 'The security code is wrong or has expired.';
 $lang['auth_err_invite_invalid'] = 'Invalid invite code. Please check again.';
@@ -621,6 +640,7 @@ $lang['help_q_wd_fail_req2'] = '<strong>Operational hours</strong> - withdrawals
 $lang['help_q_wd_fail_req3'] = '<strong>Minimum withdrawal</strong> - the minimum amount is <strong>%s</strong>.';
 $lang['help_q_wd_fail_req4'] = '<strong>Sufficient balance</strong> - make sure your wallet balance is enough after the admin fee is deducted.';
 $lang['help_q_wd_fail_req5'] = '<strong>No pending withdrawal</strong> - if you already have an unprocessed withdrawal, wait for it to finish first.';
+$lang['help_q_wd_fail_req6'] = '<strong>Paid rental</strong> - you must have rented at least one paid product. The free trial product does not unlock withdrawals.';
 $lang['help_q_topup_title'] = 'How do I top up my balance?';
 $lang['help_q_topup_body'] = '<ol class="list-decimal list-inside space-y-1"><li>Open the <strong>Wallet</strong> menu.</li><li>Click the <strong>Top Up</strong> button.</li><li>Pick a quick amount or enter a custom amount.</li><li>Click <strong>Continue Payment</strong> and scan the QRIS code.</li><li>Transfer the EXACT amount shown, then press <strong>I Have Transferred</strong>.</li></ol>';
 $lang['help_footer_version'] = 'Synapse Support - v1.0';

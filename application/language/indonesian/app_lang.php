@@ -150,6 +150,19 @@ $lang['market_quota_reached'] = 'Batas Maksimal Tercapai';
 $lang['market_reload'] = 'Muat Ulang';
 $lang['market_rent_limit_max'] = 'Batas Sewa: Maks. %1$d (Tersisa: %2$d)';
 $lang['market_rent_limit_unlimited'] = 'Batas Sewa: Tanpa Batas';
+// plan/114: produk trial ("GPU Magang") — chip identitas + label harga 0.
+// Nominal TIDAK pernah masuk kamus (L6): "Gratis" adalah label, bukan angka.
+$lang['market_trial_badge'] = 'Uji Coba';
+$lang['market_trial_free'] = 'Gratis';
+// plan/115: modal sambutan promo produk trial di dashboard (member lifetime = 0).
+// `home_trial_modal_potential` memakai placeholder sprintf %s/%d — nominal uang
+// SELALU dihitung & diformat di server (L6/P3), never di kamus.
+$lang['home_trial_modal_title'] = 'Gratis Sewa GPU Magang';
+$lang['home_trial_modal_subtitle'] = 'Coba mesin ROI Synapse tanpa modal awal, khusus untuk member yang belum pernah menyewa.';
+$lang['home_trial_modal_potential'] = 'Potensi profit Rp %s (Rp %s/hari selama %d hari).';
+$lang['home_trial_modal_rule'] = 'Catatan jujur: untuk menarik saldo, Anda nanti tetap harus menyewa minimal 1 produk berbayar (gerbang penarikan).';
+$lang['home_trial_modal_cta'] = 'Klaim Sekarang';
+$lang['home_trial_modal_close'] = 'Tutup promo';
 $lang['market_rent_now_btn'] = 'Sewa Sekarang';
 $lang['market_your_balance'] = 'Saldo Anda';
 $lang['nav_account'] = 'Akun';
@@ -345,6 +358,8 @@ $lang['wallet_fee_principal_label'] = 'Pokok Rp ';
 $lang['wallet_fee_total_label'] = ' = Total Dibayar Rp ';
 $lang['wallet_ledger_title'] = 'Riwayat Transaksi';
 $lang['wallet_loan_active'] = 'Pinjaman Aktif';
+// plan/114: label tombol penarikan terkunci (belum pernah menyewa produk berbayar).
+$lang['wallet_wd_need_paid'] = 'Perlu Sewa Berbayar';
 $lang['wallet_other'] = 'Lain';
 $lang['wallet_page_title'] = 'Wallet';
 $lang['wallet_pay_back'] = 'Kembali ke Wallet';
@@ -464,6 +479,8 @@ $lang['deposit_ok_simulated'] = 'Pembayaran berhasil disimulasikan! Dana sudah m
 $lang['wd_err_invalid_amount'] = 'Nominal penarikan tidak valid.';
 $lang['wd_err_pending_exists'] = 'Anda masih memiliki penarikan yang sedang diproses.';
 $lang['wd_err_no_active_rental'] = 'Anda harus memiliki minimal 1 produk sewa aktif untuk melakukan penarikan.';
+// plan/114: gerbang anti free-rider (trial gratis tidak membuka penarikan).
+$lang['wd_err_no_paid_rental'] = 'Anda harus menyewa minimal 1 produk berbayar untuk dapat melakukan penarikan.';
 $lang['wd_err_daily_limit'] = 'Batas penarikan harian tercapai.';
 $lang['wd_err_daily_limit_done'] = 'Batas penarikan harian tercapai. Anda sudah melakukan penarikan hari ini.';
 $lang['wd_err_no_ewallet'] = 'Anda belum mengikat akun e-wallet.';
@@ -494,6 +511,8 @@ $lang['rental_err_max_per_user'] = 'Sistem: Batas maksimal sewa paket ini telah 
 $lang['rental_err_checkout_failed'] = 'Sistem: Gagal memproses sewa. Coba lagi.';
 $lang['rental_err_claim_failed'] = 'Sistem: Gagal memproses klaim. Coba lagi.';
 $lang['rental_ok_activated'] = 'Sewa berhasil diaktifkan! Infrastruktur sedang online.';
+// plan/114: penanda kontrak trial (harga 0) di daftar sewa.
+$lang['rental_trial_badge'] = 'Kontrak Uji Coba';
 $lang['auth_err_account_inactive'] = 'Akun Anda telah dinonaktifkan. Silakan hubungi admin.';
 $lang['auth_err_captcha'] = 'Kode keamanan salah atau sudah kedaluwarsa.';
 $lang['auth_err_invite_invalid'] = 'Kode Undangan tidak valid. Silakan periksa kembali.';
@@ -621,6 +640,7 @@ $lang['help_q_wd_fail_req2'] = '<strong>Jam operasional</strong> - Penarikan han
 $lang['help_q_wd_fail_req3'] = '<strong>Minimal penarikan</strong> - Jumlah minimum adalah <strong>%s</strong>.';
 $lang['help_q_wd_fail_req4'] = '<strong>Saldo mencukupi</strong> - Pastikan saldo wallet Anda cukup setelah dipotong biaya admin.';
 $lang['help_q_wd_fail_req5'] = '<strong>Tidak ada penarikan pending</strong> - Jika Anda memiliki penarikan yang belum diproses, tunggu hingga selesai terlebih dahulu.';
+$lang['help_q_wd_fail_req6'] = '<strong>Sewa berbayar</strong> - Anda harus pernah menyewa minimal satu produk berbayar. Produk trial gratis tidak membuka akses penarikan.';
 $lang['help_q_topup_title'] = 'Bagaimana cara isi saldo (top up)?';
 $lang['help_q_topup_body'] = '<ol class="list-decimal list-inside space-y-1"><li>Buka menu <strong>Wallet</strong>.</li><li>Klik tombol <strong>Top Up</strong>.</li><li>Pilih nominal cepat atau masukkan nominal custom.</li><li>Klik <strong>Lanjut Bayar</strong> lalu pindai kode QRIS.</li><li>Transfer nominal TEPAT yang tertera, lalu tekan <strong>Saya Sudah Transfer</strong>.</li></ol>';
 $lang['help_footer_version'] = 'Synapse Support - v1.0';
