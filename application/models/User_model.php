@@ -78,15 +78,24 @@ class User_model extends CI_Model {
      * M3 (plan/60): is_active = kontrak BENAR-BENAR aktif (expired_at > now
      * WIB via bound param) — downline yang tak pernah login tidak bisa
      * mempertahankan status aktif lewat kontrak kedaluwarsa.
+     * plan/116 (D2): "aktif" juga mensyaratkan kontrak dari produk NON-trial
+     * (`gpu_products.is_trial = 0`) — pemegang trial gratis (plan/114) TIDAK
+     * dihitung aktif. Predikat kanonik = Rental_model::has_paid_rental().
      */
     public function get_team_with_active_status($user_id) {
         $now = date('Y-m-d H:i:s');
         $sql = "SELECT u.id, u.username, u.phone, u.invite_code, u.level_id, u.created_at, 1 AS `level`,
-                (SELECT COUNT(*) FROM user_rentals ur WHERE ur.user_id = u.id AND ur.status = 'active' AND ur.expired_at > ?) AS is_active
+                (SELECT COUNT(*) FROM user_rentals ur
+                   JOIN gpu_products gp ON gp.id = ur.product_id
+                  WHERE ur.user_id = u.id AND ur.status = 'active' AND ur.expired_at > ?
+                    AND gp.is_trial = 0) AS is_active
                 FROM users u WHERE u.parent_id = ?
                 UNION ALL
                 SELECT u.id, u.username, u.phone, u.invite_code, u.level_id, u.created_at, 2 AS `level`,
-                (SELECT COUNT(*) FROM user_rentals ur WHERE ur.user_id = u.id AND ur.status = 'active' AND ur.expired_at > ?) AS is_active
+                (SELECT COUNT(*) FROM user_rentals ur
+                   JOIN gpu_products gp ON gp.id = ur.product_id
+                  WHERE ur.user_id = u.id AND ur.status = 'active' AND ur.expired_at > ?
+                    AND gp.is_trial = 0) AS is_active
                 FROM users u INNER JOIN users p ON u.parent_id = p.id
                 WHERE p.parent_id = ? AND u.id != ?";
         return $this->db->query($sql, [$now, $user_id, $now, $user_id, $user_id])->result();
@@ -119,6 +128,8 @@ class User_model extends CI_Model {
      * Count active downlines (B-tier only = direct referrals with active rental)
      * M3 (plan/60): filter defensif expired_at > now — kontrak kedaluwarsa
      * tidak pernah dihitung walau status row belum di-flip (user tak login).
+     * plan/116 (D2): wajib `gpu_products.is_trial = 0` — pemegang trial gratis
+     * TIDAK dihitung downline aktif (predikat kanonik = has_paid_rental()).
      * @param int $user_id
      * @return int
      */
@@ -127,9 +138,11 @@ class User_model extends CI_Model {
         $sql = "SELECT COUNT(DISTINCT u.id) AS cnt
                 FROM users u
                 JOIN user_rentals ur ON ur.user_id = u.id
+                JOIN gpu_products gp ON gp.id = ur.product_id
                 WHERE u.parent_id = ?
                   AND ur.status = 'active'
-                  AND ur.expired_at > ?";
+                  AND ur.expired_at > ?
+                  AND gp.is_trial = 0";
         $row = $this->db->query($sql, [$user_id, $now])->row();
         return (int) ($row->cnt ?? 0);
     }
@@ -157,6 +170,11 @@ class User_model extends CI_Model {
      * Count ALL active downlines in entire referral tree (B+C+D+E+F)
      * Uses recursive CTE via MySQL 8.4
      * M3 (plan/60): filter defensif expired_at > now pada join user_rentals.
+     * plan/116 (D2) — OTORITAS LEVEL GAJI MINGGUAN: kontrak dari produk TRIAL
+     * (`gpu_products.is_trial = 1`, harga 0 — plan/114) TIDAK PERNAH dihitung
+     * sebagai downline aktif. Tanpa filter ini, 9 pemegang trial gratis cukup
+     * untuk membuka Gaji Mingguan Level 2 tanpa modal (anti free-rider).
+     * Predikat identik dengan Rental_model::has_paid_rental() (plan/114 D-A).
      * @param int $user_id
      * @return int
      */
@@ -171,8 +189,10 @@ class User_model extends CI_Model {
                 SELECT COUNT(DISTINCT t.id) AS cnt
                 FROM tree t
                 JOIN user_rentals ur ON ur.user_id = t.id
+                JOIN gpu_products gp ON gp.id = ur.product_id
                 WHERE ur.status = 'active'
-                  AND ur.expired_at > ?";
+                  AND ur.expired_at > ?
+                  AND gp.is_trial = 0";
         $row = $this->db->query($sql, [$user_id, $now])->row();
         return (int) ($row->cnt ?? 0);
     }

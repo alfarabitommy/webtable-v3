@@ -7,22 +7,39 @@
  * Creates:
  *   - 1 leader account (phone 081299990001, password "password123", balance 0,
  *     last_wage_claimed_at = NULL => immediately claimable)
- *   - 9 direct downlines (081299990002 .. 081299990010, parent_id = leader)
+ *   - N direct downlines (081299990002 .. 08129999NN+1, parent_id = leader)
  *   - each downline gets exactly 1 row in `user_rentals` with status='active'
- *     and expired_at in the future, so count_all_active_downlines(leader) == 9
- *     (recursive CTE over the whole tree JOIN user_rentals status='active')
- *     => leader qualifies for Level 2 weekly wage = Rp 200.000.
+ *     and expired_at in the future, from a product chosen by --product, so
+ *     count_all_active_downlines(leader) == number of PAID (non-trial) rows
+ *     (recursive CTE over the whole tree JOIN user_rentals status='active'
+ *     JOIN gpu_products gp … AND gp.is_trial = 0 — plan/116 D2)
+ *     => N paid downlines => leader qualifies for Level 2 weekly wage = Rp 200.000.
  *
  * NOTE: the live rental table used by the wage counters is `user_rentals`
  * (the legacy `rentals` table is orphaned — plan/37 M10). Rows are inserted
  * there, not in `rentals`.
  *
+ * plan/116 (D2/D9) — the product row is now selected with an EXPLICIT
+ * `is_trial` filter. Before plan/116 the fixture took the cheapest active
+ * product (`ORDER BY price ASC`), which since plan/114 is the FREE TRIAL row
+ * (price 0, is_trial 1) — the fixture would have seeded trial-only downlines
+ * and silently proved nothing. The verification block below mirrors the model
+ * SQL and prints BOTH counters (paid-only vs any-active) so the trial
+ * exclusion is visible in the output.
+ *
  * Idempotent: on re-run it deletes the previous fixture rows (users matching
  * the fixture phone range + their dependent rows) before re-seeding.
  *
- * Run:  php scripts/seed_wage_test_account.php
+ * Run:  php scripts/seed_wage_test_account.php [options]
+ *   --downlines=N          number of downlines, 1..98 (default 9)
+ *   --product=paid         all downlines hold a NON-trial contract (default)
+ *   --product=trial        all downlines hold a TRIAL contract (price 0)
+ *   --product=mixed        N-1 trial downlines + 1 paid downline (needs N >= 2)
+ *   --help | -h            usage
  * Env:  DB_HOSTNAME / DB_USERNAME / DB_PASSWORD / DB_DATABASE (defaults
  *       localhost / root / root / db_webtable; falls back to 127.0.0.1).
+ * Exit: 0 = fixture ready (count matches expectation), 1 = fatal/cleanup
+ *       failure, 2 = fixture incomplete (count mismatch).
  */
 
 error_reporting(E_ALL);
@@ -31,9 +48,46 @@ date_default_timezone_set('Asia/Jakarta');
 
 define('FIXTURE_PASSWORD', 'password123');
 define('LEADER_PHONE', '081299990001');
-$FIXTURE_PHONES = [LEADER_PHONE];
-for ($i = 2; $i <= 10; $i++) {
-    $FIXTURE_PHONES[] = '0812999900' . sprintf('%02d', $i);
+
+// ---------------------------------------------------- plan/116 (D9): options
+$args = $argv ?? [];
+if (in_array('--help', $args, true) || in_array('-h', $args, true)) {
+    echo "Usage: php scripts/seed_wage_test_account.php [--downlines=N] [--product=paid|trial|mixed]\n"
+       . "  --downlines=N      jumlah downline (1..98, default 9)\n"
+       . "  --product=paid     semua downline pegang kontrak produk NON-trial (default)\n"
+       . "  --product=trial    semua downline pegang kontrak TRIAL (harga 0)\n"
+       . "  --product=mixed    N-1 trial + 1 berbayar (butuh N >= 2)\n";
+    exit(0);
+}
+
+$DOWNLINES = 9;
+$MODE      = 'paid';
+foreach ($args as $a) {
+    if (preg_match('/^--downlines=([0-9]{1,2})$/', (string) $a, $m)) {
+        $DOWNLINES = (int) $m[1];
+    } elseif (preg_match('/^--product=(paid|trial|mixed)$/', (string) $a, $m)) {
+        $MODE = $m[1];
+    } elseif (strpos((string) $a, '--') === 0) {
+        fwrite(STDERR, "[FATAL] Opsi tidak dikenal: {$a} (lihat --help)\n");
+        exit(1);
+    }
+}
+if ($DOWNLINES < 1 || $DOWNLINES > 98) {
+    fwrite(STDERR, "[FATAL] --downlines harus 1..98 (rentang telepon fixture 0812999900xx)\n");
+    exit(1);
+}
+if ($MODE === 'mixed' && $DOWNLINES < 2) {
+    fwrite(STDERR, "[FATAL] --product=mixed butuh minimal 2 downline\n");
+    exit(1);
+}
+
+// Rentang telepon fixture: leader 081299990001, downline 081299990002..(. +N).
+// Pembersihan menyapu SELURUH rentang (…-099), bukan hanya N yang diminta
+// pada run ini — supaya sisa skenario sebelumnya (mis. --downlines=13) tidak
+// tertinggal dan re-run apa pun tetap idempoten. (plan/116 D9)
+$CLEANUP_PHONES = [LEADER_PHONE];
+for ($i = 2; $i <= 99; $i++) {
+    $CLEANUP_PHONES[] = '0812999900' . sprintf('%02d', $i);
 }
 
 function db_connect()
@@ -90,7 +144,7 @@ $m = db_connect();
 $errs = [];
 
 // ---------------------------------------------------------------- cleanup
-$ph = quote_list($m, $FIXTURE_PHONES);
+$ph = quote_list($m, $CLEANUP_PHONES);
 $ids = [];
 foreach ($m->query("SELECT id FROM users WHERE phone IN ($ph)") as $r) {
     $ids[] = (int) $r['id'];
@@ -115,22 +169,52 @@ foreach ($m->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
     $userCols[$r['COLUMN_NAME']] = true;
 }
 
-// cheapest active product to attach rentals to
-$prod = $m->query("SELECT id, price, daily_rate, duration_days FROM gpu_products
-                   WHERE is_active = 1 ORDER BY price ASC LIMIT 1")->fetch_assoc();
-if (!$prod) {
-    $prod = $m->query("SELECT id, price, daily_rate, duration_days FROM gpu_products ORDER BY id ASC LIMIT 1")->fetch_assoc();
+// plan/116 (D9): pilih produk secara EKSPLISIT lewat kolom `is_trial`
+// (bukan harga). `paid` = produk non-trial termurah yang aktif; `trial` =
+// baris produk trial (is_trial = 1, harga 0).
+function pick_product($m, $want_trial)
+{
+    $flag = $want_trial ? 1 : 0;
+    $order = $want_trial ? 'id ASC' : 'price ASC, id ASC';
+    $sql = "SELECT id, name, price, daily_rate, duration_days, is_trial
+              FROM gpu_products
+             WHERE is_trial = {$flag} AND is_active = 1
+             ORDER BY {$order} LIMIT 1";
+    $res = $m->query($sql);
+    $p = $res ? $res->fetch_assoc() : null;
+    if (!$p) { // fallback: katalog tanpa baris aktif untuk flag tsb
+        $res = $m->query("SELECT id, name, price, daily_rate, duration_days, is_trial
+                            FROM gpu_products WHERE is_trial = {$flag}
+                           ORDER BY {$order} LIMIT 1");
+        $p = $res ? $res->fetch_assoc() : null;
+    }
+    return $p;
 }
-if (!$prod) {
-    fwrite(STDERR, "gpu_products is empty — cannot create rentals.\n");
+
+$paidProd  = ($MODE === 'trial') ? null : pick_product($m, false);
+$trialProd = ($MODE === 'paid')  ? null : pick_product($m, true);
+
+if ($MODE !== 'trial' && !$paidProd) {
+    fwrite(STDERR, "gpu_products: tidak ada produk NON-trial — tidak bisa membuat kontrak berbayar.\n");
     exit(1);
 }
-printf("Using gpu_product id=%d price=%s daily_rate=%s duration_days=%d\n",
-    $prod['id'], $prod['price'], $prod['daily_rate'], $prod['duration_days']);
+if ($MODE !== 'paid' && !$trialProd) {
+    fwrite(STDERR, "gpu_products: tidak ada baris produk TRIAL (is_trial = 1) — jalankan\n"
+        . "            php scripts/migrate_114_trial_product_wd_gate.php --apply lebih dulu.\n");
+    exit(1);
+}
+if ($paidProd) {
+    printf("Produk BERBAYAR  id=%d '%s' price=%s is_trial=%d\n",
+        $paidProd['id'], $paidProd['name'], $paidProd['price'], (int) $paidProd['is_trial']);
+}
+if ($trialProd) {
+    printf("Produk TRIAL     id=%d '%s' price=%s is_trial=%d\n",
+        $trialProd['id'], $trialProd['name'], $trialProd['price'], (int) $trialProd['is_trial']);
+}
+printf("Skenario: --downlines=%d --product=%s\n", $DOWNLINES, $MODE);
 
 $hash      = password_hash(FIXTURE_PASSWORD, PASSWORD_BCRYPT);
 $now       = date('Y-m-d H:i:s');
-$expiredAt = date('Y-m-d H:i:s', time() + (int) $prod['duration_days'] * 86400);
 
 $m->begin_transaction();
 try {
@@ -146,7 +230,9 @@ try {
 
     // ------------------------------------------------------------- downlines
     $rentalCount = 0;
-    for ($i = 2; $i <= 10; $i++) {
+    $paidRows    = 0;
+    $trialRows   = 0;
+    for ($i = 2; $i <= $DOWNLINES + 1; $i++) {
         $phone = '0812999900' . sprintf('%02d', $i);
         $code  = gen_invite_code($m);
         $uCols = ['phone', 'password', 'invite_code', 'parent_id', 'balance', 'level_id', 'is_banned', 'must_change_password', 'is_level_1_claimed', 'last_wage_claimed_at', 'created_at'];
@@ -156,6 +242,17 @@ try {
         $m->query("INSERT INTO users (`" . implode('`,`', $uCols) . "`) VALUES (" . implode(',', $uVals) . ")")
             or throw new RuntimeException("downline insert {$phone}: {$m->error}");
         $dlId = (int) $m->insert_id;
+
+        // plan/116 (D9): paid|trial|mixed → produk + harga + durasi dari baris
+        // produk yang dipilih (trial: harga 0, duration_days 3).
+        if ($MODE === 'trial' || ($MODE === 'mixed' && $i <= $DOWNLINES)) {
+            $prod = $trialProd;
+            $trialRows++;
+        } else {
+            $prod = $paidProd;
+            $paidRows++;
+        }
+        $expiredAt = date('Y-m-d H:i:s', time() + (int) $prod['duration_days'] * 86400);
 
         // 1 active rental per downline (user_rentals = live table, plan/37 M10)
         $m->query("INSERT INTO user_rentals
@@ -184,8 +281,24 @@ printf("last_wage_claimed_at=%s (%s)\n",
     var_export($leader['last_wage_claimed_at'], true),
     $leader['last_wage_claimed_at'] === null ? 'NULL — ready to claim immediately' : 'SET (cooldown active)');
 
-// count_all_active_downlines($leader_id) — same SQL as User_model::count_all_active_downlines
+// count_all_active_downlines($leader_id) — mirror SQL User_model (plan/116 D2:
+// JOIN gpu_products + is_trial = 0). Second counter = OLD predicate (any active
+// contract) so the trial inflation that plan/116 removes is visible.
 $cnt = (int) $m->query(
+    "WITH RECURSIVE tree AS (
+        SELECT id FROM users WHERE parent_id = {$leader['id']}
+        UNION ALL
+        SELECT u.id FROM users u INNER JOIN tree t ON u.parent_id = t.id
+     )
+     SELECT COUNT(DISTINCT t.id) AS cnt
+     FROM tree t
+     JOIN user_rentals ur ON ur.user_id = t.id
+     JOIN gpu_products gp ON gp.id = ur.product_id
+     WHERE ur.status = 'active'
+       AND gp.is_trial = 0"
+)->fetch_assoc()['cnt'];
+
+$cnt_any = (int) $m->query(
     "WITH RECURSIVE tree AS (
         SELECT id FROM users WHERE parent_id = {$leader['id']}
         UNION ALL
@@ -195,11 +308,21 @@ $cnt = (int) $m->query(
      FROM tree t JOIN user_rentals ur ON ur.user_id = t.id
      WHERE ur.status = 'active'"
 )->fetch_assoc()['cnt'];
-printf("count_all_active_downlines(%d) = %d (expected 9)\n", $leader['id'], $cnt);
+
+printf("Kontrak aktif dibuat: %d (paid=%d, trial=%d)\n", $rentalCount, $paidRows, $trialRows);
+printf("count_all_active_downlines(%d) = %d (expected %d — produk non-trial saja)\n",
+    $leader['id'], $cnt, $paidRows);
+printf("predikat LAMA (tanpa is_trial)  = %d%s\n", $cnt_any,
+    $cnt_any > $cnt ? '  <-- inflasi trial yang kini dikecualikan' : '');
 $tier = ($cnt >= 190) ? 'L6 Rp 9.000.000' : (($cnt >= 130) ? 'L5 Rp 5.000.000' : (($cnt >= 70) ? 'L4 Rp 2.500.000' : (($cnt >= 30) ? 'L3 Rp 1.000.000' : (($cnt >= 9) ? 'L2 Rp 200.000' : 'below L2 (not qualified)'))));
 echo "Wage tier at {$cnt} active downlines => {$tier}\n";
+if ($tier === 'below L2 (not qualified)') {
+    echo "EXPECT: POST /team/claim_wage -> {success:false, code:'not_qualified'}, 0 kredit ledger\n";
+} else {
+    echo "EXPECT: POST /team/claim_wage -> {success:true, amount dari tier di atas}\n";
+}
 
-$ok = $cnt === 9 && $leader['last_wage_claimed_at'] === null;
+$ok = $cnt === $paidRows && $leader['last_wage_claimed_at'] === null;
 echo "\n" . ($ok ? "FIXTURE READY ✔" : "FIXTURE INCOMPLETE ✘") . "\n";
 echo "\n=== LOGIN CREDENTIALS ===\n";
 echo "  Phone:      " . LEADER_PHONE . "\n";

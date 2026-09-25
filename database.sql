@@ -70,7 +70,13 @@ CREATE TABLE IF NOT EXISTS `gpu_products` (
   -- Gerbang penarikan anti free-rider memakai kolom ini:
   -- `Rental_model::has_paid_rental()` = riwayat >= 1 kontrak dari produk
   -- NON-trial. Baris lama otomatis 0 (DEFAULT) — tanpa backfill.
-  `is_trial` TINYINT(1) NOT NULL DEFAULT 0 AFTER `max_per_user`,
+  -- plan/116 (F17): TANPA klausa `AFTER` — `AFTER` hanya valid di
+  -- `ALTER TABLE … ADD COLUMN` (lihat catatan migrasi di bawah), BUKAN di
+  -- `CREATE TABLE`. Klausa itu membuat `database.sql` gagal di-import
+  -- (ERROR 1064 di tabel ini → seluruh tabel sesudahnya tak pernah dibuat).
+  -- Posisi fisik tetap identik dengan DB aktif (langsung setelah
+  -- `max_per_user`) karena baris ini memang diletakkan di sini.
+  `is_trial` TINYINT(1) NOT NULL DEFAULT 0,
   -- DEPRECATED (plan/87): prerequisite-chain gating decommissioned.
   -- Product availability is 100% admin-controlled via `is_active`.
   -- Column/index/FK retained non-destructively (all rows NULL); no

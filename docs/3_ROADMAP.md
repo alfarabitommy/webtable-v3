@@ -283,6 +283,15 @@
 - [x] **Kamus EN/ID** — +19 key (18 `home_checkin_*` + `ledger_checkin`, pola renderer deskripsi ledger di `application/helpers/i18n_helper.php`) → **621** identik di kedua idiom; `audit_i18n_parity.php` exit 0, `audit_i18n_hardcoded.php` 0 temuan.
 - [x] **Ringkasan** — `plan/112_DAILY_CHECKIN_FEATURE_SUMMARY.md`.
 
+### Fix Gaji Mingguan — Downline Aktif Wajib Kontrak Produk Non-Trial ✅ COMPLETED (plan/116)
+- [x] **Definisi tunggal "downline aktif"** — `ur.status = 'active'` **DAN** `ur.expired_at > now WIB` **DAN** `gpu_products.is_trial = 0` (join alias `gp`), diterapkan seragam di 4 titik: `User_model::count_all_active_downlines()` (otoritas level gaji mingguan), `count_active_b_downlines()` (syarat 3 downline bonus Level 1), `get_team_with_active_status()` (badge "Aktif" + counter `/team`), dan kelayakan upline rebate `Rental_model::_distribute_rebate()`. Predikat kanonik = `Rental_model::has_paid_rental()` (plan/114 D-A).
+- [x] **Celah yang ditutup** — sejak plan/114, 1 trial gratis (Rp 0, 1× lifetime) + 9 akun trial sudah cukup membuka Gaji Mingguan Level 2 (Rp 200.000/minggu) tanpa modal; upline trial-only juga menerima rebate riil dari pembelian downline. Keduanya kini **breakage** (tanpa pass-up), kontrak reward `promoter_reward` non-trial tetap eligible (K7).
+- [x] **Fail-closed tanpa perubahan jalur uang** — penghitungan ulang tetap di dalam TX terkunci (`users FOR UPDATE` → hitung → `determine_wage_level()` → stamp kondisional → `credit()`); `claim_wage()`/`claim_level1()` nol perubahan struktur, nol DDL/index/route.
+- [x] **Fixture verifikasi diperbaiki** — `scripts/seed_wage_test_account.php` memilih produk dengan filter eksplisit `is_trial` (sebelumnya "produk termurah" = baris trial sejak plan/114 → bukti palsu) + flag `--downlines=N` / `--product=paid|trial|mixed`; blok verifikasi mencetak dua penghitung (berbayar vs lama) agar eksklusi trial terlihat.
+- [x] **Kamus EN/ID** — 4 nilai disinkronkan (`team_help_active_body`, `team_help_l1_li1`, `team_help_wage_body`, `team_wage_sub`), **tetap 633/633** key, tanpa nominal baru (L6/P3); `audit_i18n_parity.php` & `audit_i18n_hardcoded.php` exit 0.
+- [x] **F17 (temuan plan/114, diperbaiki di sini)** — `database.sql` gagal di-import pada instalasi bersih karena klausa `AFTER \`max_per_user\`` di dalam `CREATE TABLE gpu_products` (`AFTER` hanya valid di `ALTER TABLE`); klausa dihapus dengan posisi kolom tetap identik (order live ≡ order fresh terbukti) sehingga tepat **satu** baris `is_trial = 1` tetap terjaga.
+- [x] **Ringkasan** — `plan/116_FIX_WEEKLY_WAGE_ACTIVE_DOWNLINE_SUMMARY.md`.
+
 ---
 
 ## Upcoming Phases

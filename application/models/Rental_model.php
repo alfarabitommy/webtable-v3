@@ -620,9 +620,11 @@ class Rental_model extends CI_Model {
      *   2. Traversal terikat TEPAT 3 posisi (L1 = parent pembeli, naik);
      *      fail-closed pada self-reference/siklus/rantai putus (log + stop,
      *      sisa tier hangus) — loop runaway mustahil.
-     *   3. Kelayakan STRICT per posisi: upline wajib punya >= 1 kontrak
-     *      aktif (expired_at > now WIB); is_banned=1 dilewati. Inaktif →
-     *      tier hangus, TANPA pass-up ke level atas (breakage platform).
+     *   3. Kelayakan STRICT per posisi: upline wajib punya >= 1 kontrak aktif
+     *      dari produk NON-trial (`gpu_products.is_trial = 0`, plan/116 D2 —
+     *      kontrak trial gratis plan/114 TIDAK membuka kelayakan;
+     *      expired_at > now WIB); is_banned=1 dilewati. Inaktif → tier
+     *      hangus, TANPA pass-up ke level atas (breakage platform).
      *   4. M8: amount = intdiv(price * persen, 100) — integer murni, tanpa
      *      float; amount < 1 IDR → dilewati (choke-point _post() menolak 0).
      *   5. Kredit via Wallet_model::credit() (ledger + cache atomik C4/Z1)
@@ -701,9 +703,15 @@ class Rental_model extends CI_Model {
             $cur_id = ($u->parent_id !== null) ? (int) $u->parent_id : null;
 
             // Kelayakan STRICT (M3): >= 1 kontrak BENAR-BENAR aktif.
+            // plan/116 (D2): kontrak dari produk NON-trial saja — upline yang
+            // hanya memegang trial gratis (plan/114) TIDAK eligible untuk
+            // menerima rebate riil dari pembelian downline (anti free-rider).
+            // Kontrak reward `promoter_reward` non-trial tetap eligible (K7).
             $active = $this->db->query(
                 "SELECT 1 FROM user_rentals ur
+                  JOIN gpu_products gp ON gp.id = ur.product_id
                   WHERE ur.user_id = ? AND ur.status = 'active' AND ur.expired_at > ?
+                    AND gp.is_trial = 0
                   LIMIT 1",
                 [$uid, $now]
             )->row();
@@ -908,6 +916,14 @@ class Rental_model extends CI_Model {
      *
      * Index: terlayani leftmost prefix `idx_user_status_expired (user_id, …)`
      * + PK join `gpu_products.id` → tanpa index baru.
+     *
+     * plan/116 (D2): predikat `is_trial = 0` ini menjadi NORMA untuk seluruh
+     * perhitungan "downline/aktivitas berbayar" — `User_model::
+     * count_all_active_downlines()`, `count_active_b_downlines()`,
+     * `get_team_with_active_status()`, dan kelayakan upline rebate
+     * (`_distribute_rebate()`). Beda satu klausa: di sana `status='active'` +
+     * `expired_at > now` tetap wajib (aktivitas SAAT INI), di sini sengaja
+     * tidak (RIWAYAT).
      *
      * @param int $user_id
      * @return bool

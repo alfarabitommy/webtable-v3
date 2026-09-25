@@ -69,6 +69,7 @@ erDiagram
         INT duration_days
         TINYINT1 is_refundable
         INT max_per_user "0 = tanpa batas (plan/83)"
+        TINYINT1 is_trial "plan/114: 1 = produk trial gratis (harga 0, max_per_user 1)"
         INT unlock_prerequisite_id "DORMANT plan/87, semua NULL"
         TINYINT1 is_active "satu-satunya gate ketersediaan"
         TIMESTAMP created_at
@@ -265,6 +266,7 @@ Katalog paket GPUaaS (Marketplace). Data master; **tidak boleh** hard-delete (so
 * `duration_days` (INT, NOT NULL, Unsigned) - Lama kontrak (misal: 25, 60).
 * `is_refundable` (TINYINT 1, NOT NULL, DEFAULT 0) - 1 Jika harga `price` dikembalikan di akhir periode, 0 jika tidak.
 * `max_per_user` (INT UNSIGNED, NOT NULL, DEFAULT 0) - **plan/83:** batas pembelian (kontrak) seumur hidup per user. `0` = tanpa batas; `N >= 1` = kuota lifetime. Satu-satunya gate pembelian per-user (GATE 2) — dihitung source-aware (lihat `user_rentals.source`, K4).
+* `is_trial` (TINYINT 1, NOT NULL, DEFAULT 0) - **plan/114:** `1` = produk TRIAL gratis ("GPU Magang") — harga WAJIB `0`, `max_per_user` WAJIB `1`, checkout **tidak memotong saldo**, **tidak memicu rebate 3-tier**, dan **tidak menambah omzet** upline. Invarian: **tepat satu** baris `is_trial = 1` (dijaga admin product CRUD + `scripts/migrate_114_trial_product_wd_gate.php --verify`). Nilai `0` pada baris lama (tanpa backfill). **plan/116:** kolom ini adalah **identitas "sewa berbayar"** di seluruh sistem — `Rental_model::has_paid_rental()` (gerbang penarikan), `User_model::count_all_active_downlines()` / `count_active_b_downlines()` / `get_team_with_active_status()` (downline aktif & gaji mingguan), dan kelayakan upline rebate (`_distribute_rebate()`). Kontrak trial **tidak pernah** membuka salah satunya. **plan/116 F17:** klausa `AFTER` dihapus dari `CREATE TABLE` (hanya valid di `ALTER TABLE`) agar `database.sql` dapat di-import pada instalasi bersih.
 * `unlock_prerequisite_id` (INT UNSIGNED, NULLABLE) - **DEPRECATED (plan/87):** rantai prasyarat progresif DICOMMISSIONED; kolom/index/FK dipertahankan non-destruktif (semua baris `NULL`), **tidak ada kode yang membaca/menulis**. Ketersediaan produk 100% via `is_active`.
 * `is_active` (TINYINT 1, NOT NULL, DEFAULT 1) - 1 = dijual di marketplace (toggle admin; satu-satunya gate ketersediaan).
 * `created_at` (TIMESTAMP)
@@ -288,6 +290,7 @@ Menyimpan kontrak sewa GPU aktif/kedaluwarsa + kontrak reward promotor.
 **Index Optimization:** `idx_user_status_expired` (user_id, status, expired_at) — lazy sweep per-user + kualifikasi downline; `idx_status_expired` (status, expired_at) — sweep global/CLI/admin; `idx_product_id` (product_id).
 **Foreign Keys:** `fk_user_rentals_user` → `users.id` RESTRICT; `fk_user_rentals_product` → `gpu_products.id` RESTRICT.
 **Invariant K7 (kontrak zero-cost, plan/91):** kontrak reward = kontrak normal (aktif, ROI tetap via jalur klaim `ROI-{rental_id}-D…`) yang otomatis memenuhi syarat "≥ 1 kontrak aktif" untuk menerima komisi rebate 3-tier — efek yang diinginkan. Kontrak reward TIDAK memicu distribusi rebate saat diterbitkan (harga 0).
+**Invariant K8 (aktivitas berbayar = produk non-trial, plan/116):** setiap definisi "downline aktif"/"upline aktif" mensyaratkan kontrak `status = 'active'` **DAN** `expired_at > now WIB` **DAN** produknya `is_trial = 0` (join `gpu_products`, alias `gp`). Titiknya: `User_model::count_all_active_downlines()`, `count_active_b_downlines()`, `get_team_with_active_status()`, `Rental_model::_distribute_rebate()`. Tanpa klausa ini, satu trial gratis (Rp 0, 1× lifetime) cukup untuk membuka Gaji Mingguan Level 2 atau mengubah upline trial-only menjadi penerima rebate riil. `Rental_model::has_paid_rental()` (plan/114 D-A) adalah predikat kanoniknya; ia berbeda satu klausa karena menguji **riwayat** (tanpa filter `status`/`expired_at`), bukan aktivitas saat ini.
 
 ### Tabel: `rentals` — DEPRECATED (M10, plan/78)
 Tabel legacy — **tidak ada jalur kode yang membaca/menulis**; tabel live = `user_rentals` (lihat §7 mapping). Retention-only untuk data historis; jangan dipakai di kode baru. Kolom: `id`, `user_id` (FK → users RESTRICT), `gpu_product_id` (FK → gpu_products RESTRICT), `status`, `total_days`, `days_processed`, `daily_rate_snapshot`, `started_at`, `ends_at`, `last_claimed_at`, `created_at`, `updated_at`.
