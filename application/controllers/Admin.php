@@ -379,6 +379,9 @@ class Admin extends CI_Controller {
         $this->load->model('Rental_model');
         // plan/112: absensi harian — resolver GET + validator POST.
         $this->load->model('Checkin_model');
+        // plan/119: Bonus Pencapaian Tim — resolver GET + validator POST
+        // (helper `team_milestone` autoloaded: parsing/encoding tier).
+        $this->load->model('User_model');
 
         // M7 (plan/70): satu endpoint pengaturan — GET merender form terpadu
         // (kontak + finansial), POST memproses keduanya dalam satu submit.
@@ -471,10 +474,30 @@ class Admin extends CI_Controller {
                 'checkin_base_reward'   => $this->input->post('checkin_base_reward'),
                 'checkin_max_reward'    => $this->input->post('checkin_max_reward'),
                 'checkin_streak_policy' => $this->input->post('checkin_streak_policy'),
+                // plan/118: gerbang syarat sewa aktif (semantik checkbox).
+                'checkin_require_active_rental' => $this->input->post('checkin_require_active_rental'),
             ];
             $cv = $this->Checkin_model->validate_checkin_settings($checkin_raw);
             if (!$cv['ok']) {
                 $errors = array_merge($errors, $cv['errors']);
+            }
+
+            // ── plan/119: Bonus Pencapaian Tim — raw POST → normalizer ketat
+            //    `User_model` (integer IDR + invarian tier: target unik &
+            //    menaik, ambang administratif, anggaran kolom state).
+            //    Transport array baris (`tm_target[]` / `tm_amount[]`) — pola
+            //    plan/110, sehingga baris yang belum valid tetap terkirim dan
+            //    dapat direpopulasi.
+            $ms_rows = $this->_collect_milestone_rows();
+            $ms_raw  = [
+                'team_milestone_enabled' => $this->input->post('team_milestone_enabled'),
+                'team_milestone_tiers'   => (count($ms_rows) > 0)
+                    ? $ms_rows
+                    : $this->input->post('team_milestone_tiers'),
+            ];
+            $mv = $this->User_model->validate_milestone_settings($ms_raw);
+            if (!$mv['ok']) {
+                $errors = array_merge($errors, $mv['errors']);
             }
 
             // All-or-nothing: satu error → tidak ada satupun yang disimpan.
@@ -487,14 +510,16 @@ class Admin extends CI_Controller {
                     'settings_form_state',
                     $this->_settings_form_state($tier_rows, $errors, array_merge(
                         isset($v['field_errors']) ? $v['field_errors'] : [],
-                        isset($cv['field_errors']) ? $cv['field_errors'] : []
-                    ))
+                        isset($cv['field_errors']) ? $cv['field_errors'] : [],
+                        // plan/119: error inline kartu Bonus Pencapaian Tim.
+                        isset($mv['field_errors']) ? $mv['field_errors'] : []
+                    ), $ms_rows)
                 );
                 redirect('admin/settings');
                 return;
             }
 
-            $final = array_merge($contact, $v['values'], $rv['values'], $cv['values']);
+            $final = array_merge($contact, $v['values'], $rv['values'], $cv['values'], $mv['values']);
 
             // M5/A1: snapshot nilai lama per key SEBELUM persist (audit before→after).
             $before = [];
@@ -608,12 +633,189 @@ class Admin extends CI_Controller {
         $data['checkin_base_reward']   = (int) $checkin_cfg['base'];
         $data['checkin_max_reward']    = (int) $checkin_cfg['max'];
         $data['checkin_streak_policy'] = $checkin_cfg['policy'];
+        // plan/118: gerbang syarat sewa aktif (default OFF).
+        $data['checkin_require_active_rental'] = $checkin_cfg['require_active_rental'] ? 1 : 0;
+
+        // plan/119: Bonus Pencapaian Tim — nilai dari merged dynamic config
+        // (fallback-safe) + baris editor (state form → config tersimpan).
+        $ms_cfg = $this->User_model->get_milestone_config();
+        $data['team_milestone_enabled'] = $ms_cfg['enabled'] ? 1 : 0;
+        $data['tm_rows'] = (isset($form_state['tm_rows']) && is_array($form_state['tm_rows']))
+            ? $form_state['tm_rows']
+            : $this->_milestone_rows_from_tiers($ms_cfg['tiers']);
+        // Error inline kartu plan/119 (prefix `tm_row_`).
+        $data['tm_field_errors'] = [];
+        foreach (($data['field_errors'] ?? []) as $fk => $fm) {
+            if (strpos((string) $fk, 'tm_row_') === 0) {
+                $data['tm_field_errors'][$fk] = $fm;
+            }
+        }
 
         $this->load->view('admin/templates/header', $data);
         $this->load->view('admin/templates/sidebar', $data);
         $this->load->view('admin/templates/topbar', $data);
         $this->load->view('admin/settings', $data);
         $this->load->view('admin/templates/footer');
+    }
+
+    // ===================================================================
+    //  plan/121: LUCKY SPIN WHEEL — konfigurasi roda hadiah
+    //  Panel admin tetap 100% Indonesia (invarian L1; tanpa key i18n).
+    //  GET  → form (toggle + editor segmen + peluang/EV + ringkasan read-only)
+    //  POST → validasi `Spin_model::validate_settings()` lalu persist ATOMIK
+    //         (`Admin_model::update_system_settings` + audit
+    //         `admin_update_spin_wheel`, pola plan/105/119).
+    // ===================================================================
+    public function lucky_spin() {
+        $this->load->model('Admin_model');
+        $this->load->model('Spin_model');
+        // Helper spin_wheel autoloaded (parse/encode/odds/EV) — dipakai view.
+
+        $method = $this->input->method();
+
+        if ($method === 'post') {
+            // Transport array baris (`spin_amount[]` / `spin_weight[]`) — pola
+            // plan/110/119 agar baris yang belum valid tetap terkirim dan form
+            // dapat direpopulasi apa adanya.
+            $raw = [
+                'spin_wheel_enabled' => $this->input->post('spin_wheel_enabled'),
+                'spin_amount'        => $this->input->post('spin_amount'),
+                'spin_weight'        => $this->input->post('spin_weight'),
+            ];
+
+            $v = $this->Spin_model->validate_settings($raw);
+
+            if (!$v['ok']) {
+                $this->session->set_flashdata('error', 'Validasi gagal: ' . implode(' ', $v['errors']));
+                $this->session->set_flashdata('spin_form_state', [
+                    'values'       => $v['values'],
+                    'field_errors' => $v['field_errors'],
+                    'rows'         => $this->_spin_rows_from_input($raw),
+                ]);
+                redirect('admin/lucky-spin');
+                return;
+            }
+
+            $final = $v['values'];
+
+            // M5/A1: snapshot nilai lama per key SEBELUM persist (before→after).
+            $before  = [];
+            $changed = [];
+            foreach ($final as $key => $value) {
+                $before[$key] = $this->Admin_model->get_setting($key);
+                if ((string) ($before[$key] ?? null) !== (string) $value) {
+                    $changed[$key] = $value;
+                }
+            }
+
+            $audit_ctx = $this->_audit_ctx(null, 'admin_update_spin_wheel', [
+                'keys'   => array_keys($changed),
+                'before' => array_intersect_key($before, $changed),
+                'after'  => $changed,
+            ]);
+
+            if ($this->Admin_model->update_system_settings($final, $audit_ctx)) {
+                $this->session->set_flashdata('success', 'Konfigurasi Lucky Spin berhasil disimpan dan langsung berlaku.');
+            } else {
+                $this->session->set_flashdata('error', 'Gagal menyimpan konfigurasi Lucky Spin.');
+            }
+            redirect('admin/lucky-spin');
+            return;
+        }
+
+        // POST-only gate: selain GET/POST ditolak 404 (pola settings()).
+        if ($method !== 'get') {
+            show_404();
+            return;
+        }
+
+        $cfg = $this->Spin_model->get_config();
+
+        // Repopulasi: state form (apa yang diketik admin) → config tersimpan.
+        $form_state = $this->session->flashdata('spin_form_state');
+        $form_state = is_array($form_state) ? $form_state : [];
+
+        $rows = (isset($form_state['rows']) && is_array($form_state['rows']) && count($form_state['rows']) > 0)
+            ? $form_state['rows']
+            : $this->_spin_rows_from_segments($cfg['segments']);
+
+        // Kolom editor minimal: selalu sediakan 2 baris kosong agar form tidak
+        // kehilangan editor saat tabel kosong.
+        while (count($rows) < (int) spin_wheel_limits()['min_segments']) {
+            $rows[] = ['amount' => '', 'weight' => ''];
+        }
+
+        $data = [
+            'page_title'    => 'Lucky Spin',
+            'spin_enabled'  => $cfg['enabled'] ? 1 : 0,
+            'spin_rows'     => $rows,
+            'spin_configured' => $cfg['configured'] ? 1 : 0,
+            // Peluang & expected value dihitung server (integer, tanpa float).
+            'spin_odds_bp'  => $cfg['odds_bp'],
+            'spin_expected_value' => (int) $cfg['expected_value'],
+            'spin_total_weight'   => (int) $cfg['total_weight'],
+            'spin_limits'   => spin_wheel_limits(),
+            'spin_field_errors' => isset($form_state['field_errors']) ? (array) $form_state['field_errors'] : [],
+            'spin_overview' => $this->Admin_model->get_spin_overview(),
+        ];
+
+        $this->load->view('admin/templates/header', $data);
+        $this->load->view('admin/templates/sidebar', $data);
+        $this->load->view('admin/templates/topbar', $data);
+        $this->load->view('admin/lucky_spin', $data);
+        $this->load->view('admin/templates/footer');
+    }
+
+    /**
+     * plan/121 — baris editor dari INPUT mentah (repopulasi setelah validasi
+     * gagal). Tidak ada normalisasi: aturan ambang hidup di `Spin_model` +
+     * `spin_wheel_helper` (choke-point tunggal).
+     *
+     * @return array<int,array{amount:string,weight:string}>
+     */
+    private function _spin_rows_from_input(array $raw) {
+        $amounts = isset($raw['spin_amount']) && is_array($raw['spin_amount']) ? $raw['spin_amount'] : [];
+        $weights = isset($raw['spin_weight']) && is_array($raw['spin_weight']) ? $raw['spin_weight'] : [];
+
+        $rows  = [];
+        $count = max(count($amounts), count($weights));
+        for ($i = 0; $i < $count; $i++) {
+            $a = array_key_exists($i, $amounts) ? $amounts[$i] : '';
+            $w = array_key_exists($i, $weights) ? $weights[$i] : '';
+            if (!is_scalar($a) && !is_scalar($w)) {
+                continue;
+            }
+            $rows[] = [
+                'amount' => is_scalar($a) ? (string) $a : '',
+                'weight' => is_scalar($w) ? (string) $w : '',
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * plan/121 — baris editor dari konfigurasi tersimpan (segmen valid).
+     *
+     * @param  array $segments Hasil Spin_model::get_config()['segments']
+     * @return array<int,array{amount:string,weight:string}>
+     */
+    private function _spin_rows_from_segments($segments) {
+        $rows = [];
+        if (!is_array($segments)) {
+            return $rows;
+        }
+        foreach ($segments as $seg) {
+            if (!is_array($seg) || !isset($seg['amount'], $seg['weight'])) {
+                continue;
+            }
+            $rows[] = [
+                'amount' => (string) (int) $seg['amount'],
+                'weight' => (string) (int) $seg['weight'],
+            ];
+        }
+
+        return $rows;
     }
 
     // ===================================================================
@@ -653,6 +855,60 @@ class Admin extends CI_Controller {
     }
 
     /**
+     * plan/119: rakitan baris tier Bonus Pencapaian Tim dari input ARRAY
+     * (`tm_target[]` / `tm_amount[]` dipasangkan per indeks — pola plan/110).
+     * Mengembalikan [] bila transport array tidak dipakai (halaman ter-cache /
+     * JS lama) — pemanggil lalu jatuh ke transport JSON legacy. TIDAK ada
+     * normalisasi di sini: aturan tier hidup di
+     * `application/helpers/team_milestone_helper.php` (choke-point tunggal)
+     * dan pesan validasi di `User_model::validate_milestone_settings()`.
+     *
+     * @return array<int,array{target:mixed,amount:mixed}>
+     */
+    private function _collect_milestone_rows() {
+        $targets = $this->input->post('tm_target');
+        $amounts = $this->input->post('tm_amount');
+
+        if (!is_array($targets)) {
+            return [];
+        }
+
+        $rows = [];
+        foreach (array_values($targets) as $i => $target) {
+            $rows[] = [
+                'target' => $target,
+                'amount' => (is_array($amounts) && isset($amounts[$i])) ? $amounts[$i] : null,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * plan/119: bentuk baris editor yang SERAGAM dari tier tersimpan
+     * (`[['target'=>…,'amount'=>…],…]` → `[['target'=>'…','amount'=>'…'],…]`).
+     * Config kosong → SATU baris kosong supaya admin dapat langsung mengisi.
+     */
+    private function _milestone_rows_from_tiers(array $tiers) {
+        $rows = [];
+        foreach ($tiers as $tier) {
+            if (!is_array($tier) || !isset($tier['target'], $tier['amount'])) {
+                continue;
+            }
+            $rows[] = [
+                'target' => (string) $tier['target'],
+                'amount' => (string) $tier['amount'],
+            ];
+        }
+
+        if (count($rows) === 0) {
+            $rows[] = ['target' => '', 'amount' => ''];
+        }
+
+        return $rows;
+    }
+
+    /**
      * Bentuk baris editor yang SERAGAM dari config tersimpan
      * (`[[min,max,bps],…]` → `[['min','max','pct'],…]`) agar view dan state
      * form memakai satu bentuk. Konversi bps → persen memakai helper yang
@@ -680,7 +936,7 @@ class Admin extends CI_Controller {
      * meng-escape saat render. Flashdata bertahan satu request sehingga tidak
      * pernah ada nilai basi yang tersangkut.
      */
-    private function _settings_form_state(array $tier_rows, array $errors, array $field_errors) {
+    private function _settings_form_state(array $tier_rows, array $errors, array $field_errors, array $ms_rows = []) {
         $days = $this->input->post('wd_operational_days');
 
         return [
@@ -706,6 +962,12 @@ class Admin extends CI_Controller {
             'checkin_base_reward'   => (string) $this->input->post('checkin_base_reward', TRUE),
             'checkin_max_reward'    => (string) $this->input->post('checkin_max_reward', TRUE),
             'checkin_streak_policy' => (string) $this->input->post('checkin_streak_policy', TRUE),
+            // plan/118: gerbang syarat sewa aktif (checkbox → '1'/'0').
+            'checkin_require_active_rental' => (string) $this->input->post('checkin_require_active_rental'),
+            // plan/119: Bonus Pencapaian Tim — baris tier apa adanya dari POST
+            // (view meng-escape saat render) + toggle.
+            'team_milestone_enabled' => (string) $this->input->post('team_milestone_enabled'),
+            'tm_rows'                => $ms_rows,
             'errors'              => array_values($errors),
             'field_errors'        => $field_errors,
             'notices'             => [],
@@ -935,6 +1197,9 @@ class Admin extends CI_Controller {
             'page_title'     => 'User Detail',
             'user'           => $user,
             'balance'        => $this->Admin_model->get_user_balance($id),
+            // plan/118: dompet kedua — informasi internal (tidak dapat
+            // disesuaikan admin; hanya absensi & split checkout yang menulis).
+            'checkin_balance' => $this->Admin_model->get_user_checkin_balance($id),
             'rentals'        => $this->Admin_model->get_user_rentals($id),
             'wallet_history' => $this->Admin_model->get_wallet_history($id, 20),
             'downline'       => $this->Admin_model->get_downline($id),
@@ -1154,6 +1419,133 @@ class Admin extends CI_Controller {
             );
         }
         redirect('admin/user_detail/' . $id);
+    }
+
+    // ===================================================================
+    //  plan/117 — KUNCI PENARIKAN PER-USER (Withdrawal Lock)
+    //
+    //  Mutator AJAX (POST-only, CSRF via `csrfFetch` di modal admin + envelope
+    //  api_helper). URL = metode langsung 2-segmen `admin/toggle_wd_lock/{id}`
+    //  (pola `admin/toggle_ban/{id}` / `admin/reset_ewallet/{id}`) → TIDAK
+    //  butuh entri routes.php. Copy 100% Indonesia (invarian L1).
+    //
+    //  Intent EKSPLISIT (`lock=1|0`) — bukan toggle implisit — supaya klik
+    //  ganda / dua tab tidak pernah membalik state yang tidak dimaksud.
+    //  Audit + notifikasi hanya ditulis saat TRANSISI nyata (affected === 1);
+    //  no-op idempoten tetap 200 tanpa baris audit palsu (A1).
+    // ===================================================================
+
+    public function toggle_wd_lock($id)
+    {
+        // M4 (plan/62 H1): fail-closed POST-only untuk mutator admin.
+        if ($this->input->method() !== 'post') {
+            api_error('Method not allowed', 405, [], 'method_not_allowed',
+                ['error' => 'Method not allowed']);
+            return;
+        }
+
+        $this->load->model('Admin_model');
+        $id = (int) $id;
+
+        $lock = (string) $this->input->post('lock', TRUE);
+        if ($lock !== '1' && $lock !== '0') {
+            api_error('Permintaan tidak valid.', 422, ['lock' => 'invalid'], 'invalid_request',
+                ['error' => 'Permintaan tidak valid.']);
+            return;
+        }
+        $target = ($lock === '1');
+
+        // Alasan WAJIB saat mengunci — konteks untuk audit internal (W3:
+        // alasan TIDAK pernah dikirim ke member).
+        $reason = trim((string) $this->input->post('reason', TRUE));
+        if ($target) {
+            if ($reason === '') {
+                api_error('Alasan penguncian wajib diisi.', 422, ['reason' => 'required'],
+                    'reason_required', ['error' => 'Alasan penguncian wajib diisi.']);
+                return;
+            }
+            // mbstring tidak selalu tersedia di semua runtime (mis. build CLI
+            // minimal) — panjang karakter dipakai bila ada, byte sebagai
+            // fallback konservatif (VARCHAR(255) utf8mb4 aman).
+            $reason_len = function_exists('mb_strlen') ? mb_strlen($reason) : strlen($reason);
+            if ($reason_len > 255) {
+                api_error('Alasan maksimal 255 karakter.', 422, ['reason' => 'too_long'],
+                    'reason_too_long', ['error' => 'Alasan maksimal 255 karakter.']);
+                return;
+            }
+        } else {
+            $reason = null; // unlock SELALU membersihkan alasan (invarian W4)
+        }
+
+        $this->load->model('Audit_model');
+
+        // M5: perubahan state + audit ATOMIK dalam SATU TX.
+        $this->db->trans_start();
+        $res     = $this->Admin_model->set_wd_lock($id, $target, $reason);
+        $changed = ($res['found'] && $res['affected'] === 1);
+
+        if ($changed) {
+            $this->Audit_model->log_admin_action(
+                (int) $this->session->userdata('admin_id'),
+                $id,
+                'admin_toggle_wd_lock',
+                [
+                    'before' => $res['before'] === 1 ? 'locked' : 'unlocked',
+                    'after'  => $res['after'] === 1 ? 'locked' : 'unlocked',
+                    'reason' => $reason, // internal admin-only (W3)
+                ],
+                $this->input->ip_address()
+            );
+        }
+        $this->db->trans_complete();
+
+        if (!$res['found']) {
+            api_error('User tidak ditemukan.', 404, [], 'user_not_found',
+                ['error' => 'User tidak ditemukan.']);
+            return;
+        }
+
+        // Kegagalan TX diperiksa SEBELUM cabang idempoten — no-op yang sah
+        // (`affected === 0` karena state sudah sama) tetap trans_status() TRUE,
+        // jadi satu pemeriksaan ini menutup keduanya (tidak pernah melaporkan
+        // sukses saat TX sebenarnya rollback).
+        if (!$this->db->trans_status()) {
+            $message = 'Gagal mengubah status kunci penarikan.';
+            api_error($message, 500, [], 'toggle_failed',
+                ['is_wd_locked' => ($res['before'] === 1), 'changed' => false, 'message' => $message, 'error' => $message]);
+            return;
+        }
+
+        if (!$changed) {
+            // Idempoten: state sudah sama → 200 tanpa audit/notifikasi baru (A1).
+            $message = $target
+                ? 'Penarikan user sudah dalam keadaan terkunci.'
+                : 'Penarikan user sudah dalam keadaan terbuka.';
+            api_success(
+                ['user_id' => $id, 'is_wd_locked' => $target, 'changed' => false],
+                $message, 200,
+                ['is_wd_locked' => $target, 'changed' => false, 'message' => $message]
+            );
+            return;
+        }
+
+        // M5/N3: notifikasi member POST-COMMIT (generik, tanpa alasan — D3/W3).
+        $this->load->model('Notification_model');
+        $this->Notification_model->insert_keyed(
+            $id,
+            $target ? 'notif_wd_locked' : 'notif_wd_unlocked',
+            [],
+            'info'
+        );
+
+        $message = $target
+            ? 'Penarikan user berhasil DIBLOKIR.'
+            : 'Kunci penarikan user berhasil DIBUKA (alasan dihapus).';
+        api_success(
+            ['user_id' => $id, 'is_wd_locked' => $target, 'changed' => true],
+            $message, 200,
+            ['is_wd_locked' => $target, 'changed' => true, 'message' => $message]
+        );
     }
 
     public function inject_balance($id)

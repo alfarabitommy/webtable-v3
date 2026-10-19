@@ -135,7 +135,8 @@
             <button class="btn-sewa w-full h-12 u-btn-cyber rounded-xl font-bold mt-3 transition-all active:scale-[0.98]"
                     data-id="<?= (int) $product['id'] ?>"
                     data-name="<?= htmlspecialchars($product['name']) ?>"
-                    data-price="<?= (int) $product['price'] ?>">
+                    data-price="<?= (int) $product['price'] ?>"
+                    data-trial="<?= (int) ($product['is_trial'] ?? 0) ?>">
                 <?= lang('market_rent_now_btn') ?>
             </button>
         <?php else: ?>
@@ -178,10 +179,32 @@
                 <span class="text-sm u-text-2"><?= lang('market_your_balance') ?></span>
                 <span class="text-sm font-semibold" id="modalBalance">-</span>
             </div>
+            <?php /* plan/118: dompet kedua — baris hanya tampil bila produk
+                   berbayar DAN saldo absen > 0 (di-toggle JS). */ ?>
+            <div class="flex justify-between items-center hidden" id="modalCheckinRow">
+                <span class="text-sm u-text-2"><?= lang('home_checkin_balance_label') ?></span>
+                <span class="text-sm font-semibold text-cyan-600 dark:text-cyan-400" id="modalCheckinBalance">-</span>
+            </div>
         </div>
 
         <?php echo form_open('rentals/checkout', ['id' => 'form-checkout', 'class' => 'w-full', 'data-guard-submit' => '1']); ?>
             <input type="hidden" name="product_id" id="modal_product_id" value="">
+
+            <?php /* plan/118: checkbox split payment. Tidak dikirim → tanpa
+                   subsidi (semantik checkbox native; server membaca
+                   `use_checkin_balance === '1'`). Nominal tersedia memakai
+                   ARGUMEN sprintf (L6 — uang tidak pernah masuk kamus). */ ?>
+            <label id="modalCheckinOption" for="modal_use_checkin"
+                   class="hidden items-center gap-2 mb-4 cursor-pointer select-none rounded-xl border border-cyan-500/30 bg-cyan-500/5 px-3 py-3">
+                <input type="checkbox" id="modal_use_checkin" name="use_checkin_balance" value="1"
+                       class="rounded border-slate-300 shrink-0">
+                <span class="text-xs font-bold u-text"><?= lang('market_checkin_use_label') ?></span>
+                <span class="ml-auto text-xs font-bold text-cyan-600 dark:text-cyan-400 shrink-0">
+                    <?= sprintf(lang('market_checkin_available'), 'Rp ' . number_format((int) $checkin_balance, 0, ',', '.')) ?>
+                </span>
+            </label>
+            <p id="modalSplitNote" class="hidden text-[11px] u-text-2 mb-3 -mt-2"></p>
+
             <div id="modalActionBtn"></div>
         <?php echo form_close(); ?>
     </div>
@@ -197,13 +220,24 @@
     var balanceEl      = document.getElementById('modalBalance');
     var actionBtn      = document.getElementById('modalActionBtn');
     var productIdInput = document.getElementById('modal_product_id');
+    // plan/118: kontrol split payment (dompet "Saldo Absen").
+    var checkinRow       = document.getElementById('modalCheckinRow');
+    var checkinOption    = document.getElementById('modalCheckinOption');
+    var checkinBalanceEl = document.getElementById('modalCheckinBalance');
+    var checkinInput     = document.getElementById('modal_use_checkin');
+    var splitNoteEl      = document.getElementById('modalSplitNote');
 
-    var userBalance = <?= (int) $user_balance ?>;
-    var baseUrl     = '<?= base_url() ?>';
+    var userBalance    = <?= (int) $user_balance ?>;
+    // plan/118: saldo dompet kedua (bukan saldo utama) — display saja.
+    var checkinBalance = <?= (int) $checkin_balance ?>;
+    var currentPrice   = 0;
+    var baseUrl        = '<?= base_url() ?>';
 
     var STR = {
         confirmPay: <?= json_encode(lang('market_confirm_pay'), JSON_UNESCAPED_UNICODE) ?>,
-        insufficient: <?= json_encode(lang('market_insufficient'), JSON_UNESCAPED_UNICODE) ?>
+        insufficient: <?= json_encode(lang('market_insufficient'), JSON_UNESCAPED_UNICODE) ?>,
+        // plan/118: rincian komposisi pembayaran (dua placeholder → dua argumen nominal).
+        splitNote: <?= json_encode(lang('market_checkin_split_note'), JSON_UNESCAPED_UNICODE) ?>
     };
 
     var IDR = new Intl.NumberFormat('id-ID', {
@@ -213,6 +247,8 @@
     });
 
     function openModal(data) {
+        currentPrice = data.price;
+
         productNameEl.textContent  = data.name;
         productPriceEl.textContent = IDR.format(data.price);
         balanceEl.textContent      = IDR.format(userBalance);
@@ -220,7 +256,49 @@
         // Set the hidden product_id value
         productIdInput.value = data.id;
 
-        if (userBalance >= data.price) {
+        // plan/118: baris/checkbox saldo absen — hanya untuk produk BERBAYAR
+        // (bukan trial gratis) dan bila saldo absen > 0.
+        var canUseCheckin = (data.price > 0 && data.trial !== 1 && checkinBalance > 0);
+        checkinRow.classList.toggle('hidden', !canUseCheckin);
+        checkinRow.classList.toggle('flex', canUseCheckin);
+        if (canUseCheckin) {
+            checkinBalanceEl.textContent = IDR.format(Math.min(checkinBalance, data.price));
+        }
+        checkinOption.classList.toggle('hidden', !canUseCheckin);
+        checkinOption.classList.toggle('flex', canUseCheckin);
+        checkinInput.checked = false;
+        splitNoteEl.classList.add('hidden');
+
+        renderState();
+
+        modal.classList.remove('hidden');
+        requestAnimationFrame(function() {
+            sheet.style.transform = 'translateY(0)';
+        });
+    }
+
+    /**
+     * plan/118: hitung daya beli + render tombol/indikator. Daya beli =
+     * saldo utama + (checkbox aktif ? saldo absen : 0) — cermin UX dari split
+     * server-side (otoritas tetap di Rental_model::checkout_rental).
+     */
+    function renderState() {
+        var useCheckin = checkinInput.checked && !checkinOption.classList.contains('hidden');
+        var available  = userBalance + (useCheckin ? Math.min(checkinBalance, currentPrice) : 0);
+
+        balanceEl.textContent = IDR.format(userBalance);
+
+        if (useCheckin) {
+            var fromCheckin = Math.min(checkinBalance, currentPrice);
+            splitNoteEl.textContent = STR.splitNote
+                .replace('%s', IDR.format(fromCheckin))
+                .replace('%s', IDR.format(Math.max(0, currentPrice - fromCheckin)));
+            splitNoteEl.classList.remove('hidden');
+        } else {
+            splitNoteEl.classList.add('hidden');
+        }
+
+        if (available >= currentPrice) {
             balanceEl.className = 'text-sm font-semibold text-emerald-600 dark:text-emerald-400';
             actionBtn.innerHTML =
                 '<button type="submit" class="w-full h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold shadow-lg transition-all flex items-center justify-center gap-2">' +
@@ -233,11 +311,6 @@
                     '<i class="fas fa-wallet"></i> ' + STR.insufficient +
                 '</a>';
         }
-
-        modal.classList.remove('hidden');
-        requestAnimationFrame(function() {
-            sheet.style.transform = 'translateY(0)';
-        });
     }
 
     function closeModal() {
@@ -246,6 +319,12 @@
             modal.classList.add('hidden');
             actionBtn.innerHTML = '';
             productIdInput.value = '';
+            checkinInput.checked = false;
+            checkinRow.classList.add('hidden');
+            checkinRow.classList.remove('flex');
+            checkinOption.classList.add('hidden');
+            checkinOption.classList.remove('flex');
+            splitNoteEl.classList.add('hidden');
         }, 300);
     }
 
@@ -255,11 +334,13 @@
             openModal({
                 id:    clickedBtn.getAttribute('data-id'),
                 name:  clickedBtn.getAttribute('data-name'),
-                price: parseFloat(clickedBtn.getAttribute('data-price'))
+                price: parseFloat(clickedBtn.getAttribute('data-price')),
+                trial: parseInt(clickedBtn.getAttribute('data-trial') || '0', 10)
             });
         });
     });
 
+    checkinInput.addEventListener('change', renderState);
     overlay.addEventListener('click', closeModal);
 })();
 </script>

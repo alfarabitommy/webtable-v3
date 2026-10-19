@@ -22,6 +22,8 @@ ALTER TABLE `users` ADD COLUMN `must_change_password` TINYINT(1) NOT NULL DEFAUL
 ALTER TABLE `users` ADD COLUMN `is_level_1_claimed` TINYINT(1) NOT NULL DEFAULT 0;
 -- [RECONCILE]
 ALTER TABLE `users` ADD COLUMN `last_wage_claimed_at` DATETIME NULL DEFAULT NULL;
+-- [RECONCILE] plan/119: state klaim Bonus Pencapaian Tim (NULL = belum ada klaim).
+ALTER TABLE `users` ADD COLUMN `team_milestone_claimed` VARCHAR(255) NULL DEFAULT NULL;
 -- [RECONCILE]
 ALTER TABLE `withdrawals` ADD COLUMN `wd_number` VARCHAR(50) NULL DEFAULT NULL;
 -- [RECONCILE]
@@ -334,9 +336,17 @@ INSERT IGNORE INTO `system_settings` (`key_name`, `key_value`) VALUES
 ('deposit_min_amount', '10000'),
 ('deposit_max_amount', '50000000'),
 -- plan/112: Absensi Harian (daily check-in) — gerbang + bonus + kebijakan streak.
+-- plan/118: + gerbang syarat SEWA AKTIF (default '0' = OFF).
 ('checkin_enabled', '1'),
 ('checkin_base_reward', '50'),
 ('checkin_max_reward', '10000'),
-('checkin_streak_policy', 'reset');
+('checkin_streak_policy', 'reset'),
+('checkin_require_active_rental', '0'),
+-- plan/119: Bonus Pencapaian Tim — pengganti Gaji Mingguan (seed = mirror tier lama).
+('team_milestone_enabled', '1'),
+('team_milestone_tiers', '[[9,200000],[30,1000000],[70,2500000],[130,5000000],[190,9000000]]'),
+-- plan/121: Lucky Spin Wheel — gerbang fitur + segmen roda ([[nominal, bobot], …]).
+('spin_wheel_enabled', '1'),
+('spin_wheel_segments', '[[5000,30],[10000,25],[25000,18],[50000,10],[100000,6],[150000,3],[250000,2],[500000,1]]');
 
 -- ============ SEED COMPLETE ============

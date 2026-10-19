@@ -42,6 +42,10 @@ class Wallet extends MY_Controller {
         // Wallet_model::create_withdrawal() dipetakan ke pesan yang sama
         // dengan gatekeeper GET/POST.
         'no_paid_rental' => 'wd_err_no_paid_rental',
+        // plan/117: kunci penarikan per-user (kebijakan admin, W2/W3).
+        // Pesan SENGAJA generik — alasan admin (`wd_lock_reason`) tidak
+        // pernah disertakan/ditampilkan ke member.
+        'wd_locked'      => 'wd_err_locked',
         'error'          => 'wd_err_process_failed',
     ];
 
@@ -130,6 +134,9 @@ class Wallet extends MY_Controller {
         $data = [
             'page_title'            => lang('wallet_page_title'),
             'balance'               => $this->Wallet_model->get_balance($user_id),
+            // plan/118: dompet kedua — "Saldo Absen" (kredit bonus absensi;
+            // TIDAK dapat ditarik, hanya mensubsidi checkout sewa — CK3).
+            'checkin_balance'       => $this->Wallet_model->get_checkin_balance($user_id),
             // plan/102: deposit HIDUP (pending + waiting_approval).
             'pending'               => $this->Wallet_model->get_active_deposits($user_id),
             'pending_withdrawals'   => $this->Wallet_model->get_pending_withdrawals($user_id),
@@ -139,6 +146,9 @@ class Wallet extends MY_Controller {
             // → state tombol penarikan "Perlu Sewa Berbayar" (disabled).
             'has_paid_rental'       => $this->Rental_model->has_paid_rental($user_id),
             'daily_limit_reached'   => $this->Wallet_model->has_reached_daily_wd_limit($user_id),
+            // plan/117: state kunci penarikan (HANYA boolean — alasan admin
+            // tidak pernah masuk permukaan member, invarian W3).
+            'wd_locked'             => $this->Wallet_model->is_withdrawal_locked($user_id),
             'ledger'                => $this->Wallet_model->get_ledger_history($user_id),
             // Deposit fee (dynamic, M1).
             'deposit_fee_enabled'   => (int) $fin_cfg['deposit_fee_enabled'],
@@ -356,6 +366,17 @@ class Wallet extends MY_Controller {
     public function withdraw() {
         $user_id = $this->session->userdata('user_id');
 
+        // Gatekeeper 0 (plan/117): KUNCI PENARIKAN PER-USER — kebijakan admin
+        // adalah gerbang terkuat, diperiksa paling awal. Redirect + flashdata
+        // (pola Gatekeeper 1–4); otoritas finansial tetap di TX
+        // Wallet_model::create_withdrawal(). Pesan generik (invarian W3 —
+        // alasan admin tidak pernah ditampilkan ke member).
+        if ($this->Wallet_model->is_withdrawal_locked($user_id)) {
+            $this->session->set_flashdata('error', lang('wd_err_locked'));
+            redirect('wallet');
+            return;
+        }
+
         // Gatekeeper 1: pending withdrawal
         if ($this->Wallet_model->has_pending_withdrawal($user_id)) {
             $this->session->set_flashdata('error', lang('wd_err_pending_exists'));
@@ -429,6 +450,9 @@ class Wallet extends MY_Controller {
             ],
             'wd_open'      => $wd_op['open'],
             'wd_code'      => $wd_op['code'], // 'open' | 'closed_day' | 'closed_time'
+            // plan/117: state defensif untuk view — gatekeeper di atas sudah
+            // redirect saat terkunci, jadi nilai ini selalu false saat render.
+            'wd_locked'    => $this->Wallet_model->is_withdrawal_locked($user_id),
         ];
 
         $this->load->view('templates/header', $data);
@@ -440,6 +464,17 @@ class Wallet extends MY_Controller {
 
     public function process_withdraw() {
         $user_id = $this->session->userdata('user_id');
+
+        // Gatekeeper 0 (plan/117): kunci penarikan per-user. Diletakkan SEBELUM
+        // rate limit supaya user terkunci ditolak segera tanpa menggerus kuota
+        // pengajuan; menutup jalur POST langsung (curl/tamper) yang melewati UI
+        // dan GET /wallet/withdraw. Otoritas finansial tetap di TX
+        // Wallet_model::create_withdrawal().
+        if ($this->Wallet_model->is_withdrawal_locked($user_id)) {
+            $this->session->set_flashdata('error', lang('wd_err_locked'));
+            redirect('wallet');
+            return;
+        }
 
         // ─── RATE LIMIT (10B): rate limit pengajuan WD — key withdraw:{user_id}.
         // Setiap submission dihitung; Gatekeeper existing (single-pending-WD,

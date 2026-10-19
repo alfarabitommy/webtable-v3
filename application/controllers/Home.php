@@ -9,6 +9,9 @@ class Home extends MY_Controller {
         $this->load->model('Rental_model');
         // plan/112: konfigurasi + status absensi harian (widget dashboard).
         $this->load->model('Checkin_model');
+        // plan/121: ringkasan Lucky Spin (kartu + FAB dashboard). Saat fitur
+        // OFF, `get_summary()` fail-closed tanpa query (nol biaya tambahan).
+        $this->load->model('Spin_model');
     }
 
     public function index() {
@@ -76,6 +79,10 @@ class Home extends MY_Controller {
             // plan/112: status absensi harian (read-only). `enabled=false` →
             // view TIDAK merender widget sama sekali (guard di view).
             'checkin'              => $this->Checkin_model->get_status($user_id),
+            // plan/121: tiket + status roda Lucky Spin (read-only). Fitur OFF
+            // atau konfigurasi rusak → `enabled`/`configured` false dan view
+            // TIDAK merender kartu maupun FAB (fail-closed, SP7).
+            'spin'                 => $this->Spin_model->get_summary($user_id),
         ];
 
         $this->load->view('templates/header', $data);

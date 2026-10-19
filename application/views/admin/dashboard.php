@@ -53,6 +53,12 @@
             <div class="bg-slate-800/80 rounded-lg p-3">
                 <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">User Balances</div>
                 <div class="text-lg font-bold text-blue-400 font-mono">Rp <?= number_format($treasury['total_balances'], 0, ',', '.') ?></div>
+                <?php /* plan/118: dompet kedua ("Saldo Absen") — sirkulasi bonus
+                       absensi; TIDAK dapat ditarik, hanya mensubsidi checkout. */ ?>
+                <div class="text-[10px] text-slate-500 mt-1">
+                    Saldo Absen:
+                    <span class="font-mono text-cyan-400">Rp <?= number_format((int) ($treasury['total_checkin_balances'] ?? 0), 0, ',', '.') ?></span>
+                </div>
             </div>
             <!-- Pending ROI -->
             <div class="bg-slate-800/80 rounded-lg p-3">

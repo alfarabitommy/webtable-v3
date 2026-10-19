@@ -32,7 +32,14 @@
                 <button type="button" id="btn-toggle-topup" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold py-2.5 rounded-xl transition">
                     <i class="fas fa-plus mr-1"></i> <?= lang('wallet_topup_btn') ?>
                 </button>
-                <?php if (!empty($has_pending_wd)): ?>
+                <?php /* plan/117: kunci penarikan per-user = gerbang TERKUAT,
+                       diperiksa paling awal (pesan generik i18n, alasan admin
+                       tidak pernah ditampilkan — invarian W3). */ ?>
+                <?php if (!empty($wd_locked)): ?>
+                <button disabled class="flex-1 bg-rose-600/70 text-white text-sm font-bold py-2.5 rounded-xl cursor-not-allowed opacity-70">
+                    <i class="fas fa-lock mr-1"></i> <?= lang('wallet_wd_locked_btn') ?>
+                </button>
+                <?php elseif (!empty($has_pending_wd)): ?>
                 <button disabled class="flex-1 bg-slate-600 text-slate-300 text-sm font-bold py-2.5 rounded-xl cursor-not-allowed opacity-60">
                     <i class="fas fa-hourglass-half mr-1"></i> <?= lang('wallet_wd_pending_btn') ?>
                 </button>
@@ -54,6 +61,34 @@
                     <i class="fas fa-arrow-down mr-1"></i> <?= lang('wallet_withdraw_btn') ?>
                 </a>
                 <?php endif; ?>
+            </div>
+        </div>
+    </div>
+
+    <?php /* plan/117: notice kunci penarikan (persyaratan "disabled button +
+           message"). Pesan GENERIK dari kamus — alasan admin tetap internal. */ ?>
+    <?php if (!empty($wd_locked)): ?>
+    <div class="bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 rounded-xl p-3 text-xs font-bold text-rose-700 dark:text-rose-300 flex items-start gap-2">
+        <i class="fas fa-circle-info mt-0.5"></i>
+        <span><?= lang('wd_err_locked') ?></span>
+    </div>
+    <?php endif; ?>
+
+    <?php /* plan/118: SECOND WALLET (`users.checkin_balance`) — daily check-in
+           bonus is credited here, NOT to the main balance. Non-interactive:
+           it can never be withdrawn nor moved into the main wallet; the only
+           use is subsidizing a GPU rental checkout (invariant CK3). */ ?>
+    <div class="u-card rounded-2xl p-4 shadow-sm">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 shrink-0 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center">
+                <i class="fas fa-calendar-check text-cyan-600 dark:text-cyan-400"></i>
+            </div>
+            <div class="min-w-0 flex-1">
+                <p class="text-[10px] u-muted font-semibold uppercase tracking-wider"><?= lang('wallet_checkin_title') ?></p>
+                <p class="text-lg font-extrabold u-text font-mono leading-tight">
+                    Rp <?= number_format((int) ($checkin_balance ?? 0), 0, ',', '.') ?>
+                </p>
+                <p class="text-[10px] u-muted leading-snug mt-0.5"><?= lang('wallet_checkin_note') ?></p>
             </div>
         </div>
     </div>
@@ -306,7 +341,14 @@
                             <?php /* plan/103: deskripsi ledger dirender dalam idiom
                                      aktif (helper memetakan format kanonik; entri
                                      tak dikenal ditampilkan apa adanya). */ ?>
-                            <div class="text-xs font-medium u-text truncate max-w-[220px]"><?= html_escape(i18n_ledger_description($row->description)) ?></div>
+                            <div class="text-xs font-medium u-text truncate max-w-[220px]">
+                                <?= html_escape(i18n_ledger_description($row->description)) ?>
+                                <?php /* plan/118: wallet chip — flags ledger rows
+                                       that touched the checkin wallet. */ ?>
+                                <?php if (isset($row->wallet_type) && $row->wallet_type === 'checkin'): ?>
+                                <span class="ml-1 align-middle text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"><?= lang('wallet_ledger_chip_checkin') ?></span>
+                                <?php endif; ?>
+                            </div>
                             <div class="text-[10px] u-muted font-mono"><?= i18n_datetime($row->created_at) ?></div>
                         </div>
                     </div>

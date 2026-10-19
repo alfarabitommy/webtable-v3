@@ -50,6 +50,12 @@
                 <i class="fas fa-star"></i> PROMOTOR
             </span>
         <?php endif; ?>
+        <?php /* plan/117: penanda kunci penarikan per-user. */ ?>
+        <?php if (!empty($user->is_wd_locked)): ?>
+            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-semibold">
+                <i class="fas fa-lock"></i> WD LOCK
+            </span>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -160,6 +166,13 @@
             <p class="text-xs text-[var(--t-muted)] mb-1">Calculated Balance (from ledger)</p>
             <p class="text-2xl font-bold font-mono <?= $balance > 0 ? 'text-emerald-600 dark:text-emerald-400' : ($balance < 0 ? 'text-red-600 dark:text-red-400' : 'text-[var(--t-muted)]') ?>">
                 Rp <?= number_format($balance, 0, ',', '.') ?>
+            </p>
+            <?php /* plan/118: dompet kedua ("Saldo Absen") — kredit bonus absensi,
+                   TIDAK dapat ditarik dan TIDAK dapat di-inject admin (D9); hanya
+                   dapat dipakai untuk mensubsidi pembelian sewa. */ ?>
+            <p class="text-xs text-[var(--t-muted)] mt-3 mb-1">Saldo Absen (tidak dapat ditarik)</p>
+            <p class="text-lg font-bold font-mono text-cyan-600 dark:text-cyan-400">
+                Rp <?= number_format((int) ($checkin_balance ?? 0), 0, ',', '.') ?>
             </p>
         </div>
 
@@ -315,7 +328,63 @@
     </div>
 
     <!-- ================================================================= -->
-    <!-- SECTION 3: Active Rentals Manipulation -->
+    <!-- SECTION 3 (plan/117): Per-User Withdrawal Lock                   -->
+    <!-- ================================================================= -->
+    <div class="t-card p-6">
+        <h4 class="text-sm font-bold text-[var(--t-text)] mb-4 flex items-center gap-2">
+            <i class="fas fa-lock text-rose-500"></i> Penarikan (Withdrawal Lock)
+            <?php if (!empty($user->is_wd_locked)): ?>
+                <span class="t-badge t-badge-danger"><i class="fas fa-lock text-[10px]"></i> TERKUNCI</span>
+            <?php else: ?>
+                <span class="t-badge t-badge-success"><i class="fas fa-lock-open text-[10px]"></i> TERBUKA</span>
+            <?php endif; ?>
+        </h4>
+
+        <?php if (!empty($user->is_wd_locked)): ?>
+            <div class="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-lg p-4 mb-4">
+                <p class="text-[11px] uppercase tracking-wide font-bold text-amber-700 dark:text-amber-400 mb-1">
+                    Alasan Penguncian (internal)
+                </p>
+                <p class="text-sm text-[var(--t-text)] break-words">
+                    <?= htmlspecialchars((string) $user->wd_lock_reason, ENT_QUOTES, 'UTF-8') ?>
+                </p>
+                <p class="text-[11px] text-[var(--t-muted)] mt-2">
+                    Alasan bersifat internal dan <strong>tidak pernah ditampilkan ke member</strong>
+                    (hanya tercatat di audit log).
+                </p>
+            </div>
+        <?php else: ?>
+            <p class="text-sm text-[var(--t-muted)] mb-4">
+                User ini dapat mengajukan penarikan seperti biasa (subject ke gerbang global:
+                jadwal operasional, single-pending, daily limit, sewa berbayar, dan binding e-wallet).
+            </p>
+        <?php endif; ?>
+
+        <div class="bg-[var(--t-surface-2)] rounded-lg p-4 border border-[var(--t-border)] mb-4">
+            <p class="text-[11px] text-[var(--t-muted)]">
+                <i class="fas fa-info-circle"></i>
+                Kunci ini hanya memblokir <strong>pengajuan penarikan baru</strong>. Penarikan yang sudah
+                pending tetap diproses; user tetap bisa login, menyewa, dan klaim bonus. Tidak ada
+                pembatalan/refund otomatis saat mengunci.
+            </p>
+        </div>
+
+        <?php if (!empty($user->is_wd_locked)): ?>
+            <button type="button" onclick="window.unlockWdLock(<?= (int) $user->id ?>)"
+                    class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors flex items-center gap-2">
+                <i class="fas fa-lock-open text-xs"></i> Buka Kunci Penarikan
+            </button>
+        <?php else: ?>
+            <button type="button"
+                    onclick="window.openWdLockModal(<?= (int) $user->id ?>, '<?= htmlspecialchars($user->phone, ENT_QUOTES, 'UTF-8') ?>')"
+                    class="px-4 py-2 rounded-lg bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 transition-colors flex items-center gap-2">
+                <i class="fas fa-lock text-xs"></i> Kunci Penarikan
+            </button>
+        <?php endif; ?>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- SECTION 4: Active Rentals Manipulation -->
     <!-- ================================================================= -->
     <div class="t-card p-6 lg:col-span-2">
         <h4 class="text-sm font-bold text-[var(--t-text)] mb-4 flex items-center gap-2">
@@ -535,3 +604,8 @@
     </div>
 
 </div>
+
+<!-- ============================================================ -->
+<!-- plan/117: MODAL KUNCI PENARIKAN (partial generik)            -->
+<!-- ============================================================ -->
+<?php $this->load->view('admin/templates/wd_lock_modal'); ?>

@@ -15,14 +15,46 @@ CREATE TABLE IF NOT EXISTS `users` (
   `invite_code` VARCHAR(10) NOT NULL,
   `parent_id` BIGINT UNSIGNED DEFAULT NULL,
   `balance` DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+  -- plan/118: DOMPET KEDUA — "Saldo Absen" (checkin). Kredit HANYA dari
+  -- Bonus Absensi Harian; debit HANYA dari split payment checkout sewa.
+  -- TIDAK dapat ditarik: `Wallet_model::create_withdrawal()` hanya melihat
+  -- dompet `main` (invarian CK3). Mirror non-otoritatif — sumber kebenaran =
+  -- SUM(credit - debit) `wallet_ledger` dengan `wallet_type = 'checkin'` (CK2).
+  -- Tanpa backfill: nilai awal seluruh baris lama = 0.00 (D3/CK8).
+  `checkin_balance` DECIMAL(15,2) NOT NULL DEFAULT 0.00,
   `avatar_url` VARCHAR(255) DEFAULT NULL,
   `level_id` INT NOT NULL DEFAULT 0,
   `is_banned` TINYINT(1) NOT NULL DEFAULT 0,
   -- plan/91: flag promotor (admin-only). Bypass gating referral Condition A.
   `is_promoter` TINYINT(1) NOT NULL DEFAULT 0,
   `must_change_password` TINYINT(1) NOT NULL DEFAULT 0,
+  -- DEPRECATED (plan/120): flag klaim "Misi Level 1" (bonus one-time Rp 80.000 —
+  -- 3 downline B aktif + omset ≥ Rp 330.000). FITUR DIHENTIKAN di lapis
+  -- aplikasi: view kartu `/team`, `Team::claim_level1()`, `User_model::
+  -- claim_level1()`/`get_claim_data()`, dan `User_model::LEVEL1_BONUS` sudah
+  -- DIHAPUS. Kolom DIPERTAHANKAN sebagai retensi historis — nol pembaca/penulis
+  -- baru (invariant L1R1). Baris `wallet_ledger` historis ber-prefix `L1-` dan
+  -- baris `user_notifications` `title_key='notif_bonus_l1'` juga dibiarkan utuh
+  -- (invariant L1R4, tanpa backfill).
   `is_level_1_claimed` TINYINT(1) NOT NULL DEFAULT 0,
+  -- DEPRECATED (plan/119): stamp klaim `Gaji Mingguan` (siklus 7 hari) —
+  -- mesin wage DIHENTIKAN dan digantikan Bonus Pencapaian Tim. Kolom
+  -- DIPERTAHANKAN sebagai retensi historis (nol penulis baru; tidak ada kode
+  -- yang membacanya untuk keputusan bisnis). Baris `wallet_ledger` historis
+  -- ber-prefix `WAGE-` juga dibiarkan utuh (invariant Z1, tanpa backfill).
   `last_wage_claimed_at` DATETIME NULL DEFAULT NULL,
+  -- plan/119: STATE KLAIM Bonus Pencapaian Tim (TEAM MILESTONE BONUS).
+  -- CSV target integer kanonik MENAIK tanpa spasi (contoh '9,30'; NULL/'' =
+  -- belum ada klaim). Diturunkan dari `system_settings.team_milestone_tiers`.
+  -- Penulis TUNGGAL: `User_model::claim_milestone()` di dalam satu TX terkunci
+  -- (`users ... FOR UPDATE` → UPDATE kondisional `(team_milestone_claimed <=> ?)`
+  -- + guard `affected_rows() === 1`, pola M4). Klaim bersifat PERMANEN: turunnya
+  -- jumlah downline aktif TIDAK membatalkan/mengulang bayaran (MK6).
+  -- Baris pembayaran tetap di `wallet_ledger`:
+  -- `transaction_id = 'MSB-{user_id}-T{target}'`, `wallet_type = 'main'` —
+  -- UNIQUE `uk_wallet_ledger_user_tx_type` = guard tingkat DB (MK2).
+  -- Anggaran panjang: max 20 tier × target ≤ 6 digit ⇒ ≤ 139 karakter (D6).
+  `team_milestone_claimed` VARCHAR(255) NULL DEFAULT NULL,
   -- plan/112: absensi harian (daily check-in). `checkin_last_date` = tanggal WIB
   -- klaim terakhir (DATE, otoritas harian); `checkin_streak` = hari beruntun
   -- terakhir yang DIBAYAR (0 = belum pernah). Otoritas tanggal = PHP WIB, bukan
@@ -30,6 +62,31 @@ CREATE TABLE IF NOT EXISTS `users` (
   -- `wallet_ledger` dengan `transaction_id` = 'CHK-{user_id}-{Ymd}'.
   `checkin_streak` INT UNSIGNED NOT NULL DEFAULT 0,
   `checkin_last_date` DATE NULL DEFAULT NULL,
+  -- plan/121: TIKET LUCKY SPIN — COUNTER tiket (BUKAN uang: tidak pernah masuk
+  -- `wallet_ledger`, tidak dapat ditarik/dibeli — invarian SP6).
+  -- Otoritatif (dapat diturunkan ulang):
+  --   COUNT(`spin_ticket_grants`.`upline_id` = id)
+  --   − COUNT(`spin_results`.`user_id` = id)
+  -- Penulis TUNGGAL `Spin_model`:
+  --   • +1 di dalam TX `Rental_model::checkout_rental()` (langkah 7b) saat
+  --     downline L1 membeli produk NON-trial PERTAMA kali;
+  --   • −1 di dalam TX `Spin_model::spin()` (UPDATE kondisional
+  --     `spin_tickets > 0` + guard `affected_rows() === 1`, pola M4).
+  -- Tanpa backfill (keputusan D4): seluruh baris lama mulai dari 0.
+  `spin_tickets` INT UNSIGNED NOT NULL DEFAULT 0,
+  -- plan/117: KUNCI PENARIKAN PER-USER (Withdrawal Lock) — mitigasi fraud.
+  -- `is_wd_locked = 1` memblokir PENGAJUAN penarikan BARU pada 4 lapis:
+  -- tombol /wallet, gatekeeper GET /wallet/withdraw, POST
+  -- /wallet/process_withdraw, dan otoritas finansial di dalam TX terkunci
+  -- `Wallet_model::create_withdrawal()`. BUKAN ban: user tetap bisa login,
+  -- menyewa, klaim ROI & absensi (beda dari `is_banned`).
+  -- TIDAK membatalkan penarikan `pending` yang sudah ada (keputusan D1) dan
+  -- TIDAK menulis `wallet_ledger`/`withdrawals` (D2).
+  -- `wd_lock_reason` = alasan INTERNAL admin (VARCHAR 255, NULL = terbuka);
+  -- kolom ini TIDAK PERNAH dikirim ke permukaan member (invarian W3).
+  -- Hanya diubah lewat toggle admin ber-audit `admin_toggle_wd_lock` (W1).
+  `is_wd_locked` TINYINT(1) NOT NULL DEFAULT 0,
+  `wd_lock_reason` VARCHAR(255) NULL DEFAULT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -216,6 +273,11 @@ CREATE TABLE IF NOT EXISTS `wallet_ledger` (
   `user_id` BIGINT UNSIGNED NOT NULL,
   `transaction_id` VARCHAR(50) NOT NULL,
   `type` ENUM('credit', 'debit') NOT NULL,
+  -- plan/118: jenis dompet yang dikredit/didebit (audit multi-dompet).
+  -- DEFAULT 'main' = backfill implisit seluruh baris pra-plan/118 (D3/CK8).
+  -- `uk_wallet_ledger_user_tx_type (user_id, transaction_id, type)` TIDAK
+  -- berubah -> idempotensi harian absensi ('CHK-{user_id}-{Ymd}') tetap utuh.
+  `wallet_type` ENUM('main', 'checkin') NOT NULL DEFAULT 'main',
   `amount` DECIMAL(15,2) NOT NULL,
   `description` VARCHAR(255) NOT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -346,6 +408,83 @@ CREATE TABLE IF NOT EXISTS `user_notifications` (
 -- -----------------------------------------------------
 
 -- -----------------------------------------------------
+-- Table `spin_ticket_grants` (plan/121 — LUCKY SPIN WHEEL: grant tiket)
+-- -----------------------------------------------------
+-- Satu baris = SATU tiket yang diperoleh seorang upline karena downline L1-nya
+-- melakukan pembelian NON-trial PERTAMA kali. `uk_spin_grant_downline`
+-- (UNIQUE `downline_id`) adalah implementasi STRUKTURAL aturan "maksimal 1
+-- tiket per downline seumur hidup" (invarian SP2): pembelian kedua dan
+-- seterusnya mustahil mencetak tiket baru, bahkan bila lapis aplikasi dilewati.
+-- Penulis TUNGGAL: `Spin_model::award_ticket_for_first_paid_rental()` —
+-- participant TX milik `Rental_model::checkout_rental()` (langkah 7b); tidak
+-- ada jalur lain yang boleh INSERT ke tabel ini.
+-- `rental_id` = kontrak pemicu (audit); NULL hanya bila kontraknya hilang.
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `spin_ticket_grants` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `upline_id` BIGINT UNSIGNED NOT NULL COMMENT 'Penerima tiket (parent saat grant)',
+  `downline_id` BIGINT UNSIGNED NOT NULL COMMENT 'Pemicu: pembeli pertama kali',
+  `rental_id` BIGINT UNSIGNED NULL DEFAULT NULL COMMENT 'Kontrak pemicu (audit)',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_spin_grant_downline` (`downline_id`),
+  INDEX `idx_spin_grant_upline` (`upline_id`, `created_at`),
+  CONSTRAINT `fk_spin_grant_upline` FOREIGN KEY (`upline_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_spin_grant_downline` FOREIGN KEY (`downline_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_spin_grant_rental` FOREIGN KEY (`rental_id`) REFERENCES `user_rentals` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------
+-- Table `spin_results` (plan/121 — LUCKY SPIN WHEEL: jejak audit spin)
+-- -----------------------------------------------------
+-- Satu baris = SATU spin yang sudah dibayar (tiket terpakai + hadiah
+-- dikreditkan). Menyimpan SNAPSHOT konfigurasi saat spin (bobot segmen dan
+-- total bobot) sehingga hasil dapat diaudit walau admin mengubah roda
+-- kemudian. `slot_index` = posisi segmen (0-based, urutan konfigurasi) yang
+-- dikirim balik ke klien HANYA untuk animasi (zero-trust: hadiah sudah
+-- ditentukan & dibayar di server, invarian SP4/SP5).
+-- `transaction_id` = 'SPIN-{id}' (di-set setelah insert) → jejak ke
+-- `wallet_ledger`; UNIQUE `uk_spin_tx` = backstop anti duplikasi.
+-- FK `ON DELETE RESTRICT`: baris audit tidak pernah ikut terhapus.
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `spin_results` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` BIGINT UNSIGNED NOT NULL,
+  `slot_index` SMALLINT UNSIGNED NOT NULL COMMENT 'Posisi segmen (0-based, urutan konfigurasi)',
+  `prize_amount` DECIMAL(15,2) NOT NULL COMMENT 'Snapshot nominal hadiah (integer IDR)',
+  `weight_snapshot` INT UNSIGNED NOT NULL COMMENT 'Bobot segmen saat spin (audit probabilitas)',
+  `total_weight` INT UNSIGNED NOT NULL COMMENT 'Sigma bobot saat spin',
+  `transaction_id` VARCHAR(50) NULL DEFAULT NULL COMMENT 'SPIN-{id} — jejak wallet_ledger',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_spin_tx` (`transaction_id`),
+  INDEX `idx_spin_user_created` (`user_id`, `created_at`),
+  CONSTRAINT `fk_spin_result_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------
+-- MIGRASI LIVE ONE-TIME (plan/121) — untuk DB yang sudah berjalan:
+--   php scripts/migrate_121_lucky_spin.php --dry-run
+--   php scripts/migrate_121_lucky_spin.php --apply    (idempotent)
+--
+-- DDL ekuivalen bila dijalankan manual:
+--   ALTER TABLE `users`
+--     ADD COLUMN `spin_tickets` INT UNSIGNED NOT NULL DEFAULT 0
+--       AFTER `checkin_last_date`;
+--   CREATE TABLE IF NOT EXISTS `spin_ticket_grants` ( … );   -- seperti di atas
+--   CREATE TABLE IF NOT EXISTS `spin_results` ( … );         -- seperti di atas
+--   INSERT IGNORE INTO `system_settings` (`key_name`,`key_value`) VALUES
+--     ('spin_wheel_enabled','1'),
+--     ('spin_wheel_segments','[[5000,30],[10000,25],[25000,18],[50000,10],
+--                              [100000,6],[150000,3],[250000,2],[500000,1]]');
+--
+-- ⚠️ TANPA BACKFILL (keputusan D4): tiket mulai dihitung sejak rilis.
+--    Downline yang sudah membeli produk non-trial SEBELUM plan/121 TIDAK
+--    menghasilkan tiket retroaktif — nol pergerakan data, nol baris ledger.
+-- -----------------------------------------------------
+
+
+-- -----------------------------------------------------
 -- Table `promoter_claims` (plan/91 — klaim reward promotor, omzet burn)
 -- -----------------------------------------------------
 CREATE TABLE IF NOT EXISTS `promoter_claims` (
@@ -420,10 +559,42 @@ INSERT IGNORE INTO `system_settings` (`key_name`, `key_value`) VALUES
 -- `checkin_streak_policy`: 'reset' = bolong sehari → mulai lagi dari hari 1;
 -- 'continue' = lanjut ke N+1 (gap tidak mereset). Bonus = min(base × hari, max);
 -- fallback per-key di application/config/checkin_rewards.php.
+-- plan/118: `checkin_require_active_rental` = gerbang syarat SEWA AKTIF
+-- (0 = OFF/default). Bila '1', klaim absensi menuntut minimal 1 kontrak
+-- `user_rentals` dengan status='active' DAN expired_at > now WIB (trial
+-- maupun berbayar). Bonus dikredit ke dompet `checkin` (users.checkin_balance),
+-- bukan saldo utama.
 ('checkin_enabled', '1'),
 ('checkin_base_reward', '50'),
 ('checkin_max_reward', '10000'),
-('checkin_streak_policy', 'reset');
+('checkin_streak_policy', 'reset'),
+('checkin_require_active_rental', '0'),
+-- plan/119: BONUS PENCAPAIAN TIM (Team Milestone Bonus) — PENGGANTI Gaji
+-- Mingguan. `team_milestone_enabled` = gerbang fail-closed ('0' → kartu member
+-- TIDAK dirender DAN endpoint `POST /team/claim_milestone` menolak HTTP 403
+-- dengan `code: 'disabled'`).
+-- `team_milestone_tiers` = JSON array tuple `[[target_downline_aktif, nominal_idr], …]`
+-- kanonik MENAIK (preseden `wd_fee_tiers`). Amandemen: satu tier dibayar
+-- SEKALI seumur hidup per user (tanpa cooldown/siklus), klaim berurutan dari
+-- tier terendah, kredit ke SALDO UTAMA (`wallet_type = 'main'`).
+-- Seed default = mirror tier gaji lama (9/30/70/130/190) agar ambang & nominal
+-- yang sudah dipublikasikan tidak berubah — hanya periodenya (per minggu →
+-- sekali). Fallback per-key: application/config/team_milestones.php.
+-- Ambang administratif (max 20 tier, target 1..100000, nominal 1..100000000)
+-- hidup di aplikasi/helpers/team_milestone_helper.php — BUKAN di sini.
+('team_milestone_enabled', '1'),
+('team_milestone_tiers', '[[9,200000],[30,1000000],[70,2500000],[130,5000000],[190,9000000]]'),
+-- plan/121: LUCKY SPIN WHEEL — tiket referral + roda hadiah.
+-- `spin_wheel_enabled` = gerbang fail-closed ('0' → UI disembunyikan DAN
+-- endpoint `POST /lucky-spin/spin` menolak HTTP 403 `code:'disabled'`).
+-- `spin_wheel_segments` = JSON array tuple `[[nominal_idr, bobot], …]`;
+-- URUTAN array = urutan segmen pada roda. Invarian: 2..12 segmen,
+-- setiap nominal ≥ 1 (TIDAK ada segmen Rp 0 — keputusan D3) dan bobot ≥ 1.
+-- Ambang administratif hidup di application/helpers/spin_wheel_helper.php
+-- (satu sumber: validator admin + CLI `--verify`) — BUKAN di sini.
+-- Fallback per-key: application/config/spin_wheel.php.
+('spin_wheel_enabled', '1'),
+('spin_wheel_segments', '[[5000,30],[10000,25],[25000,18],[50000,10],[100000,6],[150000,3],[250000,2],[500000,1]]');
 
 -- -----------------------------------------------------
 -- Table `system_audit_logs` — Phase 10 baseline (ERD §6)
@@ -748,4 +919,252 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- menyumbang 0 secara otomatis; rebate 3-tier dilewati di `checkout_rental()`
 -- dan debit saldo TIDAK dijalankan (`Wallet_model::_post()` menolak amount ≤ 0,
 -- sehingga Rp 0 tidak pernah menghasilkan baris `wallet_ledger`).
+-- -----------------------------------------------------
+
+-- -----------------------------------------------------
+-- Plan 117 — MIGRASI LIVE (one-time; jalankan manual di DB aktif).
+-- Dua kolom `users` sudah masuk blok CREATE TABLE di atas (instalasi baru
+-- otomatis). Untuk DB yang SUDAH ADA, gunakan tool:
+--
+--   php scripts/migrate_117_user_wd_lock.php --dry-run   # inspeksi, tanpa tulis
+--   php scripts/migrate_117_user_wd_lock.php --apply     # DDL + normalize + verify
+--   php scripts/migrate_117_user_wd_lock.php --verify    # read-only; exit 2 bila drift
+--
+-- Referensi SQL yang dijalankan tool tersebut (urutan wajib):
+--
+--   1) ALTER TABLE `users`
+--        ADD COLUMN `is_wd_locked`   TINYINT(1)   NOT NULL DEFAULT 0    AFTER `checkin_last_date`,
+--        ADD COLUMN `wd_lock_reason` VARCHAR(255) NULL     DEFAULT NULL AFTER `is_wd_locked`;
+--      -- TANPA backfill: DEFAULT 0 mengisi seluruh baris lama (semua terbuka).
+--      -- `AFTER` hanya valid di ALTER TABLE … ADD COLUMN — JANGAN dipakai di
+--      -- dalam `CREATE TABLE` (F17, plan/116).
+--      -- MariaDB: ADD COLUMN IF NOT EXISTS …; MySQL 8 tidak punya IF NOT EXISTS
+--      -- → tool memeriksa information_schema lebih dulu (idempoten).
+--
+--   2) Normalisasi invarian W4 (wajib, idempoten):
+--        UPDATE `users` SET `wd_lock_reason` = NULL
+--         WHERE `is_wd_locked` = 0 AND `wd_lock_reason` IS NOT NULL;
+--
+--   3) Verifikasi invarian (harapan: 2 kolom / 0 orphan):
+--        SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+--          FROM information_schema.COLUMNS
+--         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+--           AND COLUMN_NAME IN ('is_wd_locked','wd_lock_reason');
+--        SELECT COUNT(*) FROM `users`
+--         WHERE `is_wd_locked` = 0 AND `wd_lock_reason` IS NOT NULL;   -- = 0
+--        -- tamper (exit 2): tipe/nullability/default kolom tidak sesuai, atau
+--        --   orphan reason > 0. `is_wd_locked = 1` tanpa alasan hanya [WARN]
+--        --   (legit: admin bisa mengunci lalu lupa mengisi — data tetap sah).
+--
+-- ⚠️ URUTAN RILIS: migrasi ini WAJIB dijalankan SEBELUM deploy kode plan/117 —
+--    `Admin_model::get_users()` (kolom `is_wd_locked`/`wd_lock_reason`),
+--    `Wallet_model::is_withdrawal_locked()` (gate TX penarikan), dan
+--    `Admin::toggle_wd_lock()` membaca kolom tersebut. Kolom yang belum ada =
+--    error query pada /admin/users, /admin/user_detail, dan /wallet.
+--
+-- Rollback manual (tidak dilakukan tool; hanya bila benar-benar perlu):
+--    ALTER TABLE `users` DROP COLUMN `wd_lock_reason`, DROP COLUMN `is_wd_locked`;
+--
+-- Catatan non-keuangan (mengapa lock TIDAK menyentuh ledger): kunci hanya
+-- memblokir PENGAJUAN baru (keputusan D1) — penarikan `pending` dibiarkan dan
+-- tetap diproses admin, sehingga tidak ada baris `wallet_ledger` maupun
+-- `withdrawals` yang ditulis/dibatalkan oleh lock/unlock (D2, imutabilitas Z1).
+-- -----------------------------------------------------
+
+-- -----------------------------------------------------
+-- Plan 118 — MIGRASI LIVE (one-time; jalankan manual di DB aktif).
+-- Satu kolom `users`, satu kolom `wallet_ledger`, dan satu key
+-- `system_settings` sudah masuk blok CREATE TABLE / seed di atas (instalasi
+-- baru otomatis). Untuk DB yang SUDAH ADA, gunakan tool:
+--
+--   php scripts/migrate_118_checkin_refactor.php --dry-run   # inspeksi, tanpa tulis
+--   php scripts/migrate_118_checkin_refactor.php --apply     # DDL + seed + normalize + verify
+--   php scripts/migrate_118_checkin_refactor.php --verify    # read-only; exit 2 bila drift
+--
+-- Referensi SQL yang dijalankan tool tersebut (urutan wajib):
+--
+--   1) ALTER TABLE `users`
+--        ADD COLUMN `checkin_balance` DECIMAL(15,2) NOT NULL DEFAULT 0.00
+--        AFTER `balance`;
+--   2) ALTER TABLE `wallet_ledger`
+--        ADD COLUMN `wallet_type` ENUM('main','checkin') NOT NULL DEFAULT 'main'
+--        AFTER `type`;
+--      -- TANPA backfill: DEFAULT mengisi seluruh baris lama
+--      --   (`checkin_balance` = 0.00 → semua user mulai dari 0; keputusan D3;
+--      --    `wallet_type` = 'main' → bonus absensi historis tetap di saldo utama).
+--      -- `AFTER` hanya valid di ALTER TABLE … ADD COLUMN — JANGAN dipakai di
+--      -- dalam `CREATE TABLE` (F17, plan/116).
+--      -- MariaDB: ADD COLUMN IF NOT EXISTS …; MySQL 8 tidak punya IF NOT EXISTS
+--      -- → tool memeriksa information_schema lebih dulu (idempoten).
+--      -- INDEX TIDAK ditambahkan: seluruh agregat dompet memakai predikat
+--      -- `user_id = ?` (terlayani `idx_user_id`); `wallet_type` hanya
+--      -- mempersempit hasil dalam rentang baris satu user.
+--      -- UNIQUE `uk_wallet_ledger_user_tx_type (user_id, transaction_id, type)`
+--      -- TIDAK berubah → idempotensi harian absensi tetap utuh.
+--
+--   3) Seed idempoten (nilai yang sudah ada TIDAK ditimpa):
+--        INSERT INTO `system_settings` (`key_name`,`key_value`)
+--             VALUES ('checkin_require_active_rental','0')
+--        ON DUPLICATE KEY UPDATE `key_name` = `key_name`;
+--
+--   4) Normalisasi defensif (harapan 0 baris):
+--        UPDATE `wallet_ledger` SET `wallet_type` = 'main'
+--         WHERE `wallet_type` IS NULL;
+--
+--   5) Verifikasi invarian (harapan: 2 kolom + 1 key, tanpa tamper):
+--        SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+--          FROM information_schema.COLUMNS
+--         WHERE TABLE_SCHEMA = DATABASE()
+--           AND (TABLE_NAME = 'users'         AND COLUMN_NAME = 'checkin_balance'
+--             OR TABLE_NAME = 'wallet_ledger' AND COLUMN_NAME = 'wallet_type');
+--        SELECT `key_value` FROM `system_settings`
+--         WHERE `key_name` = 'checkin_require_active_rental';            -- = 0
+--        -- tamper (exit 2): tipe/nullability/default kolom tidak sesuai, ENUM
+--        --   bukan tepat ('main','checkin'), atau key absen.
+--
+-- ⚠️ URUTAN RILIS: migrasi ini WAJIB dijalankan SEBELUM deploy kode plan/118 —
+--    `Wallet_model::_post()` menulis kolom cache (`balance`/`checkin_balance`),
+--    `Wallet_model::lock_and_get_balances()` membaca `wallet_ledger.wallet_type`,
+--    `Checkin_model::claim()` mengkredit dompet `checkin`,
+--    `Rental_model::checkout_rental()` melakukan split debit, dan seluruh
+--    agregat `Admin_model` memfilter per dompet. Kolom yang belum ada = error
+--    query pada /home, /wallet, /marketplace, /admin/settings, /admin/users.
+--
+-- Rollback manual (tidak dilakukan tool; hanya bila benar-benar perlu):
+--    ALTER TABLE `wallet_ledger` DROP COLUMN `wallet_type`;
+--    ALTER TABLE `users` DROP COLUMN `checkin_balance`;
+--    DELETE FROM `system_settings` WHERE `key_name` = 'checkin_require_active_rental';
+--
+-- Catatan non-keuangan: tidak ada baris `wallet_ledger` lama yang diubah —
+-- ledger tetap append-only (Z1). Bonus absensi historis TIDAK dipindahkan ke
+-- dompet checkin (keputusan D3): hanya kredit absensi BARU yang masuk
+-- `checkin_balance`.
+-- -----------------------------------------------------
+
+-- -----------------------------------------------------
+-- Plan 119 — MIGRASI LIVE (one-time; jalankan manual di DB aktif).
+-- Satu kolom `users` + dua key `system_settings` sudah masuk blok
+-- CREATE TABLE / seed di atas (instalasi baru otomatis). Untuk DB yang SUDAH
+-- ADA, gunakan tool:
+--
+--   php scripts/migrate_119_team_milestone.php --dry-run        # inspeksi, tanpa tulis
+--   php scripts/migrate_119_team_milestone.php --apply          # DDL + seed + backfill + verify
+--   php scripts/migrate_119_team_milestone.php --verify         # read-only; exit 2 bila drift
+--   php scripts/migrate_119_team_milestone.php --skip-backfill  # lewati fase 3 (O3)
+--
+-- Referensi SQL yang dijalankan tool tersebut (urutan wajib):
+--
+--   1) ALTER TABLE `users`
+--        ADD COLUMN `team_milestone_claimed` VARCHAR(255) NULL DEFAULT NULL
+--        AFTER `last_wage_claimed_at`;
+--      -- TANPA backfill otomatis: NULL = belum ada klaim. Fase 3 (O3) mengisi
+--      -- kolom ini HANYA untuk user yang historisnya sudah menerima
+--      -- Gaji Mingguan — menandai tier yang setara sebagai "sudah diklaim"
+--      -- (tanpa uang baru, tanpa baris `wallet_ledger`).
+--      -- `AFTER` hanya valid di ALTER TABLE … ADD COLUMN — JANGAN dipakai di
+--      -- dalam `CREATE TABLE` (F17, plan/116).
+--      -- MariaDB: ADD COLUMN IF NOT EXISTS …; MySQL 8 tidak punya IF NOT EXISTS
+--      -- → tool memeriksa information_schema lebih dulu (idempoten).
+--      -- INDEX TIDAK ditambahkan: seluruh baca state memakai `user_id = ?`
+--      -- (terlayani `idx_user_id`) atau PK `id`.
+--
+--   2) Seed idempoten (nilai yang sudah ada TIDAK ditimpa):
+--        INSERT INTO `system_settings` (`key_name`,`key_value`) VALUES
+--          ('team_milestone_enabled','1'),
+--          ('team_milestone_tiers','[[9,200000],[30,1000000],[70,2500000],[130,5000000],[190,9000000]]')
+--        ON DUPLICATE KEY UPDATE `key_name` = `key_name`;
+--
+--   3) Grandfathering (keputusan owner O3 — opsional, `--skip-backfill` untuk melewati):
+--        SELECT `user_id`, `description`, `amount`
+--          FROM `wallet_ledger`
+--         WHERE `type` = 'credit' AND `transaction_id` LIKE 'WAGE-%';
+--      -- Tool menghitung pencapaian tertinggi per user dari prosa deskripsi
+--      -- "Gaji Mingguan Level N — M downline aktif" (regex `(\d+) downline aktif`),
+--      -- dengan PROXY nominal (`amount` terbesar → tier dengan nominal ≤ itu)
+--      -- bila prosa tidak parseable, lalu:
+--        UPDATE `users` SET `team_milestone_claimed` = '<csv target terklaim>'
+--         WHERE `id` = ? AND `team_milestone_claimed` IS NULL;
+--      -- Guard `IS NULL` ⇒ re-run = 0 baris (tidak pernah menimpa klaim baru
+--      -- pasca-deploy).
+--      -- ⚠️ Jalankan `--apply` SEGERA setelah deploy: fase ini memakai
+--      --    konfigurasi tier SAAT ITU (seed default = mirror tier lama).
+--
+--   4) Verifikasi invarian (harapan: 1 kolom + 2 key, tanpa tamper):
+--        SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+--          FROM information_schema.COLUMNS
+--         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+--           AND COLUMN_NAME = 'team_milestone_claimed';
+--        SELECT `key_name`, `key_value` FROM `system_settings`
+--         WHERE `key_name` LIKE 'team_milestone\_%';
+--        -- tamper (exit 2): tipe/nullability kolom tidak sesuai; enabled ∉ {'0','1'};
+--        --   `tiers` bukan JSON `[[int,int],…]` valid; target duplikat/tidak menaik;
+--        --   di luar ambang (max 20 tier, target 1..100000, nominal 1..100000000);
+--        --   atau nilai `team_milestone_claimed` tidak parseable.
+--
+-- ⚠️ URUTAN RILIS: migrasi ini WAJIB dijalankan SEBELUM deploy kode plan/119 —
+--    `User_model::get_milestone_config()` membaca `system_settings`
+--    (`team_milestone_enabled`/`team_milestone_tiers`) dan
+--    `User_model::claim_milestone()`/`get_milestone_status()` membaca kolom
+--    `users.team_milestone_claimed`. Kolom/key yang belum ada = error query
+--    pada /team dan /admin/settings. Endpoint `POST /team/claim_milestone`
+--    baru ada setelah deploy, jadi ambang risiko terbatas pada dua halaman itu.
+--
+-- Rollback manual (tidak dilakukan tool; hanya bila benar-benar perlu):
+--    ALTER TABLE `users` DROP COLUMN `team_milestone_claimed`;
+--    DELETE FROM `system_settings`
+--     WHERE `key_name` IN ('team_milestone_enabled','team_milestone_tiers');
+--
+-- Catatan non-keuangan: fase backfill HANYA menulis state klaim (nol baris
+-- `wallet_ledger`, nol mutasi saldo, nol notifikasi). Seluruh baris ledger
+-- historis `WAGE-*` dipertahankan apa adanya (Z1, keputusan D10).
+-- -----------------------------------------------------
+
+-- -----------------------------------------------------
+-- MIGRASI LIVE (plan/121) — LUCKY SPIN WHEEL (Referral Reward System)
+-- -----------------------------------------------------
+-- Ringkas: 1 kolom `users` + 2 tabel BARU (`spin_ticket_grants`,
+-- `spin_results`) + 2 kunci `system_settings`. SELURUH DDL di atas sudah
+-- masuk blok CREATE TABLE (instalasi baru tidak butuh langkah tambahan).
+--
+-- Untuk DB yang sudah berjalan, jalankan (idempotent, `--dry-run` default):
+--   php scripts/migrate_121_lucky_spin.php --dry-run
+--   php scripts/migrate_121_lucky_spin.php --apply
+--   php scripts/migrate_121_lucky_spin.php --verify      (read-only, exit 2 bila tamper)
+--
+-- DDL ekuivalen bila dijalankan manual:
+--   1) ALTER TABLE `users`
+--        ADD COLUMN `spin_tickets` INT UNSIGNED NOT NULL DEFAULT 0
+--          AFTER `checkin_last_date`;
+--   2) CREATE TABLE IF NOT EXISTS `spin_ticket_grants` ( … );
+--   3) CREATE TABLE IF NOT EXISTS `spin_results` ( … );
+--   4) INSERT IGNORE INTO `system_settings` (`key_name`,`key_value`) VALUES
+--        ('spin_wheel_enabled','1'),
+--        ('spin_wheel_segments','[[5000,30],[10000,25],[25000,18],[50000,10],
+--                                 [100000,6],[150000,3],[250000,2],[500000,1]]');
+--
+-- ⚠️ URUTAN RILIS: jalankan migrasi SEBELUM deploy kode plan/121.
+--    `Spin_model::get_config()` membaca kedua key `system_settings`, dan
+--    `Spin_model::get_summary()`/`award_ticket_for_first_paid_rental()`
+--    membaca kolom `users.spin_tickets` + dua tabel baru. Kolom/tabel/key yang
+--    belum ada = error query pada /lucky-spin, /home (kartu tiket), dan
+--    /admin/lucky-spin. `Rental_model::checkout_rental()` hanya menyentuh
+--    jalur tiket pada pembelian NON-trial, jadi ambang risiko terbatas.
+--
+-- ⚠️ TANPA BACKFILL (keputusan owner D4): tiket mulai dihitung sejak rilis.
+--    Downline yang sudah membeli produk non-trial SEBELUM plan/121 TIDAK
+--    menghasilkan tiket retroaktif. Nol mutasi `wallet_ledger`, nol mutasi
+--    `users.balance`, nol notifikasi — migration ini murni DDL + seed setelan.
+--
+-- Catatan drift (dicek `--verify`, exit 2 bila tidak konsisten):
+--    `users.spin_tickets` WAJIB sama dengan
+--      COUNT(`spin_ticket_grants` WHERE upline_id = id)
+--      − COUNT(`spin_results` WHERE user_id = id)
+--    Kolom adalah cache; otoritas = dua tabel event di atas (invarian SP6).
+--
+-- Rollback manual (tidak dilakukan tool; hanya bila benar-benar perlu):
+--    DROP TABLE `spin_results`;
+--    DROP TABLE `spin_ticket_grants`;
+--    ALTER TABLE `users` DROP COLUMN `spin_tickets`;
+--    DELETE FROM `system_settings`
+--     WHERE `key_name` IN ('spin_wheel_enabled','spin_wheel_segments');
 -- -----------------------------------------------------

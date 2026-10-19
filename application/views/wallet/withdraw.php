@@ -51,6 +51,17 @@ if (!$wd_open) {
         <span id="wdClosedNoticeText"><?= htmlspecialchars($closed_notice); ?></span>
     </div>
 
+    <!-- ===== plan/117: NOTICE KUNCI PENARIKAN PER-USER (state defensif) =====
+         Gatekeeper Wallet::withdraw() sudah redirect saat terkunci, sehingga
+         blok ini normalnya TIDAK pernah tampil. Dipasang sebagai jaring
+         pengaman (mis. state berubah di tab lain) — pesan generik dari kamus;
+         alasan admin (`wd_lock_reason`) tidak pernah dirender (invarian W3). -->
+    <div id="wdLockedNotice"
+         class="<?= !empty($wd_locked) ? '' : 'hidden ' ?>bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 rounded-xl p-3 text-xs font-bold text-rose-700 dark:text-rose-300 flex items-center gap-2">
+        <i class="fas fa-lock"></i>
+        <span><?= lang('wd_err_locked') ?></span>
+    </div>
+
     <!-- ===== READ-ONLY E-WALLET CARD ===== -->
     <div class="u-card-fin text-white p-4 rounded-xl mb-6 relative overflow-hidden">
         <div class="absolute inset-0 opacity-5" style="background-image: repeating-linear-gradient(45deg, #fff 0, #fff 1px, transparent 1px, transparent 20px);"></div>
@@ -122,6 +133,7 @@ if (!$wd_open) {
 
         <!-- Submit Button -->
         <button type="submit" id="wd_submit"
+                <?= !empty($wd_locked) ? 'disabled' : '' ?>
                 class="w-full h-14 bg-orange-500 hover:bg-orange-400 text-white rounded-xl text-sm font-extrabold shadow-lg transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-orange-500">
             <i class="fas fa-paper-plane mr-2"></i> <?= lang('wd_submit_btn') ?>
         </button>
@@ -138,10 +150,14 @@ if (!$wd_open) {
         'amount_invalid_int' => lang('wallet_amount_invalid'),
         'amount_invalid_generic' => lang('wd_amount_invalid_generic'),
         'tier_label' => lang('wd_tier_label'),
+        // plan/117: pesan generik kunci penarikan (tanpa alasan admin).
+        'locked' => lang('wd_err_locked'),
     ], JSON_UNESCAPED_UNICODE) ?>;
 
     // ===== Dynamic config dari server (M1 plan/56) — bukan 5% hardcoded.
-    var WD_CONFIG = <?= json_encode($wd_config); ?>;
+    // plan/117: `locked` ikut dikirim agar state defensif klien konsisten
+    // dengan gerbang server (controller sudah redirect saat terkunci).
+    var WD_CONFIG = <?= json_encode($wd_config + ['locked' => !empty($wd_locked)]) ?>;
 
     var amountInput = document.getElementById('wd_amount');
     var grossEl = document.getElementById('wd_gross');
@@ -151,6 +167,8 @@ if (!$wd_open) {
     var submitBtn = document.getElementById('wd_submit');
     var noticeEl = document.getElementById('wdClosedNotice');
     var noticeTextEl = document.getElementById('wdClosedNoticeText');
+    // plan/117: notice kunci penarikan per-user (state defensif).
+    var lockedEl = document.getElementById('wdLockedNotice');
     var balance = <?= (int) $balance ?>;
 
     var DAY_CODE = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
@@ -224,6 +242,17 @@ if (!$wd_open) {
     }
 
     function refresh() {
+        // plan/117: KUNCI PENARIKAN PER-USER — state defensif. Controller
+        // Wallet::withdraw() sudah redirect saat terkunci, jadi cabang ini
+        // praktis tidak pernah aktif; bila aktif, form DIKUNCI TOTAL (tidak
+        // ada preview fee & tidak ada jalur enable ulang).
+        if (WD_CONFIG.locked) {
+            if (lockedEl) { lockedEl.classList.remove('hidden'); }
+            submitBtn.disabled = true;
+            showAmountError(null);
+            return;
+        }
+
         var raw    = amountInput.value;
         var amount = parseAmount(raw);
         var op     = openState();
@@ -284,9 +313,13 @@ if (!$wd_open) {
             var within = amount >= WD_CONFIG.min_amount
                       && amount <= WD_CONFIG.max_amount
                       && amount <= balance;
-            if (!isIntegerAmount(raw) || !op.open || !within) {
+            // plan/117: backstop — kunci penarikan per-user menolak submit
+            // sejak sisi klien juga (server tetap otoritas).
+            if (WD_CONFIG.locked || !isIntegerAmount(raw) || !op.open || !within) {
                 e.preventDefault();
-                if (raw !== '' && !isIntegerAmount(raw)) {
+                if (WD_CONFIG.locked) {
+                    if (lockedEl) { lockedEl.classList.remove('hidden'); }
+                } else if (raw !== '' && !isIntegerAmount(raw)) {
                     showAmountError(L.amount_invalid_int);
                 } else {
                     showAmountError(L.amount_invalid_generic);

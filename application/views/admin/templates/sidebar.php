@@ -86,6 +86,12 @@
                 <i class="fas fa-chart-line w-5 text-center text-xs"></i>
                 <span>Analytics</span>
             </a>
+            <!-- plan/121: konfigurasi roda Lucky Spin (segmen + bobot) -->
+            <a href="<?= site_url('admin/lucky-spin') ?>"
+               class="t-nav-link <?= in_array($this->uri->segment(2), ['lucky-spin', 'lucky_spin']) ? 't-nav-active' : '' ?>">
+                <i class="fas fa-dharmachakra w-5 text-center text-xs"></i>
+                <span>Lucky Spin</span>
+            </a>
             <a href="<?= site_url('admin/settings') ?>"
                class="t-nav-link <?= in_array($this->uri->segment(2), ['settings', 'financial-settings']) ? 't-nav-active' : '' ?>">
                 <i class="fas fa-cog w-5 text-center text-xs"></i>

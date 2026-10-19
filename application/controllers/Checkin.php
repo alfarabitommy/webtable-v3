@@ -4,15 +4,17 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 /**
  * Checkin — plan/112 (Absensi Harian / Daily Check-in, member-facing).
  *
- * Lapisan HTTP/UX saja (pola Team::claim_wage): POST-only + AJAX-only + sesi +
+ * Lapisan HTTP/UX saja (pola Team::claim_milestone): POST-only + AJAX-only + sesi +
  * rate limit + pemetaan hasil model ke JSON M9/P7. SELURUH gate, aturan streak,
  * dan transaksi uang hidup di Checkin_model (AGENTS.md: tidak ada SQL di
  * controller).
  *
  * Kontrak respons (canonical envelope + key legacy di root):
  *   - sukses            → 200 {success:true,  data:{reward,streak,transaction_id,
- *                            new_balance,status}, code:'ok', reward, streak, ...}
- *   - penolakan bisnis  → 200 {success:false, code:'already_claimed'|'user_unavailable'}
+ *                            wallet_type,new_balance,new_checkin_balance,status},
+ *                            code:'ok', reward, streak, ...}
+ *   - penolakan bisnis  → 200 {success:false, code:'already_claimed'|'user_unavailable'
+ *                            |'no_active_rental'}   (plan/118: syarat sewa aktif)
  *   - fitur OFF         → 403 {success:false, code:'disabled'}   (fail-closed)
  *   - gagal internal    → 500 {success:false, code:'error'}
  *   - sesi habis        → 401 {success:false, code:'unauthenticated'}
@@ -54,7 +56,7 @@ class Checkin extends MY_Controller {
             api_error($message, 401, [], 'unauthenticated', ['code' => 'unauthenticated', 'message' => $message]);
         }
 
-        // Rate limit (pola Team::claim_wage / Wallet::process_withdraw):
+        // Rate limit (pola Team::claim_milestone / Wallet::process_withdraw):
         // key checkin_claim:{user_id}, 5 hit / 60 detik.
         $rl_key   = 'checkin_claim:' . $user_id;
         $throttle = $this->Rate_limit_model->check($rl_key, 5, 60);
@@ -79,19 +81,26 @@ class Checkin extends MY_Controller {
         if ($result['success']) {
             // Saldo segar dari wallet_ledger — bukan users.balance yang basi (C4).
             $new_balance = $this->Wallet_model->get_balance($user_id);
+            // plan/118: saldo dompet bonus setelah klaim (dompet tujuan kredit).
+            $new_checkin_balance = $this->Wallet_model->get_checkin_balance($user_id);
             // Status pasca-klaim: widget memutakhirkan streak + pratinjau tanpa reload.
             $status = $this->Checkin_model->get_status($user_id);
 
-            $legacy['new_balance'] = $new_balance;
-            $legacy['status']      = $status;
+            $legacy['new_balance']         = $new_balance;
+            $legacy['new_checkin_balance'] = $new_checkin_balance;
+            $legacy['status']              = $status;
 
             api_success(
                 [
-                    'reward'         => (int) $result['reward'],
-                    'streak'         => (int) $result['streak'],
-                    'transaction_id' => $result['transaction_id'],
-                    'new_balance'    => $new_balance,
-                    'status'         => $status,
+                    'reward'              => (int) $result['reward'],
+                    'streak'              => (int) $result['streak'],
+                    'transaction_id'      => $result['transaction_id'],
+                    // plan/118: kredit masuk dompet `checkin`; `new_balance`
+                    // (saldo utama) dipertahankan demi kompatibilitas kontrak.
+                    'wallet_type'         => $result['wallet_type'] ?? Wallet_model::WALLET_CHECKIN,
+                    'new_balance'         => $new_balance,
+                    'new_checkin_balance' => $new_checkin_balance,
+                    'status'              => $status,
                 ],
                 lang('home_checkin_ok_claimed'),
                 200,
@@ -100,12 +109,14 @@ class Checkin extends MY_Controller {
         }
 
         // Penolakan bisnis: fitur OFF = 403 (fail-closed eksplisit);
-        // sisanya (already_claimed / user_unavailable) = 200 {success:false}
-        // dengan key `code` untuk branching JS.
+        // sisanya (already_claimed / user_unavailable / no_active_rental) =
+        // 200 {success:false} dengan key `code` untuk branching JS.
         // plan/112: sertakan `status` segar pada penolakan yang bisa dipicu
         // klik ganda agar widget memutakhirkan dirinya (streak/hari/tombol)
         // tanpa reload — bukan sekadar toast.
-        if ($result['code'] === 'already_claimed' || $result['code'] === 'user_unavailable') {
+        // plan/118: `no_active_rental` (syarat sewa aktif) juga membawa status
+        // segar supaya widget merender state TERKUNCI tanpa reload.
+        if (in_array($result['code'], ['already_claimed', 'user_unavailable', 'no_active_rental'], true)) {
             $legacy['status'] = $this->Checkin_model->get_status($user_id);
         }
 
@@ -128,6 +139,8 @@ class Checkin extends MY_Controller {
             'ok'               => 'home_checkin_ok_claimed',
             'already_claimed'  => 'home_checkin_err_already',
             'disabled'         => 'home_checkin_err_disabled',
+            // plan/118: gerbang syarat sewa aktif.
+            'no_active_rental' => 'home_checkin_err_no_rental',
             'user_unavailable' => 'home_checkin_err_unavailable',
             'error'            => 'home_checkin_err_generic',
         ];

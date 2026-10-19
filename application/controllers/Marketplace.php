@@ -19,10 +19,16 @@ class Marketplace extends MY_Controller {
         // User wallet balance (real from DB)
         $user_balance = $user_id ? $this->Wallet_model->get_balance($user_id) : 0;
 
+        // plan/118: dompet kedua ("Saldo Absen") — dipakai checkbox split
+        // payment di modal checkout. Angka display saja; otoritas split tetap
+        // di Rental_model::checkout_rental() (TX terkunci).
+        $checkin_balance = $user_id ? $this->Wallet_model->get_checkin_balance($user_id) : 0;
+
         $data = [
-            'page_title'  => lang('market_page_title'),
-            'products'    => $products,
-            'user_balance'=> $user_balance,
+            'page_title'      => lang('market_page_title'),
+            'products'        => $products,
+            'user_balance'    => $user_balance,
+            'checkin_balance' => $checkin_balance,
         ];
 
         $this->load->view('templates/header', $data);

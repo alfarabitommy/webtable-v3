@@ -114,7 +114,11 @@ $autoload['drivers'] = array();
 // turunan tier pertama/terakhir dinormalkan otomatis + notice, skala
 // bps 10% = 1000). Fungsi murni tanpa efek samping → netral bagi admin,
 // CLI, dan member; sumber aturan sama untuk aplikasi & verifier CLI.
-$autoload['helper'] = array('url', 'file', 'form', 'security', 'language', 'i18n', 'maintenance', 'product_image', 'wa_group', 'ewallet', 'referral', 'withdrawal_amount', 'withdrawal_fee');
+// Plan 121: 'spin_wheel' = choke-point tunggal bentuk segmen roda Lucky Spin
+// (parse/validasi/encode JSON [[nominal,bobot], …] + pemilihan berbobot murni
+// `spin_wheel_pick()` untuk CSPRNG server-side). Fungsi murni tanpa efek
+// samping → netral bagi member, admin, dan CLI migrasi.
+$autoload['helper'] = array('url', 'file', 'form', 'security', 'language', 'i18n', 'maintenance', 'product_image', 'wa_group', 'ewallet', 'referral', 'withdrawal_amount', 'withdrawal_fee', 'team_milestone', 'spin_wheel');
 
 /*
 | -------------------------------------------------------------------

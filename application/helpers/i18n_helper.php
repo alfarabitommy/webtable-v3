@@ -438,9 +438,12 @@ if ( ! function_exists('i18n_ledger_description'))
             // Bonus Level 1
             '/^Bonus Level 1\b/u'
                 => 'ledger_bonus_l1',
-            // Gaji mingguan
+            // Gaji mingguan (RETENSI plan/119: baris ledger historis `WAGE-*`)
             '/^Gaji Mingguan Level (\d+)/u'
                 => 'ledger_wage',
+            // plan/119: Bonus Pencapaian Tim ("Bonus Pencapaian Tim 9 Downline Aktif")
+            '/^Bonus Pencapaian Tim (\d+)/u'
+                => 'ledger_milestone',
             // Penarikan
             '/^(?:Withdrawal|Penarikan)\b/u'
                 => 'ledger_withdrawal',
@@ -450,6 +453,16 @@ if ( ! function_exists('i18n_ledger_description'))
             // plan/112: bonus absensi harian ("Bonus Absensi Harian Hari ke-7")
             '/^Bonus Absensi Harian Hari ke-(\d+)$/u'
                 => 'ledger_checkin',
+            // plan/118: debit checkout yang dibayar dari dompet "Saldo Absen"
+            // ("Sewa GPU Magang (dari Saldo Absen)"). Baris dompet utama
+            // ("Sewa {nama}") sengaja TIDAK dipetakan (non-goal plan/103 —
+            // memuat nama produk dinamis tanpa penanda yang aman diparse).
+            '/^Sewa (.+) \(dari Saldo Absen\)$/u'
+                => 'ledger_rent_checkin',
+            // plan/121: hadiah Lucky Spin ("Hadiah Lucky Spin") — deskripsi
+            // KONSTAN tanpa parameter, ditulis `Spin_model::spin()`.
+            '/^Hadiah Lucky Spin$/u'
+                => 'ledger_spin',
         );
 
         foreach ($patterns as $re => $key)

@@ -17,6 +17,27 @@ class Wallet_model extends CI_Model {
     const UNIQUE_CODE_MIN = 100;
     const UNIQUE_CODE_MAX = 999;
 
+    /**
+     * plan/118: DOMAIN DOMPET (wallet_type). `main` = saldo utama (dapat ditarik),
+     * `checkin` = "Saldo Absen" (bonus harian; HANYA dapat dipakai untuk
+     * mensubsidi checkout sewa, TIDAK dapat ditarik — invarian CK3).
+     */
+    const WALLET_MAIN    = 'main';
+    const WALLET_CHECKIN = 'checkin';
+
+    /**
+     * plan/118: pemetaan TUNGGAL dompet → kolom cache di `users`. Dipakai
+     * `_post()` untuk memilih kolom mirror. Nama kolom HANYA berasal dari map
+     * hardcoded ini (tidak pernah dari input pengguna) — satu-satunya tempat
+     * interpolasi identifier di jalur uang.
+     *
+     * @var array<string,string>
+     */
+    private static $_wallet_columns = [
+        self::WALLET_MAIN    => 'balance',
+        self::WALLET_CHECKIN => 'checkin_balance',
+    ];
+
     public function __construct() {
         parent::__construct();
 
@@ -592,10 +613,15 @@ class Wallet_model extends CI_Model {
      * di-(int) kan di sini (baris kosong → COALESCE 0 → 0). Tidak pernah
      * float/string, tidak pernah null.
      *
-     * @param int $user_id
+     * plan/118: pembacaan WAJIB dibatasi per dompet (`wallet_type`) — tanpa
+     * filter ini, saldo absensi ikut terbaca sebagai saldo utama (CK2). Default
+     * parameter `main` menjaga seluruh pemanggil lama tetap benar.
+     *
+     * @param int    $user_id
+     * @param string $wallet_type self::WALLET_MAIN | self::WALLET_CHECKIN
      * @return int Saldo IDR bulat (0 saat tidak ada baris ledger).
      */
-    public function get_balance($user_id) {
+    public function get_balance($user_id, $wallet_type = self::WALLET_MAIN) {
         $row = $this->db->query(
             "SELECT COALESCE(
                       SUM(CASE WHEN type = 'credit' THEN amount ELSE 0 END)
@@ -603,11 +629,48 @@ class Wallet_model extends CI_Model {
                     0
             ) AS balance
              FROM wallet_ledger
-            WHERE user_id = ?",
-            [(int) $user_id]
+            WHERE user_id = ? AND wallet_type = ?",
+            [(int) $user_id, $this->_wallet_type($wallet_type)]
         )->row();
 
         return (int) $row->balance;
+    }
+
+    /**
+     * plan/118: saldo dompet "Saldo Absen" (bonus absensi harian). Sugar dari
+     * `get_balance()` sehingga tidak ada rumus saldo kedua.
+     */
+    public function get_checkin_balance($user_id) {
+        return $this->get_balance($user_id, self::WALLET_CHECKIN);
+    }
+
+    /**
+     * plan/118: kedua saldo dalam SATU query (read-only, tanpa lock) untuk
+     * permukaan tampilan (marketplace/wallet/home). Nilai uang TIDAK PERNAH
+     * dihitung di view.
+     *
+     * @return array{main:int,checkin:int}
+     */
+    public function get_wallet_totals($user_id) {
+        $row = $this->db->query(
+            "SELECT
+                COALESCE(SUM(CASE WHEN wallet_type = ? AND type = 'credit' THEN amount ELSE 0 END), 0)
+              - COALESCE(SUM(CASE WHEN wallet_type = ? AND type = 'debit'  THEN amount ELSE 0 END), 0) AS main_balance,
+                COALESCE(SUM(CASE WHEN wallet_type = ? AND type = 'credit' THEN amount ELSE 0 END), 0)
+              - COALESCE(SUM(CASE WHEN wallet_type = ? AND type = 'debit'  THEN amount ELSE 0 END), 0) AS checkin_balance
+             FROM wallet_ledger
+            WHERE user_id = ?",
+            [
+                self::WALLET_MAIN, self::WALLET_MAIN,
+                self::WALLET_CHECKIN, self::WALLET_CHECKIN,
+                (int) $user_id,
+            ]
+        )->row();
+
+        return [
+            'main'    => (int) $row->main_balance,
+            'checkin' => (int) $row->checkin_balance,
+        ];
     }
 
     /**
@@ -626,10 +689,15 @@ class Wallet_model extends CI_Model {
      * users.balance TIDAK dipakai (stale, audit C4) — baris users hanya
      * menjadi anchor serialisasi; sumber saldo tetap wallet_ledger.
      *
+     * plan/118 (CK4): satu baris `users` = satu kunci, sehingga anchor tunggal
+     * ini menserialisasi KEDUA dompet sekaligus — tidak ada lock tambahan dan
+     * tidak ada urutan lock baru yang mungkin deadlock.
+     *
      * @param int $user_id
-     * @return int|false Saldo segar (strict int), atau false bila baris users tidak ada.
+     * @return array{main:int,checkin:int}|false Kedua saldo segar (strict int),
+     *         atau false bila baris users tidak ada.
      */
-    public function lock_and_get_balance($user_id) {
+    public function lock_and_get_balances($user_id) {
         $user = $this->db->query(
             "SELECT id FROM users WHERE id = ? FOR UPDATE",
             [$user_id]
@@ -640,53 +708,108 @@ class Wallet_model extends CI_Model {
         }
 
         $row = $this->db->query(
-            "SELECT COALESCE(SUM(CASE WHEN type = 'credit' THEN amount ELSE 0 END), 0)
-                  - COALESCE(SUM(CASE WHEN type = 'debit'  THEN amount ELSE 0 END), 0) AS balance
+            "SELECT
+                COALESCE(SUM(CASE WHEN wallet_type = ? AND type = 'credit' THEN amount ELSE 0 END), 0)
+              - COALESCE(SUM(CASE WHEN wallet_type = ? AND type = 'debit'  THEN amount ELSE 0 END), 0) AS main_balance,
+                COALESCE(SUM(CASE WHEN wallet_type = ? AND type = 'credit' THEN amount ELSE 0 END), 0)
+              - COALESCE(SUM(CASE WHEN wallet_type = ? AND type = 'debit'  THEN amount ELSE 0 END), 0) AS checkin_balance
              FROM wallet_ledger
             WHERE user_id = ?",
-            [$user_id]
+            [
+                self::WALLET_MAIN, self::WALLET_MAIN,
+                self::WALLET_CHECKIN, self::WALLET_CHECKIN,
+                (int) $user_id,
+            ]
         )->row();
 
         // M8 (plan/74 §2.1): strict int — saldo otoritatif di dalam TX terkunci
         // tidak boleh float (menghilangkan vektor drift untuk gate sufficiency).
-        return (int) $row->balance;
+        return [
+            'main'    => (int) $row->main_balance,
+            'checkin' => (int) $row->checkin_balance,
+        ];
+    }
+
+    /**
+     * Wrapper tipis `lock_and_get_balances()` — kompatibilitas penuh untuk
+     * pemanggil lama (penarikan, approve deposit, inject saldo admin) yang
+     * hanya berbicara soal dompet utama. Implementasinya TETAP anchor lock +
+     * satu agregat dua-dompet (nol duplikasi rumus saldo).
+     *
+     * plan/118 (CK3): karena defaultnya `main`, seluruh jalur penarikan
+     * otomatis tidak dapat menyentuh `checkin_balance`.
+     *
+     * @param int    $user_id
+     * @param string $wallet_type self::WALLET_MAIN | self::WALLET_CHECKIN
+     * @return int|false Saldo segar (strict int), atau false bila baris users tidak ada.
+     */
+    public function lock_and_get_balance($user_id, $wallet_type = self::WALLET_MAIN) {
+        $balances = $this->lock_and_get_balances($user_id);
+
+        if ($balances === false) {
+            return false;
+        }
+
+        return $balances[$this->_wallet_type($wallet_type)];
+    }
+
+    /**
+     * Normalisasi `wallet_type` ke whitelist `self::$_wallet_columns`.
+     * Nilai asing → `main` (default paling konservatif untuk PEMBACAAN; jalur
+     * tulis `_post()` menolak nilai asing secara eksplisit).
+     */
+    private function _wallet_type($wallet_type) {
+        $key = is_scalar($wallet_type) ? (string) $wallet_type : '';
+
+        return array_key_exists($key, self::$_wallet_columns) ? $key : self::WALLET_MAIN;
     }
 
     // =====================================================================
     // C4 (plan/54): LEDGER INGESTION SERVICE — SINGLE WRITE PATH
     // =====================================================================
-    // wallet_ledger = SATU-SATUNYA sumber kebenaran finansial; users.balance
-    // hanya read-cache atomik yang HARUS sinkron di transaksi yang sama.
+    // wallet_ledger = SATU-SATUNYA sumber kebenaran finansial; users.balance &
+    // users.checkin_balance hanya read-cache atomik yang HARUS sinkron di
+    // transaksi yang sama.
     //
     // credit()/debit() adalah peserta TX pemanggil (caller-TX participant):
     //   * TIDAK pernah membuka/commit transaksi sendiri — pemanggil sudah
     //     menjalankan trans_begin() dan mengunci baris anchor users
-    //     (lock_and_get_balance / SELECT ... FOR UPDATE) sebagai statement
-    //     pertama (pola C5, plan/48).
+    //     (lock_and_get_balances / lock_and_get_balance / SELECT ... FOR UPDATE)
+    //     sebagai statement pertama (pola C5, plan/48). Satu baris `users` =
+    //     satu kunci → anchor tunggal menserialisasi KEDUA dompet (CK4).
     //   * Menulis SATU baris wallet_ledger + update cache RELATIF
-    //     (balance = balance ± ?) dalam unit atomik yang sama.
+    //     (balance|checkin_balance = … ± ?) dalam unit atomik yang sama.
     //   * Mengembalikan false saat insert ledger ATAU update cache gagal
     //     (affected_rows() === 1) → pemanggil wajib rollback seluruh TX.
     //   * DILARANG: menulis balance absolut dari hasil baca basi (pola
     //     Ledger_model lama), membuka TX sendiri, atau dipanggil di luar TX.
     // Seluruh mutasi uang (W1–W9, audit plan/54 §3.3) wajib lewat helper ini —
     // grep-guard: tidak boleh ada insert('wallet_ledger' / UPDATE users
-    // SET balance di luar file ini.
+    // SET balance|checkin_balance di luar file ini.
+    //
+    // plan/118: dimensi DOMpet (`wallet_type`).
+    //   * `main`    → kolom cache `users.balance`         (dapat ditarik)
+    //   * `checkin` → kolom cache `users.checkin_balance` ("Saldo Absen",
+    //                 HANYA untuk mensubsidi checkout, TIDAK dapat ditarik — CK3)
+    //   * Saldo OTORITATIF per dompet = Σ(credit−debit) WHERE wallet_type = …
+    //     dengan mirror-nya; keduanya ditulis dalam TX yang sama (CK1/CK2).
+    //   * Nilai `wallet_type` di luar whitelist → DITOLAK (log + false).
 
     /**
-     * Kredit: +1 baris wallet_ledger (type=credit) + users.balance += amount.
+     * Kredit: +1 baris wallet_ledger (type=credit) + cache dompet += amount.
      *
      * M8 (plan/74 §2.2): amount WAJIB integer IDR positif — di-(int) kan dan
      * di-guard di _post() (nilai 0/negatif/pecahan ditolak, log + false).
      *
      * @param int    $user_id
      * @param int    $amount  Nominal IDR bulat positif.
-     * @param string $transaction_id  ID deterministik pemanggil (INV-/RENT-/ROI-/WD-/L1-/WAGE-/ADM-…).
+     * @param string $transaction_id  ID deterministik pemanggil (INV-/RENT-/ROI-/WD-/L1-/WAGE-/ADM-/CHK-…).
      * @param string $description
+     * @param string $wallet_type plan/118: dompet tujuan (default `main`).
      * @return bool false → pemanggil harus rollback.
      */
-    public function credit($user_id, $amount, $transaction_id, $description) {
-        return $this->_post('credit', $user_id, $amount, $transaction_id, $description);
+    public function credit($user_id, $amount, $transaction_id, $description, $wallet_type = self::WALLET_MAIN) {
+        return $this->_post('credit', $user_id, $amount, $transaction_id, $description, $wallet_type);
     }
 
     /**
@@ -696,18 +819,32 @@ class Wallet_model extends CI_Model {
      * @param int    $amount  Nominal IDR bulat positif.
      * @param string $transaction_id
      * @param string $description
+     * @param string $wallet_type plan/118: dompet sumber (default `main`).
      * @return bool false → pemanggil harus rollback.
      */
-    public function debit($user_id, $amount, $transaction_id, $description) {
-        return $this->_post('debit', $user_id, $amount, $transaction_id, $description);
+    public function debit($user_id, $amount, $transaction_id, $description, $wallet_type = self::WALLET_MAIN) {
+        return $this->_post('debit', $user_id, $amount, $transaction_id, $description, $wallet_type);
     }
 
     /**
      * Implementasi tunggal credit/debit — lihat docblock section di atas.
+     *
+     * plan/118: `$wallet_type` memilih dompet (`main`/`checkin`) dan sekaligus
+     * kolom cache mirror-nya. Nilai di luar whitelist DITOLAK (log + false) —
+     * fail-closed, bukan diam-diam dialihkan ke `main`, supaya kesalahan
+     * pemetaan dompet tidak pernah menjadi pergerakan uang yang salah.
      */
-    private function _post($type, $user_id, $amount, $transaction_id, $description) {
+    private function _post($type, $user_id, $amount, $transaction_id, $description, $wallet_type = self::WALLET_MAIN) {
         if (!in_array($type, ['credit', 'debit'], true)) {
             log_message('error', 'Wallet_model::_post — tipe ledger tidak valid: ' . var_export($type, true));
+            return false;
+        }
+
+        // plan/118: whitelist dompet → kolom cache (identifier HANYA dari map).
+        $wallet = is_scalar($wallet_type) ? (string) $wallet_type : '';
+        if (!array_key_exists($wallet, self::$_wallet_columns)) {
+            log_message('error', 'Wallet_model::_post — wallet_type tidak valid: ' . var_export($wallet_type, true)
+                . ' (type=' . $type . ', user=' . (int) $user_id . ', tx=' . (string) $transaction_id . ')');
             return false;
         }
 
@@ -729,29 +866,32 @@ class Wallet_model extends CI_Model {
             'user_id'        => (int) $user_id,
             'transaction_id' => (string) $transaction_id,
             'type'           => $type,
+            'wallet_type'    => $wallet,
             'amount'         => $amount,
             'description'    => (string) $description,
         ]);
 
         if (!$inserted) {
             log_message('error', 'Wallet_model::_post — insert wallet_ledger gagal (type=' . $type
-                . ', user=' . (int) $user_id . ', tx=' . (string) $transaction_id . ')');
+                . ', wallet=' . $wallet . ', user=' . (int) $user_id . ', tx=' . (string) $transaction_id . ')');
             return false;
         }
 
         // 2. Update cache relatif (amount dijamin > 0 oleh guard di atas).
-        $sign  = ($type === 'credit') ? '+' : '-';
-        $query = "UPDATE users SET balance = balance {$sign} ? WHERE id = ?";
+        //    plan/118: kolom ditentukan map whitelist di atas — bukan input.
+        $column = self::$_wallet_columns[$wallet];
+        $sign   = ($type === 'credit') ? '+' : '-';
+        $query  = "UPDATE users SET {$column} = {$column} {$sign} ? WHERE id = ?";
 
         if (!$this->db->query($query, [$amount, (int) $user_id])) {
             log_message('error', 'Wallet_model::_post — update cache gagal (user=' . (int) $user_id
-                . ', tx=' . (string) $transaction_id . ')');
+                . ', wallet=' . $wallet . ', tx=' . (string) $transaction_id . ')');
             return false;
         }
 
         if ($this->db->affected_rows() !== 1) {
             log_message('error', 'Wallet_model::_post — cache update affected_rows=' . $this->db->affected_rows()
-                . ' (user=' . (int) $user_id . ', tx=' . (string) $transaction_id . ')');
+                . ' (user=' . (int) $user_id . ', wallet=' . $wallet . ', tx=' . (string) $transaction_id . ')');
             return false;
         }
 
@@ -1202,9 +1342,11 @@ class Wallet_model extends CI_Model {
      * @return array{success:bool, code:string, message:string, wd_number:string|null}
      *   code: 'ok' | 'insufficient' | 'pending_exists' | 'daily_limit'
      *         | 'closed_day' | 'closed_time' | 'below_min' | 'above_max'
-     *         | 'no_ewallet' | 'no_paid_rental' | 'error'
+     *         | 'no_ewallet' | 'no_paid_rental' | 'wd_locked' | 'error'
      *   plan/114: 'no_paid_rental' = user belum pernah memiliki kontrak dari
      *   produk NON-trial (gerbang anti free-rider; trial gratis tidak membuka).
+     *   plan/117: 'wd_locked' = user dikunci penarikannya oleh admin
+     *   (`users.is_wd_locked = 1`; gate pertama di dalam TX terkunci).
      */
     public function create_withdrawal($user_id, $amount, $bank_account_id) {
         $wd_number = 'WD-' . date('YmdHis') . '-' . $user_id;
@@ -1220,7 +1362,24 @@ class Wallet_model extends CI_Model {
                 return ['success' => false, 'code' => 'error', 'message' => 'Gagal memproses penarikan.', 'wd_number' => null];
             }
 
-            // 1a. Plan 106: validasi tujuan penarikan DI DALAM TX terkunci —
+            // 1a. plan/117 — GERBANG KUNCI PENARIKAN PER-USER (OTORITAS, di
+            //     dalam TX terkunci). Diletakkan PALING AWAL setelah anchor lock
+            //     karena `SELECT … FROM users … FOR UPDATE` sudah dijalankan
+            //     `lock_and_get_balance()`: read view TX ini dibuat SETELAH
+            //     lock wait, sehingga nilai `is_wd_locked` yang dibaca di sini
+            //     PASTI segar (admin yang mengunci bersamaan tidak bisa
+            //     ditembus). Rollback di sini = 0 baris `withdrawals` +
+            //     0 baris `wallet_ledger` (plan/117 D1/D2, imutabilitas Z1).
+            //     Kebijakan admin adalah gerbang terkuat → diperiksa sebelum
+            //     binding e-wallet & anti free-rider.
+            if ($this->is_withdrawal_locked($user_id)) {
+                $this->db->trans_rollback();
+                return ['success' => false, 'code' => 'wd_locked',
+                    'message' => 'Penarikan ditangguhkan oleh admin.',
+                    'wd_number' => null];
+            }
+
+            // 1b. Plan 106: validasi tujuan penarikan DI DALAM TX terkunci —
             //     baris binding harus milik user ini DAN masih aktif
             //     (is_primary = 1, keputusan D2). Defense-in-depth: admin bisa
             //     mereset binding tepat setelah controller membacanya, sehingga
@@ -1238,7 +1397,7 @@ class Wallet_model extends CI_Model {
                 return ['success' => false, 'code' => 'no_ewallet', 'message' => 'Akun e-wallet tidak valid atau sudah tidak aktif.', 'wd_number' => null];
             }
 
-            // 1b. plan/114 — GERBANG ANTI FREE-RIDER (OTORITAS, di dalam TX
+            // 1c. plan/114 — GERBANG ANTI FREE-RIDER (OTORITAS, di dalam TX
             //     terkunci). Penarikan mensyaratkan RIWAYAT >= 1 kontrak dari
             //     produk NON-trial; trial gratis (Rp 0, `is_trial = 1`) dan
             //     bonus absensi harian TIDAK boleh langsung dicairkan.
@@ -1255,7 +1414,7 @@ class Wallet_model extends CI_Model {
                     'wd_number' => null];
             }
 
-            // 1c. Kebijakan operasional & batas nominal (M1, plan/56) —
+            // 1d. Kebijakan operasional & batas nominal (M1, plan/56) —
             //     otoritatif di dalam TX terkunci (re-check setelah lock wait),
             //     jadi perubahan jam/hari/tier langsung berlaku tanpa race.
             $amount = (int) $amount;
@@ -1379,6 +1538,53 @@ class Wallet_model extends CI_Model {
             [(int) $user_id, $today]
         )->row();
         return ((int) $row->c) > 0;
+    }
+
+    // =====================================================================
+    //  plan/117 — KUNCI PENARIKAN PER-USER (WITHDRAWAL LOCK)
+    //
+    //  `users.is_wd_locked` adalah SATU-SATUNYA sumber kebenaran (invarian W1);
+    //  hanya diubah lewat `Admin_model::set_wd_lock()` dari toggle admin
+    //  ber-audit. Gerbang diperiksa di 3 lapis (W2): UI /wallet, gatekeeper
+    //  controller GET/POST, dan OTORITAS di dalam TX `create_withdrawal()`.
+    //
+    //  PENTING (W3): `wd_lock_reason` bersifat internal admin. Permukaan member
+    //  HANYA boleh memakai boolean `locked` — jangan pernah merender/echo
+    //  `reason` ke view member.
+    // =====================================================================
+
+    /**
+     * Plan/117: state kunci penarikan per-user (W1).
+     *
+     * Pemanggilan di dalam TX `create_withdrawal()` adalah read SEGAR: anchor
+     * `SELECT … FROM users … FOR UPDATE` (via `lock_and_get_balance()`) sudah
+     * dijalankan lebih dulu, sehingga read view TX dibuat setelah lock wait.
+     *
+     * @param  int $user_id
+     * @return array{found:bool, locked:bool, reason:string|null}
+     */
+    public function get_wd_lock_state($user_id) {
+        $row = $this->db->query(
+            "SELECT is_wd_locked, wd_lock_reason FROM users WHERE id = ? LIMIT 1",
+            [(int) $user_id]
+        )->row();
+
+        if (!$row) {
+            return ['found' => false, 'locked' => false, 'reason' => null];
+        }
+
+        return [
+            'found'  => true,
+            'locked' => ((int) $row->is_wd_locked === 1),
+            'reason' => ($row->wd_lock_reason !== null && $row->wd_lock_reason !== '')
+                ? (string) $row->wd_lock_reason
+                : null,
+        ];
+    }
+
+    /** Plan/117: sugar boolean untuk gatekeeper controller/view (baca non-locking). */
+    public function is_withdrawal_locked($user_id) {
+        return $this->get_wd_lock_state($user_id)['locked'];
     }
 
     public function get_withdrawal_by_wd_number($wd_number) {

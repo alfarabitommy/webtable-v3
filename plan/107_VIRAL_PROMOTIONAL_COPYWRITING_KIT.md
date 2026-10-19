@@ -36,8 +36,9 @@ Copy di bawah **hanya** memakai angka yang sudah diverifikasi dari kode/database
 - **Withdraw masuk ke e-wallet** DANA / ShopeePay / OVO / GoPay (nomor HP `08xxxxxxxxxx`).
 - **Rebate 3 tier:** L1 **5%**, L2 **3%**, L3 **1%** (`rebate_commission.php`; dinamis via `system_settings`).
 - **Bonus Level 1:** Rp 80.000 **sekali saja** — syarat 3 downline aktif **dan** omset Rp 330.000.
-- **Gaji mingguan (live `User_model::WAGE_TIERS`):** 9 agen → Rp 200.000 · 30 → Rp 1.000.000 · 70 → Rp 2.500.000 · 130 → Rp 5.000.000 · 190 → Rp 9.000.000.
-  - ⚠️ **Catatan:** §G `docs/1_PRD.md` masih menulis 9/18/40/90/190 (Rp 200rb/500rb/1,5jt/4jt/9jt). **Kode = otoritatif** (`plan/80` P5). Dokumen ini memakai angka kode. PRD sebaiknya disinkronkan (follow-up).
+- **Bonus Pencapaian Tim (plan/119 — PENGGANTI Gaji Mingguan):** tier **sekali seumur hidup per tier**, klaim **berurutan** dari tier terendah, **tanpa siklus mingguan / tanpa cooldown**. Ground truth = `system_settings.team_milestone_tiers` (dinamis, diatur admin; fallback `application/config/team_milestones.php`). Seed default: **9 agen aktif → Rp 200.000 · 30 → Rp 1.000.000 · 70 → Rp 2.500.000 · 130 → Rp 5.000.000 · 190 → Rp 9.000.000** (nominal sekali, **bukan per minggu**).
+  - ⚠️ **Wajib disebut jujur** dalam copy: satu tier dibayar **SEKALI**, bukan berulang; angka tier dapat berubah (admin dapat menambah/mengubah tier, mis. 3/5/9/11); tier yang sudah diklaim **permanen**.
+  - ✅ **Diperbarui oleh plan/119** (materi lama yang menyebut "gaji mingguan"/"per minggu" **sudah tidak berlaku** — angka lama berasal dari `User_model::WAGE_TIERS` yang telah dihapus).
 - **Reward node GPU gratis (omzet burn, `promoter_rewards.php`):** tebus omzet → kontrak zero-cost. RTX 3060 = Rp 1.500.000 · RTX 4060 = Rp 3.500.000 · RTX 4070 = Rp 7.000.000 · RTX 4080 = Rp 15.000.000. Produk di luar 4 ini **tidak** bisa ditebus.
 - **Grup WhatsApp komunitas resmi** aktif (plan/105, `/help`).
 
@@ -154,7 +155,7 @@ Saya nggak minta kamu langsung percaya. Saya minta kamu *lihat dulu* — daftar 
 ## FORMAT 2 — AFFILIATE / LEADER PITCH
 
 **Target:** team builder, affiliate, komunitas leader.
-**Angle:** rebate 3 tier (5%–3%–1%) + gaji mingguan + aset digital jangka panjang.
+**Angle:** rebate 3 tier (5%–3%–1%) + Bonus Pencapaian Tim (sekali per tier) + aset digital jangka panjang.
 **Cara pakai:** untuk recruitment 1-on-1, caption rekrutmen, atau closing di grup leader.
 
 ---
@@ -173,8 +174,8 @@ Kamu sudah capek bangun tim, tapi komisi cuma 1 level? Di *Synapse*, kerja sekal
 
 Katakan tim kamu punya 10 orang L1, 50 L2, 200 L3. Setiap kali mereka sewa node, kamu dibayar dari *ketiga* lapisan — bukan cuma yang kamu rekrut langsung.
 
-🎖️ *GAJI MINGGUAN (bukan bonus sekali):*
-| Agen aktif | Gaji / minggu |
+🎖️ *BONUS PENCAPAIAN TIM (sekali per tier — bukan mingguan):*
+| Agen aktif | Bonus (dibayar 1×) |
 |---|---|
 | 9 | *Rp 200.000* |
 | 30 | *Rp 1.000.000* |
@@ -182,7 +183,7 @@ Katakan tim kamu punya 10 orang L1, 50 L2, 200 L3. Setiap kali mereka sewa node,
 | 130 | *Rp 5.000.000* |
 | 190 | *Rp 9.000.000* |
 
-Ini *gaji*. Bukan hadiah. Bukan sekali. *Mingguan.*
+Ini *bonus pencapaian*. Dibayar **sekali** per tier, **bukan** tiap minggu. Tier diklaim **berurutan** mulai dari yang terendah, dan tier yang sudah cair **terkunci permanen** — jumlah downline turun pun tidak bisa diulang.
 
 🏆 *BONUS LEVEL 1:* Rp 80.000 — klaim begitu 3 downline aktif & omset Rp 330.000. Secepat itu kamu sudah dibayar balik.
 
@@ -203,7 +204,7 @@ Tebus omzet → dapat kontrak node *zero-cost*. Node-nya tetap hasilkan pendapat
 *Realistis soal aturannya:*
 • Downline dihitung *aktif* kalau punya sewa berjalan
 • Supaya rebate kamu cair, kamu sendiri wajib punya *minimal 1 node sewa aktif* saat downline membeli
-• Gaji dievaluasi *mingguan*
+• Bonus Pencapaian Tim dibayar *sekali* per tier (bukan mingguan) dan diklaim berurutan
 • Semua pencairan ikut jam operasional (Senin–Sabtu, 07.00–19.00 WIB)
 
 Kamu bisa mulai sendiri dulu — satu node, Rp 150.000. Buktikan ke tim kamu dengan hasil, bukan kata-kata.
@@ -226,7 +227,7 @@ Rebate Synapse: *L1 5% · L2 3% · L3 1%*
 Artinya: tim kamu merekrut, kamu *tetap* dibayar sampai generasi ke-3.
 
 Plus:
-🎖️ *Gaji mingguan* — Rp 200rb (9 agen) s/d *Rp 9 juta* (190 agen)
+🎖️ *Bonus Pencapaian Tim* — Rp 200rb (9 agen) s/d *Rp 9 juta* (190 agen) — **sekali per tier**
 🎁 *Node GPU gratis* dari omzet Rp 1,5 juta
 💰 Bonus L1 Rp 80.000 sekali klaim
 
@@ -251,8 +252,8 @@ Wajar. Saya juga dulu begitu. Jadi saya jelaskan apa adanya — lalu kamu nilai 
 *Yang BUKAN:* komisi dari setoran member baru? Bukan. Rebate dibayar dari *sewa node yang benar-benar terjadi* — L1 5%, L2 3%, L3 1%.
 
 *Yang BUKAN:* janji manis doang? Betul, makanya saya kasih angkanya:
-🎖️ Gaji mingguan mulai 9 agen aktif = Rp 200.000
-🎖️ Sampai 190 agen aktif = Rp 9.000.000/minggu
+🎖️ Bonus pencapaian tim mulai 9 agen aktif = Rp 200.000 (*sekali*)
+🎖️ Sampai 190 agen aktif = Rp 9.000.000 (*sekali, bukan per minggu*)
 
 *Yang jujur saya akui:*
 • Downline harus *aktif* (punya sewa berjalan) untuk dihitung

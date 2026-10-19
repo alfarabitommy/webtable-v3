@@ -11,8 +11,9 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  *   2. Validator setelan admin (validate_checkin_settings) — kontrak sama
  *      dengan Wallet_model::validate_financial_settings (F12 plan/112).
  *   3. Status widget (get_status)      : read-only, 1 PK lookup.
- *   4. Jalur uang (claim)             : satu TX terkunci + SATU kredit lewat
- *      `Wallet_model::credit()` — tidak ada mutasi saldo di jalur lain (C4/M8).
+ *   4. Jalur uang (claim)             : satu TX terkunci + SATU kredit ke
+ *      DOMPET `checkin` lewat `Wallet_model::credit()` — tidak ada mutasi
+ *      saldo di jalur lain (C4/M8).
  *
  * Invarian penting:
  *   - Otoritas "hari" = PHP WIB (`date('Y-m-d')`), BUKAN MySQL NOW()/CURDATE()
@@ -22,6 +23,10 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  *   - Histori absensi TIDAK punya tabel sendiri: query `wallet_ledger` prefix
  *     'CHK-%' (terlayani idx_user_id). Tidak ada sumber kebenaran ganda.
  *   - Semua angka = INTEGER IDR utuh (M8); `_post()` menolak amount ≤ 0.
+ *   - plan/118 — dompet bonus: kredit masuk `wallet_type = 'checkin'`
+ *     (users.checkin_balance) dan TIDAK dapat ditarik (CK3). Gerbang opsional
+ *     `checkin_require_active_rental` menuntut ≥ 1 kontrak aktif
+ *     (status='active' AND expired_at > now WIB; trial ikut — CK7).
  */
 class Checkin_model extends CI_Model {
 
@@ -46,7 +51,8 @@ class Checkin_model extends CI_Model {
     /**
      * Konfigurasi absensi harian yang sudah tervalidasi & koheren.
      *
-     * @return array{enabled:bool, base:int, max:int, policy:string}
+     * @return array{enabled:bool, base:int, max:int, policy:string,
+     *               require_active_rental:bool}
      */
     public function get_config() {
         if (self::$_cfg !== null) {
@@ -59,7 +65,8 @@ class Checkin_model extends CI_Model {
         $rows = $this->db->query(
             "SELECT key_name, key_value FROM system_settings
               WHERE key_name IN ('checkin_enabled', 'checkin_base_reward',
-                                 'checkin_max_reward', 'checkin_streak_policy')"
+                                 'checkin_max_reward', 'checkin_streak_policy',
+                                 'checkin_require_active_rental')"
         )->result();
 
         foreach ($rows as $row) {
@@ -80,6 +87,8 @@ class Checkin_model extends CI_Model {
             'base'    => max(1, (int) $fallback['checkin_base_reward']),
             'max'     => max(1, (int) $fallback['checkin_max_reward']),
             'policy'  => ($fallback['checkin_streak_policy'] === 'continue') ? 'continue' : 'reset',
+            // plan/118: gerbang syarat sewa aktif (default OFF bila baris hilang).
+            'require_active_rental' => ((int) $fallback['checkin_require_active_rental']) === 1,
         ];
 
         // Toggle: '0' | '1' persis.
@@ -89,6 +98,17 @@ class Checkin_model extends CI_Model {
                 $cfg['enabled'] = ($raw === '1');
             } else {
                 log_message('error', 'Checkin_model: checkin_enabled tidak valid (' . $raw . ') — fallback dipakai');
+            }
+        }
+
+        // plan/118: toggle syarat sewa aktif — whitelist sama ('0' | '1' persis).
+        if (array_key_exists('checkin_require_active_rental', $map)) {
+            $raw_req = (string) $map['checkin_require_active_rental'];
+            if ($raw_req === '0' || $raw_req === '1') {
+                $cfg['require_active_rental'] = ($raw_req === '1');
+            } else {
+                log_message('error', 'Checkin_model: checkin_require_active_rental tidak valid (' . $raw_req
+                    . ') — fallback dipakai');
             }
         }
 
@@ -159,6 +179,11 @@ class Checkin_model extends CI_Model {
         // Toggle (semantik checkbox: tidak dikirim = OFF).
         $values['checkin_enabled'] = (isset($raw['checkin_enabled']) && !empty($raw['checkin_enabled'])) ? '1' : '0';
 
+        // plan/118: toggle SYARAT SEWA AKTIF — semantik checkbox yang sama;
+        // kedua nilai ('0'/'1') sah sehingga tidak pernah menghasilkan error.
+        $values['checkin_require_active_rental'] =
+            (isset($raw['checkin_require_active_rental']) && !empty($raw['checkin_require_active_rental'])) ? '1' : '0';
+
         // Bonus hari ke-1.
         $base = isset($raw['checkin_base_reward'])
             ? $this->_norm_positive_int($raw['checkin_base_reward'])
@@ -219,12 +244,19 @@ class Checkin_model extends CI_Model {
     /**
      * Status absensi satu user untuk widget dashboard.
      *
+     * plan/118: menambahkan state SYARAT SEWA AKTIF + saldo dompet checkin,
+     * sehingga widget dapat merender state TERKUNCI (tombol disabled + CTA)
+     * tanpa percobaan klaim. `can_claim` = gabungan seluruh gate (fitur aktif,
+     * belum klaim hari ini, dan syarat sewa terpenuhi bila diaktifkan).
+     *
      * @param int $user_id
      * @return array{
      *   enabled:bool, claimed_today:bool, streak:int, last_date:string|null,
      *   today_streak:int, today_reward:int, next_streak:int, next_reward:int,
      *   base_reward:int, max_reward:int, policy:string, server_date:string,
      *   next_window_ts:int, max_today_reached:bool,
+     *   require_active_rental:bool, has_active_rental:bool,
+     *   checkin_balance:int, can_claim:bool,
      *   preview:array<int,array{day:int,reward:int,is_next:bool}>
      * }
      */
@@ -246,7 +278,12 @@ class Checkin_model extends CI_Model {
             'server_date'        => date('Y-m-d'),
             'next_window_ts'     => mktime(0, 0, 0, (int) date('n'), (int) date('j') + 1, (int) date('Y')),
             'max_today_reached'  => false,
-            'preview'            => [],
+            // plan/118: syarat sewa aktif + dompet checkin.
+            'require_active_rental' => $cfg['require_active_rental'],
+            'has_active_rental'     => false,
+            'checkin_balance'       => 0,
+            'can_claim'             => false,
+            'preview'               => [],
         ];
 
         // Fail-closed: fitur OFF → tidak ada state yang perlu dibaca.
@@ -258,6 +295,15 @@ class Checkin_model extends CI_Model {
             $out['next_streak']  = 0;
             return $out;
         }
+
+        // plan/118: syarat sewa (predikat kanonik Rental_model, pola M3 — trial
+        // maupun berbayar) + saldo dompet checkin (satu-satunya angka uang yang
+        // dipakai widget).
+        $this->load->model('Rental_model');
+        $this->load->model('Wallet_model');
+
+        $out['has_active_rental'] = $this->Rental_model->has_active_rental($user_id);
+        $out['checkin_balance']   = $this->Wallet_model->get_checkin_balance($user_id);
 
         $row = $this->db->query(
             "SELECT checkin_streak, checkin_last_date FROM users WHERE id = ?",
@@ -306,37 +352,57 @@ class Checkin_model extends CI_Model {
         }
         $out['preview'] = $preview;
 
+        // plan/118: gerbang final yang dipakai view/JS. Precedence: klaim hari
+        // ini SELALU menang atas state terkunci (reload pada hari yang sama
+        // menampilkan "sudah klaim", bukan "terkunci" — sama dengan urutan
+        // keputusan server di claim()).
+        $out['can_claim'] = !$claimed_today
+            && (!$cfg['require_active_rental'] || $out['has_active_rental']);
+
         return $out;
     }
 
     // =====================================================================
-    //  4. JALUR UANG: KLAIM (satu TX + satu kredit)
+    //  4. JALUR UANG: KLAIM (satu TX + satu kredit ke dompet checkin)
     // =====================================================================
 
     /**
      * Klaim bonus absensi harian (idempotent per hari WIB).
      *
-     * Urutan wajib di dalam TX (pola C5 + claim_wage):
+     * Urutan wajib di dalam TX (pola C5 + claim_milestone):
      *   1. anchor `SELECT ... FROM users ... FOR UPDATE` (statement pertama),
-     *   2. hitung hari yang berhak (gap → kebijakan 'reset' | 'continue'),
-     *   3. UPDATE users KONDISIONAL + `affected_rows() === 1` (M4),
-     *   4. SATU kredit lewat Wallet_model::credit() dengan transaction_id
-     *      deterministik 'CHK-{user_id}-{Ymd}' (F2/F3 plan/112).
+     *   2. hitung hari yang berhak (gap → kebijakan 'reset' | 'continue') — gate
+     *      `already_claimed` SENGAJA lebih dulu daripada gate syarat sewa, agar
+     *      klik ganda pada hari yang sama tetap menjawab "sudah klaim",
+     *   3. plan/118 — gate SYARAT SEWA AKTIF (read view segar setelah lock
+     *      wait; predikat Rental_model::has_active_rental, trial ikut),
+     *   4. UPDATE users KONDISIONAL + `affected_rows() === 1` (M4),
+     *   5. SATU kredit lewat Wallet_model::credit() dompet `checkin` dengan
+     *      transaction_id deterministik 'CHK-{user_id}-{Ymd}' (F2/F3 plan/112).
      *
      * @param int $user_id
      * @return array{success:bool, code:string, message:string, reward:int,
-     *               streak:int, transaction_id:string}
-     *   code: 'ok' | 'disabled' | 'already_claimed' | 'user_unavailable' | 'error'
+     *               streak:int, transaction_id:string, wallet_type:string,
+     *               new_checkin_balance:int}
+     *   code: 'ok' | 'disabled' | 'already_claimed' | 'no_active_rental'
+     *         | 'user_unavailable' | 'error'
      */
     public function claim($user_id) {
+        // Model pemilik jalur uang dimuat PALING AWAL: konstanta dompet
+        // (`Wallet_model::WALLET_CHECKIN`) dirujuk oleh closure `$fail` di bawah
+        // — termasuk pada cabang `disabled` yang mendahului jalur TX.
+        $this->load->model('Wallet_model');
+
         $fail = function ($code, $message) {
             return [
-                'success'        => false,
-                'code'           => $code,
-                'message'        => $message,
-                'reward'         => 0,
-                'streak'         => 0,
-                'transaction_id' => '',
+                'success'             => false,
+                'code'                => $code,
+                'message'             => $message,
+                'reward'              => 0,
+                'streak'              => 0,
+                'transaction_id'      => '',
+                'wallet_type'         => Wallet_model::WALLET_CHECKIN,
+                'new_checkin_balance' => 0,
             ];
         };
 
@@ -346,8 +412,6 @@ class Checkin_model extends CI_Model {
         if (!$cfg['enabled']) {
             return $fail('disabled', 'Absensi harian sedang dinonaktifkan.');
         }
-
-        $this->load->model('Wallet_model');
 
         $user_id = (int) $user_id;
 
@@ -384,7 +448,24 @@ class Checkin_model extends CI_Model {
                 return $fail('already_claimed', 'Anda sudah mengklaim bonus hari ini.');
             }
 
-            // 3. Nominal (integer IDR utuh; _post() menolak ≤ 0 sebagai jaring terakhir).
+            // 3. plan/118 — GATE SYARAT SEWA AKTIF (otoritatif, di dalam TX
+            //    terkunci). Ditempatkan SETELAH `already_claimed` supaya klik
+            //    ganda pada hari yang sama tetap menjawab "sudah klaim", dan
+            //    SETELAH anchor lock supaya read view-nya segar: kontrak yang
+            //    kedaluwarsa/di-cancel admin secara bersamaan tidak bisa
+            //    ditembus. Predikat = Rental_model::has_active_rental()
+            //    (status='active' AND expired_at > now WIB — trial ikut, CK7).
+            if ($cfg['require_active_rental']) {
+                $this->load->model('Rental_model');
+
+                if (!$this->Rental_model->has_active_rental($user_id)) {
+                    $this->db->trans_rollback();
+                    return $fail('no_active_rental',
+                        'Anda perlu minimal 1 sewa aktif untuk mengklaim bonus ini.');
+                }
+            }
+
+            // 4. Nominal (integer IDR utuh; _post() menolak ≤ 0 sebagai jaring terakhir).
             $reward = $this->_reward_for($new_streak, $cfg['base'], $cfg['max']);
             if ($reward < 1) {
                 $this->db->trans_rollback();
@@ -393,7 +474,7 @@ class Checkin_model extends CI_Model {
                 return $fail('error', 'Gagal memproses bonus. Silakan coba lagi.');
             }
 
-            // 4. Stempel KONDISIONAL: hanya menang bila state belum berubah
+            // 5. Stempel KONDISIONAL: hanya menang bila state belum berubah
             //    (termasuk di dalam lock — sabuk tambahan terhadap double-submit).
             $this->db->query(
                 "UPDATE users SET checkin_streak = ?, checkin_last_date = ?
@@ -406,11 +487,15 @@ class Checkin_model extends CI_Model {
                 return $fail('already_claimed', 'Anda sudah mengklaim bonus hari ini.');
             }
 
-            // 5. SATU kredit ledger — ID deterministik per hari (jaminan UNIQUE DB).
+            // 6. SATU kredit ledger ke DOMPET CHECKIN — ID deterministik per hari
+            //    (jaminan UNIQUE DB). plan/118: dompet `checkin` = "Saldo Absen"
+            //    (TIDAK dapat ditarik, hanya mensubsidi checkout — CK3).
             $tx_id       = 'CHK-' . $user_id . '-' . date('Ymd');
             $description = 'Bonus Absensi Harian Hari ke-' . $new_streak;
 
-            if (!$this->Wallet_model->credit($user_id, $reward, $tx_id, $description)) {
+            if (!$this->Wallet_model->credit(
+                $user_id, $reward, $tx_id, $description, Wallet_model::WALLET_CHECKIN
+            )) {
                 // PENTING: baca error SEBELUM rollback — statement ROLLBACK yang
                 // SUKSES mereset errno koneksi, sehingga pembacaan setelahnya
                 // kehilangan kode 1062 (urutan sama dengan
@@ -438,12 +523,15 @@ class Checkin_model extends CI_Model {
             $this->db->trans_commit();
 
             return [
-                'success'        => true,
-                'code'           => 'ok',
-                'message'        => '',
-                'reward'         => $reward,
-                'streak'         => $new_streak,
-                'transaction_id' => $tx_id,
+                'success'             => true,
+                'code'                => 'ok',
+                'message'             => '',
+                'reward'              => $reward,
+                'streak'              => $new_streak,
+                'transaction_id'      => $tx_id,
+                'wallet_type'         => Wallet_model::WALLET_CHECKIN,
+                // Saldo dompet checkin SEGAR (dari ledger, bukan kolom cache).
+                'new_checkin_balance' => $this->Wallet_model->get_checkin_balance($user_id),
             ];
         } catch (Throwable $e) {
             $this->db->trans_rollback();

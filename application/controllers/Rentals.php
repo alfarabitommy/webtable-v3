@@ -65,12 +65,25 @@ class Rentals extends MY_Controller {
             redirect('marketplace');
         }
 
+        // 2b. plan/118: checkbox "Gunakan Saldo Absen" dari modal checkout.
+        //     Hanya flag boolean — otoritas split tetap di dalam TX terkunci
+        //     `Rental_model::checkout_rental()` (pola C5).
+        $use_checkin = ((string) $this->input->post('use_checkin_balance') === '1');
+
         // 3. Pre-check saldo: HANYA fast UX fail. Otoritas finansial
         //    anti-race (kunci anchor users + saldo segar di dalam TX, reject
         //    overspend) ada di Rental_model::checkout_rental — audit C5,
         //    plan/48.
+        //    plan/118: bila checkbox aktif, daya beli = saldo utama + saldo
+        //    absen (dompet `checkin`) — dihitung di server, bukan dari JS.
         $user_balance = $this->Wallet_model->get_balance($user_id);
-        if ($user_balance < $product['price']) {
+        $available    = $user_balance;
+
+        if ($use_checkin) {
+            $available += $this->Wallet_model->get_checkin_balance($user_id);
+        }
+
+        if ($available < (int) $product['price']) {
             $this->session->set_flashdata('error', lang('rental_err_insufficient'));
             redirect('marketplace');
         }
@@ -80,7 +93,7 @@ class Rentals extends MY_Controller {
         //    (AGENTS.md — semua akses DB hidup di model, controller tanpa
         //    query DB). Hasil terstruktur {success, code, message} di-map
         //    ke flashdata di bawah.
-        $result = $this->Rental_model->checkout_rental($user_id, $product);
+        $result = $this->Rental_model->checkout_rental($user_id, $product, $use_checkin);
 
         if (!$result['success']) {
             // plan/103 D1/D3: `code` → key kamus; prosa model hanya diagnostik.
@@ -89,9 +102,32 @@ class Rentals extends MY_Controller {
             redirect('marketplace');
         }
 
-        // 5. Success
-        $this->session->set_flashdata('success', lang('rental_ok_activated'));
+        // 5. Success — plan/118: bila saldo absen ikut dipakai, sebutkan
+        //    komposisinya (nominal = ARGUMEN sprintf, L6).
+        $this->session->set_flashdata('success', $this->_checkout_success($result));
         redirect('rentals');
+    }
+
+    /**
+     * plan/118: pesan sukses checkout yang menyebut komposisi pembayaran
+     * (dompet absen vs saldo utama) bila split terjadi. Tanpa split →
+     * pesan lama `rental_ok_activated` (perilaku tidak berubah).
+     *
+     * @param  array $result Hasil Rental_model::checkout_rental()
+     * @return string
+     */
+    private function _checkout_success(array $result) {
+        $checkin_used = (int) ($result['checkin_used'] ?? 0);
+
+        if ($checkin_used < 1) {
+            return lang('rental_ok_activated');
+        }
+
+        return sprintf(
+            lang('rental_ok_activated_split'),
+            'Rp ' . number_format($checkin_used, 0, ',', '.'),
+            'Rp ' . number_format((int) ($result['main_used'] ?? 0), 0, ',', '.')
+        );
     }
 
     /**

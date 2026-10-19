@@ -24,6 +24,15 @@
  * Credentials parsed from application/config/database.php (CI3).
  * Exit codes: 0 = clean, 1 = pre-flight failure, 2 = apply failure,
  *             3 = drift present (verify or post-check).
+ *
+ * plan/118 — DUA DOMPET (CK2):
+ *   * `main`    → cache `users.balance`         (dapat ditarik)
+ *   * `checkin` → cache `users.checkin_balance` ("Saldo Absen", TIDAK dapat
+ *                 ditarik; hanya mensubsidi checkout sewa — CK3)
+ *   Drift diukur PER DOMPET (`wallet_type`) dan dilaporkan terpisah; tanpa
+ *   filter dompet, setiap kredit absensi akan salah dilaporkan sebagai drift
+ *   pada saldo utama. Bila kolom `wallet_type`/`checkin_balance` belum ada
+ *   (DB pra-plan/118) tool otomatis jatuh ke mode legacy (satu dompet).
  */
 
 define('BASEPATH', 'cli-reconcile-runner');
@@ -110,61 +119,117 @@ $q = $m->query("SELECT 1 FROM information_schema.COLUMNS
 if (!$q || $q->num_rows === 0) {
     die_fatal('users.balance missing — run the schema/seed baseline first');
 }
+
+// plan/118: deteksi kolom dompet kedua (opsional → mode legacy).
+function column_exists(mysqli $m, $schema, $table, $column)
+{
+    $stmt = $m->prepare(
+        "SELECT 1 FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?"
+    );
+    $stmt->bind_param('sss', $schema, $table, $column);
+    $stmt->execute();
+    $exists = ($stmt->get_result()->num_rows > 0);
+    $stmt->close();
+
+    return $exists;
+}
+
+$HAS_WALLET_TYPE     = column_exists($m, $db['database'], 'wallet_ledger', 'wallet_type');
+$HAS_CHECKIN_BALANCE = column_exists($m, $db['database'], 'users', 'checkin_balance');
+
+// Rencana dompet yang diperiksa (kolom cache + filter) — nilai hardcoded,
+// tidak pernah dari input pengguna.
+$WALLET_PLAN = [];
+if ($HAS_WALLET_TYPE && $HAS_CHECKIN_BALANCE) {
+    $WALLET_PLAN[] = ['wallet' => 'main',    'cache' => 'balance',         'filtered' => true];
+    $WALLET_PLAN[] = ['wallet' => 'checkin', 'cache' => 'checkin_balance', 'filtered' => true];
+} elseif ($HAS_WALLET_TYPE) {
+    $WALLET_PLAN[] = ['wallet' => 'main', 'cache' => 'balance', 'filtered' => true];
+    out('[WARN] kolom `users.checkin_balance` belum ada — dompet `checkin` tidak diperiksa '
+        . '(jalankan scripts/migrate_118_checkin_refactor.php --apply).');
+} elseif ($HAS_CHECKIN_BALANCE) {
+    $WALLET_PLAN[] = ['wallet' => 'legacy', 'cache' => 'balance', 'filtered' => false];
+    out('[WARN] kolom `wallet_ledger.wallet_type` belum ada tetapi `users.checkin_balance` ada — '
+        . 'mode legacy (tanpa filter dompet); migrasi plan/118 belum lengkap.');
+} else {
+    $WALLET_PLAN[] = ['wallet' => 'legacy', 'cache' => 'balance', 'filtered' => false];
+    out('[INFO] DB pra-plan/118 (tanpa `wallet_type`) — pemeriksaan legacy satu dompet.');
+}
 // Repair race-safety: READ COMMITTED → setiap consistent read melihat data
 // committed terbaru (snapshot tidak dibekukan di read pertama TX), sehingga
 // re-aggregate setelah lock wait tidak pernah melewatkan commit konkuren.
 $m->query('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED');
 
 // ---------------------------------------------------------------- drift query
-// Exact-DECIMAL compare: u.balance <> ledger aggregate — tanpa float dust.
-function fetch_drift($m)
+// plan/118: satu query drift PER DOMPET (cache column ↔ agregat dompet itu).
+// Nama kolom & nilai `wallet` berasal dari $WALLET_PLAN (hardcoded), bukan
+// input pengguna. Exact-DECIMAL compare: cache <> ledger aggregate.
+function fetch_drift(mysqli $m, $cacheCol, $wallet, $filtered)
 {
+    $where = $filtered ? "WHERE wallet_type = '{$wallet}'" : '';
+
     return $m->query(
         "SELECT u.id,
-                u.balance AS cache_balance,
+                u.`{$cacheCol}` AS cache_balance,
                 COALESCE(l.ledger_balance, 0) AS ledger_balance,
-                (u.balance - COALESCE(l.ledger_balance, 0)) AS delta
+                (u.`{$cacheCol}` - COALESCE(l.ledger_balance, 0)) AS delta
          FROM users u
          LEFT JOIN (
              SELECT user_id,
                     COALESCE(SUM(CASE WHEN type = 'credit' THEN amount ELSE -amount END), 0) AS ledger_balance
              FROM wallet_ledger
+             {$where}
              GROUP BY user_id
          ) l ON l.user_id = u.id
-         WHERE u.balance <> COALESCE(l.ledger_balance, 0)
+         WHERE u.`{$cacheCol}` <> COALESCE(l.ledger_balance, 0)
          ORDER BY u.id"
     );
 }
 
 $scanned = (int) $m->query('SELECT COUNT(*) AS c FROM users')->fetch_assoc()['c'];
-$res     = fetch_drift($m);
 
 $drift     = [];
-$sumAbs    = 0.0;   // display-only aggregation
+$byWallet  = [];      // wallet → jumlah akun drift
+$sumAbs    = 0.0;    // display-only aggregation
 $sumDelta  = 0.0;
-while ($r = $res->fetch_assoc()) {
-    $r['cache_balance']   = (string) $r['cache_balance'];
-    $r['ledger_balance']  = (string) $r['ledger_balance'];
-    $r['delta']           = (string) $r['delta'];
-    $drift[] = $r;
-    $sumAbs   += abs((float) $r['delta']);
-    $sumDelta += (float) $r['delta'];
+foreach ($WALLET_PLAN as $plan) {
+    $res = fetch_drift($m, $plan['cache'], $plan['wallet'], $plan['filtered']);
+
+    while ($r = $res->fetch_assoc()) {
+        $r['wallet']         = $plan['wallet'];
+        $r['cache_column']   = $plan['cache'];
+        $r['cache_balance']  = (string) $r['cache_balance'];
+        $r['ledger_balance'] = (string) $r['ledger_balance'];
+        $r['delta']          = (string) $r['delta'];
+        $drift[] = $r;
+
+        $byWallet[$plan['wallet']] = ($byWallet[$plan['wallet']] ?? 0) + 1;
+        $sumAbs   += abs((float) $r['delta']);
+        $sumDelta += (float) $r['delta'];
+    }
 }
 $drifted = count($drift);
 
 // ---------------------------------------------------------------- report
 out('');
 out('Scanned users: ' . $scanned);
-out('Drifted accounts (users.balance <> ledger): ' . $drifted);
+out('Wallet scope: ' . implode(', ', array_map(function ($p) {
+    return $p['wallet'] . ' (' . $p['cache'] . ($p['filtered'] ? ', filtered' : ', legacy') . ')';
+}, $WALLET_PLAN)));
+out('Drifted accounts (cache <> ledger): ' . $drifted);
+foreach ($byWallet as $w => $c) {
+    out('  - dompet ' . str_pad($w, 9) . $c . ' akun');
+}
 out('Sum |delta|: Rp ' . number_format($sumAbs, 0, ',', '.') . '   Sum delta: Rp ' . number_format($sumDelta, 0, ',', '.') . '');
 
 if ($drifted > 0) {
     out('');
     out('Drift detail:');
-    printf("  %-6s %14s %14s %14s\n", 'user_id', 'cache', 'ledger', 'delta');
+    printf("  %-6s %-8s %14s %14s %14s\n", 'user_id', 'wallet', 'cache', 'ledger', 'delta');
     foreach ($drift as $r) {
-        printf("  %-6d %14s %14s %14s\n",
-            (int) $r['id'], $r['cache_balance'], $r['ledger_balance'], $r['delta']);
+        printf("  %-6d %-8s %14s %14s %14s\n",
+            (int) $r['id'], $r['wallet'], $r['cache_balance'], $r['ledger_balance'], $r['delta']);
     }
 }
 
@@ -178,12 +243,17 @@ $summaryBase = [
     'sum_abs_delta' => number_format($sumAbs, 2, '.', ''),
     'sum_delta'     => number_format($sumDelta, 2, '.', ''),
     'drift'         => $drift,
+    // plan/118: rincian per dompet (main/checkin; 'legacy' pada DB pra-118).
+    'wallets'       => array_map(function ($p) {
+        return $p['wallet'] . ':' . $p['cache'] . ($p['filtered'] ? '' : '(legacy)');
+    }, $WALLET_PLAN),
+    'drifted_by_wallet' => $byWallet,
     'backup_file'   => null,
 ];
 
 if ($mode === 'verify') {
     if ($drifted === 0) {
-        out("\nCLEAN — no drift between users.balance and wallet_ledger.");
+        out("\nCLEAN — no drift between cache columns and wallet_ledger (per dompet).");
         $summaryBase['ok'] = true;
         finish(0, $summaryBase);
     }
@@ -225,11 +295,21 @@ out("\nRepairing " . $drifted . " account(s) in one transaction (per-user lock +
 $m->begin_transaction();
 try {
     $lockStmt = $m->prepare('SELECT id FROM users WHERE id = ? FOR UPDATE');
-    $aggStmt  = $m->prepare(
+    // plan/118: agregat per dompet (filter `wallet_type`); mode legacy tanpa filter.
+    $aggMainStmt    = $m->prepare(
+        "SELECT COALESCE(SUM(CASE WHEN type = 'credit' THEN amount ELSE -amount END), 0) AS bal
+         FROM wallet_ledger WHERE user_id = ? AND wallet_type = 'main'"
+    );
+    $aggCheckinStmt = $m->prepare(
+        "SELECT COALESCE(SUM(CASE WHEN type = 'credit' THEN amount ELSE -amount END), 0) AS bal
+         FROM wallet_ledger WHERE user_id = ? AND wallet_type = 'checkin'"
+    );
+    $aggLegacyStmt  = $m->prepare(
         "SELECT COALESCE(SUM(CASE WHEN type = 'credit' THEN amount ELSE -amount END), 0) AS bal
          FROM wallet_ledger WHERE user_id = ?"
     );
-    $updStmt  = $m->prepare('UPDATE users SET balance = ? WHERE id = ?');
+    $updMainStmt    = $m->prepare('UPDATE users SET balance = ? WHERE id = ?');
+    $updCheckinStmt = $m->prepare('UPDATE users SET checkin_balance = ? WHERE id = ?');
 
     foreach ($drift as $u) {
         $uid = (int) $u['id'];
@@ -242,7 +322,19 @@ try {
             throw new mysqli_sql_exception("users row {$uid} vanished during repair");
         }
 
-        // 2. Re-aggregate otoritatif SETELAH lock wait (READ COMMITTED → fresh).
+        // 2. Re-aggregate otoritatif SETELAH lock wait (READ COMMITTED → fresh),
+        //    difilter ke dompet baris drift ini.
+        if ($u['wallet'] === 'checkin') {
+            $aggStmt = $aggCheckinStmt;
+            $updStmt = $updCheckinStmt;
+        } elseif ($u['wallet'] === 'main') {
+            $aggStmt = $aggMainStmt;
+            $updStmt = $updMainStmt;
+        } else {
+            $aggStmt = $aggLegacyStmt;
+            $updStmt = $updMainStmt;
+        }
+
         $aggStmt->bind_param('i', $uid);
         $aggStmt->execute();
         $bal = (string) $aggStmt->get_result()->fetch_assoc()['bal'];
@@ -253,8 +345,11 @@ try {
     }
 
     $lockStmt->close();
-    $aggStmt->close();
-    $updStmt->close();
+    $aggMainStmt->close();
+    $aggCheckinStmt->close();
+    $aggLegacyStmt->close();
+    $updMainStmt->close();
+    $updCheckinStmt->close();
     $m->commit();
     out('  commit OK');
 } catch (mysqli_sql_exception $e) {
@@ -266,12 +361,14 @@ try {
 
 // ---------------------------------------------------------------- validate
 out("\n=== Post-apply validation ===");
-$checkRes  = fetch_drift($m);
 $remaining = 0;
 $leftover  = [];
-while ($r = $checkRes->fetch_assoc()) {
-    $remaining++;
-    $leftover[] = (int) $r['id'];
+foreach ($WALLET_PLAN as $plan) {
+    $checkRes = fetch_drift($m, $plan['cache'], $plan['wallet'], $plan['filtered']);
+    while ($r = $checkRes->fetch_assoc()) {
+        $remaining++;
+        $leftover[] = $plan['wallet'] . ':' . (int) $r['id'];
+    }
 }
 $summaryBase['drifted_users'] = $remaining;
 $summaryBase['drift']         = $leftover;
@@ -296,8 +393,26 @@ function load_db_config($file)
     if (!is_file($file)) {
         return null;
     }
+    $db = null;
+    $active_group = null;
     include $file;
-    return isset($db['default']) ? $db['default'] : null;
+    if (!is_array($db)) {
+        return null;
+    }
+
+    // plan/118 fix: CI3 semantics ($active_group → 'default' → grup pertama).
+    // Pola lama (`$db['default']`) gagal total pada config repo ini yang hanya
+    // mendefinisikan grup `local`/`dev`/`live` (lihat AGENTS.md "known broken").
+    if (is_string($active_group) && isset($db[$active_group])) {
+        return $db[$active_group];
+    }
+    if (isset($db['default'])) {
+        return $db['default'];
+    }
+
+    $first = reset($db);
+
+    return is_array($first) ? $first : null;
 }
 
 /** Backup penuh tabel users (CREATE TABLE + INSERT per baris). */

@@ -57,8 +57,10 @@ class Team extends MY_Controller {
             }
         }
 
-        // Phase 9B: claim data
-        $claim_data = $this->User_model->get_claim_data($user_id);
+        // plan/119: Bonus Pencapaian Tim (pengganti Gaji Mingguan). Seluruh
+        // perhitungan tier/state berasal dari model (satu sumber) — view hanya
+        // mem-loop; nominal dirender dinamis (tanpa angka di kamus, L6).
+        $milestones = $this->User_model->get_milestone_status($user_id);
 
         $data = [
             'page_title'      => lang('team_page_title'),
@@ -78,10 +80,8 @@ class Team extends MY_Controller {
             'promoter_summary' => $promoter_summary,
             'promoter_tiers'  => $promoter_tiers,
             'promoter_history'=> $promoter_history,
-            'claim_data'      => $claim_data,
-            // P5 (plan/80): single source of truth untuk tampilan bonus L1.
-            'l1_bonus'     => User_model::LEVEL1_BONUS,
-            'l1_bonus_fmt' => number_format(User_model::LEVEL1_BONUS, 0, ',', '.'),
+            // plan/119: data kartu Bonus Pencapaian Tim.
+            'milestones'      => $milestones,
         ];
 
         // Plan 89: persen komisi untuk kartu panduan — dari merged dynamic
@@ -98,72 +98,22 @@ class Team extends MY_Controller {
     }
 
     /**
-     * POST: Claim Level 1 bonus
+     * POST: Klaim Bonus Pencapaian Tim (plan/119 — pengganti Gaji Mingguan).
+     * Hanya lapisan HTTP/UX: method POST, AJAX, sesi, rate limit, validasi
+     * input `target`, dan pemetaan kode hasil model ke JSON — SELURUH SQL dan
+     * gate bisnis ada di `User_model::claim_milestone()` (AGENTS.md).
      *
-     * M9/P7 (plan/76 Batch B): respons lewat choke-point api_* — envelope
-     * {success, message, data} + SEMUA key legacy root yang dibaca frontend
-     * (message, new_balance). Unauthenticated -> HTTP 401 JSON. Business
-     * rejection tetap HTTP 200 {success:false} (parity lama — JS team
-     * claimLevel1() hanya branch pada key, bukan status).
-     */
-    public function claim_level1() {
-        if ( ! $this->input->is_ajax_request()) {
-            show_404();
-        }
-
-        $user_id = $this->session->userdata('user_id');
-        if ( ! $user_id) {
-            $message = lang('common_session_expired');
-            api_error($message, 401, [], 'unauthenticated', ['message' => $message]);
-        }
-
-        $result = $this->User_model->claim_level1($user_id);
-
-        if ( ! $result['success']) {
-            // plan/103 W8/D1: `code` → key kamus; prosa model hanya diagnostik.
-            $message = $this->_claim_message($result, 'rental_err_claim_failed');
-            $legacy  = array_merge($result, ['message' => $message]);
-            unset($legacy['success']);
-            api_error($message, 200, [], null, $legacy);
-        }
-
-        // C4 (plan/54): saldo segar dari wallet_ledger — bukan
-        // users.balance yang basi (parity dengan claim_wage).
-        $result['new_balance'] = $this->Wallet_model->get_balance($user_id);
-
-        // Notify user — jumlah dinamis dari $result['amount'] (P5, plan/80):
-        // parity gaya claim_wage, tier berubah → notifikasi ikut berubah.
-        $this->Notification_model->insert_keyed(
-            $user_id,
-            'notif_bonus_l1',
-            [number_format((int) $result['amount'], 0, ',', '.')],
-            'commission'
-        );
-
-        // Envelope + legacy root {success di-canonical, message, new_balance}.
-        $legacy = $result;
-        unset($legacy['success']);
-        api_success(
-            ['new_balance' => $result['new_balance']],
-            $result['message'],
-            200,
-            $legacy
-        );
-    }
-
-    /**
-     * POST: Claim weekly wage (L2-6) — C6 (plan/50).
-     * Hanya lapisan HTTP/UX: method POST, AJAX, sesi, rate limit, dan
-     * pemetaan kode hasil model ke JSON — semua SQL di model (AGENTS.md).
+     * M9/P7: respons lewat choke-point api_* — envelope {success, message, data}
+     * + SEMUA key legacy root yang dibaca frontend (code, message, amount,
+     * target, missing, transaction_id, new_balance, milestones).
+     * Status: unauthenticated -> 401; `error` -> 500; `disabled` -> 403
+     * (fail-closed); penolakan bisnis lain -> 200 {success:false}.
      *
-     * M9/P7 (plan/76 Batch B): respons lewat choke-point api_* — envelope
-     * {success, message, data} + SEMUA key legacy root yang dibaca frontend
-     * (code, message, amount, level, cycle, transaction_id, next_claim_date,
-     * new_balance). Status: unauthenticated -> 401; code 'error' -> 500
-     * (parity lama); business rejection lain -> 200 {success:false} —
-     * claimWage() JS hanya branch pada key `code`.
+     * F18 (plan/119): pesan FINAL di-assign ke $legacy SEBELUM semua cabang
+     * keluar, dan peta `_milestone_message()` memuat `claimed` — sehingga tidak
+     * mungkin lagi copy sukses menampilkan teks gagal.
      */
-    public function claim_wage() {
+    public function claim_milestone() {
         // POST-only — tutup celah GET-mutation (audit M9).
         if ($this->input->method() !== 'post') {
             show_404();
@@ -181,52 +131,63 @@ class Team extends MY_Controller {
             api_error($message, 401, [], 'unauthenticated', ['code' => 'unauthenticated', 'message' => $message]);
         }
 
-        // Rate limit (pola Wallet::process_withdraw, plan/50 §3.7):
-        // key wage_claim:{user_id}, 5 hit / 60 detik.
-        $rl_key   = 'wage_claim:' . $user_id;
+        // M8: input integer ketat ^[1-9][0-9]*$ (target = jumlah downline aktif).
+        $target_raw = $this->input->post('target', TRUE);
+        if ( ! is_string($target_raw) || ! preg_match('/^[1-9][0-9]*$/', $target_raw)) {
+            $bad_input = lang('team_ms_js_invalid');
+            api_error($bad_input, 200, [], 'invalid_target', [
+                'code'    => 'invalid_target',
+                'message' => $bad_input,
+            ]);
+        }
+        $target = (int) $target_raw;
+
+        // Rate limit (pola process_withdraw, plan/50 §3.7):
+        // key milestone_claim:{user_id}, 5 hit / 60 detik.
+        $rl_key   = 'milestone_claim:' . $user_id;
         $throttle = $this->Rate_limit_model->check($rl_key, 5, 60);
         if ( ! $throttle['allowed']) {
             rate_limit_json_response($throttle);
         }
         $this->Rate_limit_model->hit($rl_key, 60, 5);
 
-        $result = $this->User_model->claim_wage($user_id);
+        $result = $this->User_model->claim_milestone($user_id, $target);
 
         // Semua key model (kecuali success) tetap di root sebagai legacy —
-        // reproduksi body lama {success, code, message, amount, level, ...}.
+        // reproduksi gaya body lama {success, code, message, amount, ...}.
         $legacy = $result;
         unset($legacy['success']);
 
-        // Internal error -> HTTP 500 (parity lama: set_status_header(500)).
-        // plan/103: pesan diterjemahkan dari `code` dalam idiom aktif.
-        $localized = $this->_wage_message($result);
+        // plan/103: `code` -> key kamus (idiom aktif); prosa model = diagnostik.
+        // Peta LENGKAP termasuk 'claimed' — akar bug F18 ditutup di sini.
+        $localized = $this->_milestone_message($result);
         $legacy['message'] = $localized;
 
-        if ($result['code'] === 'error') {
-            api_error($localized, 500, [], 'error', $legacy);
-        }
-
         if ($result['success']) {
-            // Saldo segar dari wallet_ledger — bukan users.balance yang basi (C4).
+            // Saldo utama SEGAR dari wallet_ledger (bukan users.balance basi — C4).
             $result['new_balance'] = $this->Wallet_model->get_balance($user_id);
             $legacy['new_balance'] = $result['new_balance'];
-            $localized = lang('team_js_wage_success');
 
-            // Notifikasi (parity claim_level1).
+            // State milestone segar => kartu /team dapat repaint tanpa reload
+            // (parity pola `status` segar Checkin::claim, plan/112/118).
+            $milestones = $this->User_model->get_milestone_status($user_id);
+            $legacy['milestones'] = $milestones;
+
+            // Notifikasi (parity plan/119) — params: nominal, target.
             $this->Notification_model->insert_keyed(
                 $user_id,
-                'notif_wage',
-                [number_format((int) $result['amount'], 0, ',', '.')],
+                'notif_milestone',
+                [number_format((int) $result['amount'], 0, ',', '.'), (string) (int) $result['target']],
                 'commission'
             );
 
             api_success(
                 [
-                    'level'          => $result['level'],
-                    'amount'         => $result['amount'],
+                    'target'         => (int) $result['target'],
+                    'amount'         => (int) $result['amount'],
                     'new_balance'    => $result['new_balance'],
-                    'cycle'          => $result['cycle'],
                     'transaction_id' => $result['transaction_id'],
+                    'milestones'     => $milestones,
                 ],
                 $localized,
                 200,
@@ -234,15 +195,20 @@ class Team extends MY_Controller {
             );
         }
 
-        // Business rejection (already_claimed / cycle_not_ready /
-        // not_qualified / user_unavailable) — HTTP 200 {success:false}
-        // + key `code` untuk branching JS claimWage().
-        api_error($localized, 200, [], $result['code'], $legacy);
+        // `error` -> 500 · `disabled` -> 403 (fail-closed) · sisanya 200.
+        // Satu jalur keluar: `$localized` sudah menjadi `$legacy['message']`.
+        $status = ($result['code'] === 'error') ? 500 : (($result['code'] === 'disabled') ? 403 : 200);
+
+        if ($status === 200) {
+            api_error($localized, 200, [], $result['code'], $legacy);
+        }
+
+        api_error($localized, $status, [], $result['code'], $legacy);
     }
 
     /**
      * POST (AJAX): Ajukan klaim reward promotor — plan/91.
-     * Lapisan HTTP/UX saja (pola claim_level1/claim_wage): POST + AJAX +
+     * Lapisan HTTP/UX saja (pola claim_milestone): POST + AJAX +
      * sesi + rate limit + pemetaan hasil model ke JSON M9. SELURUH gate,
      * omzet engine & TX ada di Promoter_model::submit_claim().
      */
@@ -273,7 +239,7 @@ class Team extends MY_Controller {
             api_error($bad_input, 200, [], 'invalid_request', ['message' => $bad_input]);
         }
 
-        // Rate limit (pola claim_wage, plan/50 §3.7): promoter_claim:{uid}, 5/60 dtk.
+        // Rate limit (pola claim_milestone, plan/50 §3.7): promoter_claim:{uid}, 5/60 dtk.
         $rl_key   = 'promoter_claim:' . $user_id;
         $throttle = $this->Rate_limit_model->check($rl_key, 5, 60);
         if ( ! $throttle['allowed']) {
@@ -292,7 +258,7 @@ class Team extends MY_Controller {
         $pmsg = $this->Promoter_model->localize_result($result);
         $legacy['message'] = $pmsg;
 
-        // Internal error -> HTTP 500 (parity claim_wage).
+        // Internal error -> HTTP 500 (parity claim_milestone).
         if ($result['code'] === 'error') {
             api_error($pmsg, 500, [], 'error', $legacy);
         }
@@ -330,48 +296,30 @@ class Team extends MY_Controller {
     }
 
     /**
-     * Plan 103: hasil User_model::claim_level1() → pesan idiom aktif.
+     * plan/119 (F18): hasil User_model::claim_milestone() → pesan idiom aktif.
      *
-     * @param  array  $result
-     * @param  string $fallback_key
-     * @return string
-     */
-    private function _claim_message(array $result, $fallback_key) {
-        log_message('error', 'plan/103 claim ' . ($result['code'] ?? '?') . ': ' . ($result['message'] ?? ''));
-
-        $map = [
-            'already_claimed' => 'team_js_weekly_already',
-            'not_qualified'   => 'team_err_not_qualified',
-            'user_unavailable'=> 'team_err_user_unavailable',
-        ];
-        $key = $map[$result['code'] ?? 'error'] ?? $fallback_key;
-
-        return lang($key);
-    }
-
-    /**
-     * Plan 103: hasil User_model::claim_wage() → pesan idiom aktif.
-     * Kode `cycle_not_ready` menyisipkan jumlah hari + tanggal WIB
-     * ber-lokalisasi (i18n_date) — bukan prosa `hari lagi` di model.
+     * Peta LENGKAP — termasuk `claimed` (akar bug F18: peta wage lama tidak
+     * memuat `claimed` sehingga pesan sukses jatuh ke prosa "gagal"). Tidak ada
+     * fallback diam-diam untuk jalur sukses: setiap kode punya key sendiri.
      *
      * @param  array $result
      * @return string
      */
-    private function _wage_message(array $result) {
+    private function _milestone_message(array $result) {
+        log_message('debug', 'plan/119 milestone claim ' . ($result['code'] ?? '?')
+            . ': ' . ($result['message'] ?? ''));
+
         $map = [
-            'already_claimed' => 'team_js_weekly_already',
-            'not_qualified'   => 'team_err_wage_not_qualified',
+            'claimed'         => 'team_ms_js_success',
+            'already_claimed' => 'team_ms_js_already',
+            'locked_previous' => 'team_ms_js_locked',
+            'not_qualified'   => 'team_ms_js_not_qualified',
+            'invalid_target'  => 'team_ms_js_invalid',
+            'disabled'        => 'team_ms_js_disabled',
             'user_unavailable'=> 'team_err_user_unavailable',
-            'cycle_not_ready' => 'team_err_wage_cooldown',
             'error'           => 'rental_err_claim_failed',
         ];
         $key = $map[$result['code'] ?? 'error'] ?? 'rental_err_claim_failed';
-
-        if ($result['code'] === 'cycle_not_ready') {
-            $days = (int) ($result['days_remaining'] ?? 0);
-            $when = i18n_date($result['next_claim_ts'] ?? null);
-            return sprintf(lang($key), $days, $when);
-        }
 
         return lang($key);
     }

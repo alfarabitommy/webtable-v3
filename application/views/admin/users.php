@@ -87,6 +87,15 @@
                                         <i class="fas fa-star text-[10px]"></i> PROMOTOR
                                     </span>
                                 <?php endif; ?>
+                                <?php /* plan/117: badge kunci penarikan; alasan
+                                       hanya sebagai tooltip — panel admin (W3). */ ?>
+                                <?php if (!empty($u->is_wd_locked)): ?>
+                                    <span class="t-badge"
+                                          style="background:rgba(244,63,94,.12);color:#e11d48;border:1px solid rgba(244,63,94,.35);"
+                                          title="<?= htmlspecialchars((string) ($u->wd_lock_reason ?? ''), ENT_QUOTES, 'UTF-8') ?>">
+                                        <i class="fas fa-lock text-[10px]"></i> WD LOCK
+                                    </span>
+                                <?php endif; ?>
                                 </div>
                             </td>
                             <td class="px-4 py-3 font-mono text-xs <?= $u->balance > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-[var(--t-muted)]' ?>">
@@ -115,6 +124,21 @@
                                             <?= $u->is_banned ? 'Buka Blokir' : 'Blokir Akun' ?>
                                         </button>
                                     <?= form_close() ?>
+                                    <?php /* plan/117: kunci/buka penarikan (AJAX +
+                                           modal alasan) — bukan form POST biasa. */ ?>
+                                    <?php if (!empty($u->is_wd_locked)): ?>
+                                        <button type="button"
+                                                onclick="window.unlockWdLock(<?= (int) $u->id ?>)"
+                                                class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 transition-colors">
+                                            <i class="fas fa-lock-open text-[10px]"></i> Buka WD Lock
+                                        </button>
+                                    <?php else: ?>
+                                        <button type="button"
+                                                onclick="window.openWdLockModal(<?= (int) $u->id ?>, '<?= htmlspecialchars($u->phone, ENT_QUOTES, 'UTF-8') ?>')"
+                                                class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-medium hover:bg-rose-700 transition-colors">
+                                            <i class="fas fa-lock text-[10px]"></i> Kunci WD
+                                        </button>
+                                    <?php endif; ?>
                                 </div>
                             </td>
                         </tr>
@@ -190,3 +214,8 @@
         <?= form_close() ?>
     </div>
 </div>
+
+<!-- ============================================================ -->
+<!-- plan/117: MODAL KUNCI PENARIKAN (partial generik)            -->
+<!-- ============================================================ -->
+<?php $this->load->view('admin/templates/wd_lock_modal'); ?>

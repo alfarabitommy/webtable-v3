@@ -1,8 +1,20 @@
-# UI/UX & Component Guidelines v5.2 (Strict AI Specification)
+# UI/UX & Component Guidelines v5.3 (Strict AI Specification)
 **Project Name:** Synapse
 **CSS Framework:** Tailwind CSS (Strictly Utility Classes)
 **Design Philosophy:** Minimalist, High-Density Data Presentation, Bloomberg Terminal Aesthetic, Mobile-First.
 
+> **v5.3 — catatan sinkronisasi (plan/117–121).** Tambahan komponen: **§5.J**
+> roda **Lucky Spin Wheel** (member, `/lucky-spin` — `conic-gradient`,
+> transform-only, `prefers-reduced-motion`) dan **§8.E** panel konfigurasi
+> admin (`/admin/lucky-spin`), keduanya plan/121. **§2** kini mendaftarkan
+> lapisan **FAB dashboard** (`inset-x-0 bottom-20 z-40` — di atas konten, di
+> bawah bottom-nav `z-50` dan toast/modal `z-[60]`). **§5.C** menandai kartu
+> **Misi Level 1** sebagai **REMOVED (plan/120)** dan **§8.D** menyesuaikan
+> penomoran kartu setelan menjadi **6 dari 7** (Card 7 = Bonus Pencapaian Tim,
+> plan/119). Komponen plan/117 (badge `WD LOCK` + modal admin) dan plan/118
+> (checkbox **"Gunakan Saldo Absen"**, kartu **Saldo Absen**, widget absensi
+> terkunci) sudah hidup di kode dan dijelaskan pada §5.I, §5.D, dan §8.D.
+>
 > **v5.2 — catatan sinkronisasi (plan/112 + plan/113).** Tambahan: **§5.I**
 > widget Absensi Harian dashboard member (`.hm112-card`, scoped CSS `hm112-*`,
 > Font Awesome, nol aset/CDN baru) dan **§8.D** kartu setelan admin **Absensi
@@ -35,11 +47,14 @@ Strict z-index management is critical to prevent UI overlap issues. The followin
 |-------|---------|-----------|
 | Content | `z-10` / `z-20` | Page content, card overlays, decorative elements |
 | Sticky Header | `z-40` | Top App Bar (`sticky top-0`) |
+| FAB Dashboard (Lucky Spin — plan/121) | `z-40` | `fixed` di dalam lapisan `inset-x-0 bottom-20` + `max-w-[480px] mx-auto` (menempel di kanan **shell**, bukan kanan viewport) — di atas konten, **di bawah** bottom-nav & toast |
 | Bottom Navigation | **`z-50`** | Fixed bottom nav bar |
 | Bottom Sheet Modal | **`z-[60]`** | All modal overlays, transaction sheets, confirmation dialogs, Notification Dropdown, **Toast notifikasi member (`.u-toast`, mis. `#hm112-toast` — plan/112)** |
 | Modal Backdrop | `z-[59]` | Overlay behind sheet (same modal container) |
 
 > **Rule:** Any Bottom Sheet Modal or Notification Dropdown MUST use `z-[60]` on its container. This ensures it renders above the Bottom Navigation (`z-50`) and does not conflict with the sticky header (`z-40`). **Toast** non-blocking (`pointer-events-none`) juga memakai `z-[60]` — jangan memperkenalkan layer liar di luar tabel ini.
+>
+> **FAB (plan/121) — hirarki mengikat:** FAB Lucky Spin memakai **`bottom-20 z-40`** sehingga (a) tetap **di atas konten** halaman, (b) **di bawah** bottom-nav `z-50` (tidak menutupi Golden 5) — `bottom-20` = 80 px, tepat di atas bar 64 px, dan (c) **di bawah** toast/modal `z-[60]`. Jangan menaikkan FAB ke `z-50`/`z-[60]` maupun memakai `bottom-4` (menabrak nav).
 
 > **Anti-pattern:** Using `z-50` on modals will cause them to render BEHIND the Bottom Navigation on certain scroll positions. Always use `z-[60]` for modals and dropdowns.
 
@@ -147,7 +162,14 @@ bg-slate-900 text-white p-6 rounded-2xl shadow-xl relative overflow-hidden
 ```
 Includes a subtle CSS grid overlay pattern (`opacity-5`) for terminal feel. Balance displayed in `text-3xl font-bold font-mono tracking-tight`. Action buttons (Top Up / Tarik Dana) rendered as a `flex gap-2` row below the balance.
 
-**Level 1 Mission Card (v5.0):**
+**~~Level 1 Mission Card (v5.0)~~ — REMOVED (plan/120):**
+> **DIHENTIKAN — plan/120.** Kartu "Misi Level 1", blok bantuan L1,
+> `L1_CLAIM_LABEL`, entri `I18N`, dan `claimLevel1()` **dihapus** dari
+> `application/views/team/index.php`; endpoint `POST /team/claim_level1`
+> kini **404**. **Bonus Pencapaian Tim (plan/119)** adalah satu-satunya reward
+> pencapaian agensi dan satu-satunya kartu reward di `/team`. Spesifikasi di
+> bawah **disimpan sebagai referensi historis** — jangan dihidupkan kembali.
+
 Bloomberg Terminal dark aesthetic used on the Team page for displaying Level 1 Bonus qualification progress. MUST follow this exact specification:
 
 ```html
@@ -353,6 +375,20 @@ Widget Absensi Harian adalah **satu-satunya mesin klaim manual yang tinggal di d
 
 ---
 
+### J. Lucky Spin Wheel — roda hadiah member (`/lucky-spin`) — plan/121
+Komponen baru: roda hadiah uang untuk tiket referral. Prinsipnya **konsisten dengan plan/97–101** (CSS/vanilla JS, transform-only, tanpa aset eksternal, tanpa dependency baru).
+
+* **Struktur halaman** (`application/views/rewards/index.php`): header + **pil tiket** → kartu roda → tombol putar → panel hasil (`role="status" aria-live="polite"`) → kartu "cara mendapat tiket" (3 langkah) → riwayat 10 putaran → toast.
+* **Roda** dibangun dari **`conic-gradient`** inline yang dihasilkan server dari segmen aktif (`[[nominal,bobot],…]`); warna bersiklus dari 12 kelas palet (maksimum segmen = 12). Label nominal = teks server-side `number_format` + `Rp ` (L6: **tidak ada angka di kamus**). Tidak ada `<defs>`/filter SVG → komposit sekali, tanpa re-raster per frame.
+* **Animasi**: hanya `transform: rotate(...)` pada wrapper (`transition: transform 4.2s cubic-bezier(.16,1,.3,1)`), pointer statis di jam 12. Sudut akhir dihitung klien dari **`slot_index` milik server**; panel hasil ditampilkan pada `transitionend` (fallback timeout 4,6 s). `@media (prefers-reduced-motion: reduce)` → `transition: none` **dan** hasil tampil seketika.
+* **Zero-trust**: tombol hanya mengirim `POST /lucky-spin/spin` via `csrfFetch` (tanpa payload hadiah); tombol di-disable saat in-flight dan re-enabled dari `tickets_left` pada respons — tidak ada perhitungan hadiah di klien.
+* **State kosong / fail-closed**: tiket 0 → roda tetap tampil tetapi tombol `disabled` + hint + CTA "Ajak Downline"; fitur OFF atau konfigurasi roda rusak → roda **tidak dirender**, diganti kartu pesan (SP7).
+* **Titik masuk dashboard** (`views/home/index.php`): (1) kartu inline bergradien amber di bawah kartu absensi (`spin_dashboard_card_*`) menampilkan jumlah tiket; (2) **FAB** `fixed` di dalam lapisan `inset-x-0 bottom-20 z-40` berisi `max-w-[480px] mx-auto` sehingga menempel di kanan **shell** mobile-first `max-w-[480px]` (bukan kanan viewport) dan **tidak menutupi** bottom-nav (`z-50`, tinggi 64 px) — toast tetap `z-[60]` (§2). Badge tiket hanya muncul bila > 0. Header (3 grup, plan/100) dan bottom-nav (Golden 5) **tidak berubah**.
+* **Shell, ukuran & warna:** halaman roda hidup di dalam shell member mobile-first `w-full max-w-[480px]` yang sama (§1). Kontainer roda = `relative w-full max-w-[300px] mx-auto aspect-square` → menskala turun di 360 px dan berhenti di 300 px, tanpa layout desktop terpisah. Warna segmen berasal dari **palet 12 warna tetap** di view (`$spin_palette`, bersiklus per indeks segmen) — sengaja **tidak** mengikuti tema agar label `Rp …` (server-side `number_format`, `text-shadow`) tetap kontras di kedua idiom; maksimum 12 segmen = satu putaran palet penuh.
+* **Anti-pattern:** (a) menggambar roda sebagai gambar/CDN; (b) mengirim atau menghitung hadiah di klien (zero-trust, SP4/SP5); (c) menaikkan FAB ke `z-50`/`z-[60]` atau memakai `bottom-4` sehingga menabrak bottom-nav; (d) menganimasikan properti selain `transform`; (e) merender roda saat `spin_wheel_enabled='0'` atau konfigurasi segmen rusak (SP7).
+
+---
+
 ## 6. Header Elements (v5.0 New)
 
 ### A. Header Composition Rule (plan/100 — STRICT)
@@ -425,6 +461,17 @@ AJAX-driven notification system rendered in the sticky header bar. MUST follow t
 * **No jQuery. No page reloads.** Pure Vanilla JS + the project's `csrfFetch()` wrapper (POST endpoints are CSRF-protected — never use bare `fetch()` for these).
 * **Footer:** "Lihat semua" anchor → `base_url('notification')` (history page, `$route['notification'] = 'notification/index'`).
 * The legacy `/notifications/unread-count` · `/notifications/list` · `/notifications/mark-read/{id}` · `/notifications/mark-all-read` endpoint names are **retired** — do not reference or reintroduce them; any new notification transport is bound by the M9/P7 envelope rule (`api_success()` / `api_error()`).
+
+---
+
+### E. Lucky Spin Configuration — Admin (`/admin/lucky-spin`) — plan/121
+Panel 100% Indonesia (L1), satu halaman, satu form (CSRF via `form_open` + `data-guard-submit`).
+
+* **Strip ringkasan** read-only: tiket beredar (Σ`users.spin_tickets`), tiket diperoleh, jumlah putaran, total hadiah dibayarkan.
+* **Kartu konfigurasi**: toggle aktif (fail-closed, dijelaskan inline) + **editor baris** `spin_amount[]`/`spin_weight[]` (pola `tmAddRow()` plan/119) dengan kolom peluang per baris; `tfoot` menampilkan total bobot + **expected value per tiket** (Rp, integer) yang dihitung ulang **live** oleh JS dengan aritmetika integer (`Math.floor`, paritas `intdiv` server).
+* **Validasi**: pesan Indonesia per baris (`Baris N: …`) + banner ringkasan; baris yang belum valid di-repopulasi (flashdata state) sehingga tidak ada input hilang (pola plan/110).
+* **Tabel 20 putaran terakhir** (member, segmen, hadiah, waktu WIB) sebagai bukti audit visual; tidak ada tombol hapus/ubah (immutable).
+* **Tanpa aksi destruktif**: tidak ada hapus segmen permanen di DB (segmen = elemen JSON konfigurasi; riwayat putaran tetap utuh karena menyimpan snapshot).
 
 ---
 
@@ -557,7 +604,7 @@ Editor tier biaya penarikan pada `application/views/admin/settings.php` MUST fol
 
 ### D. Check-in Settings — Admin (`/admin/settings`, **Kartu 6**) — plan/112
 
-Kartu **Absensi Harian (Daily Check-in)** adalah **kartu ke-6 dari 6** pada `application/views/admin/settings.php` (urutan: 1 Kontak & Bantuan · 2 Operational Hours · 3 Biaya Penarikan · 4 Deposit Fee · 5 Komisi Rebate · **6 Absensi Harian**). Kode menandainya `Card 6` — pertahankan penomoran itu.
+Kartu **Absensi Harian (Daily Check-in)** adalah **kartu ke-6 dari 7** pada `application/views/admin/settings.php` (urutan: 1 Kontak & Bantuan · 2 Operational Hours · 3 Biaya Penarikan · 4 Deposit Fee · 5 Komisi Rebate · **6 Absensi Harian** · 7 Bonus Pencapaian Tim — plan/119). Kode menandainya `Card 6` — pertahankan penomoran itu.
 
 **Posisi & form (STRICT):** kartu berada **di dalam** `form_open('admin/settings')`, tepat **sebelum** blok tombol simpan, sehingga otomatis mewarisi **CSRF** + guard `data-guard-submit` milik form finansial. Copy kartu **100% Bahasa Indonesia** (invarian L1 — **tanpa** key i18n).
 
@@ -567,6 +614,7 @@ Kartu **Absensi Harian (Daily Check-in)** adalah **kartu ke-6 dari 6** pada `app
 |---|---|---|
 | 1 | Judul & deskripsi | `<i class="fas fa-calendar-check text-amber-500"></i> Absensi Harian (Daily Check-in)` + paragraf penjelas (klaim sekali/hari WIB, rumus `min(bonus hari pertama × hari, batas harian)`, dibayarkan ke `wallet_ledger`, dan perilaku fail-closed saat dinonaktifkan) |
 | 2 | Toggle aktif | Label kiri `Aktifkan Absensi Harian` + `<input type="checkbox" id="checkin_enabled" name="checkin_enabled" value="1">` (satu baris `flex items-center justify-between`) |
+| 2b | Toggle syarat sewa (**plan/118**) | Baris kedua di blok yang sama: Label `Wajib Punya Sewa Aktif untuk Klaim` + `<input type="checkbox" id="checkin_require_active_rental" name="checkin_require_active_rental" value="1">` — `'1'` = klaim menuntut ≥ 1 kontrak aktif (trial ikut dihitung), `'0'` = bebas (default). Repopulasi memakai pola `array_key_exists(...)` yang sama seperti toggle utama |
 | 3 | Blok error inline | `<div>` merah berisi `<ul>` `Periksa kembali:` — **hanya** pesan `checkin_*` (lihat aturan di bawah) |
 | 4 | Grid `grid-cols-1 sm:grid-cols-3` | **Bonus Hari Pertama (Rp)** → `#checkin_base_reward` (`type="number" min="1" max="1000000" step="1" required`, `font-mono`) · **Batas Harian (Rp)** → `#checkin_max_reward` (`type="number" min="1" max="10000000" step="1" required`) · **Kebijakan Bila Bolong** → `#checkin_streak_policy` (`<select>`) |
 | 5 | Paragraf contoh perhitungan | Angka bulat IDR (tanpa pecahan) + invarian **bonus hari pertama ≤ batas harian** + contoh `50 & 10.000 → 50/100/150 … cap 10.000` + penjelasan kedua kebijakan |

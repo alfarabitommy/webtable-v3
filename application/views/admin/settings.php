@@ -84,6 +84,23 @@ $checkin_enabled_state  = array_key_exists('checkin_enabled', $fs)
 $checkin_base_display   = $state_val($fs, 'checkin_base_reward', (int) $checkin_base_reward);
 $checkin_max_display    = $state_val($fs, 'checkin_max_reward', (int) $checkin_max_reward);
 $checkin_policy_display = $state_val($fs, 'checkin_streak_policy', (string) $checkin_streak_policy);
+// plan/118: gerbang syarat sewa aktif (checkbox → ikut repopulasi).
+$checkin_require_state  = array_key_exists('checkin_require_active_rental', $fs)
+    ? !empty($fs['checkin_require_active_rental'])
+    : (bool) $checkin_require_active_rental;
+
+// plan/119: Kartu Bonus Pencapaian Tim — satu form dengan finansial → ikut
+// repopulasi. `$tm_rows` (baris tier apa adanya dari POST atau dari DB) sudah
+// disiapkan controller; error inline difilter per prefix `tm_row_`.
+$ms_enabled_state = array_key_exists('team_milestone_enabled', $fs)
+    ? !empty($fs['team_milestone_enabled'])
+    : (bool) $team_milestone_enabled;
+$tm_errors = $error_flat(array_filter(
+    isset($field_errors) ? $field_errors : [],
+    function ($key) { return strpos((string) $key, 'tm_row_') === 0; },
+    ARRAY_FILTER_USE_KEY
+));
+$tm_field_errors = isset($tm_field_errors) ? (array) $tm_field_errors : [];
 
 // Kartu QRIS/deposit (form TERPISAH → state sendiri, plan/110 P8).
 $qris_merchant_display = $state_val($qs, 'qris_merchant_name', $qris_merchant_name);
@@ -476,6 +493,26 @@ $dep_max_display       = $state_val($qs, 'deposit_max_amount', (int) $deposit_ma
                    class="rounded border-slate-300" <?= $checkin_enabled_state ? 'checked' : '' ?>>
         </div>
 
+        <?php /* plan/118: gerbang syarat sewa aktif — kredit bonus masuk dompet
+               "Saldo Absen" (users.checkin_balance) yang TIDAK dapat ditarik. */ ?>
+        <div class="flex items-start justify-between gap-4 mb-4 pt-4 border-t border-[var(--t-border)]">
+            <div>
+                <label for="checkin_require_active_rental" class="text-sm text-[var(--t-text-2)] cursor-pointer select-none">
+                    Wajib Punya Sewa Aktif untuk Klaim
+                </label>
+                <p class="text-xs text-[var(--t-muted)] mt-1">
+                    Bila diaktifkan, member hanya dapat mengklaim bonus absensi ketika memiliki
+                    minimal <strong>1 kontrak sewa aktif</strong> (status aktif dan belum kedaluwarsa —
+                    produk trial maupun berbayar). Bonus selalu masuk
+                    <strong>Saldo Absen</strong> (<code class="text-xs">users.checkin_balance</code>),
+                    terpisah dari saldo utama dan <strong>tidak dapat ditarik</strong> — hanya dapat
+                    dipakai untuk mensubsidi pembelian sewa GPU.
+                </p>
+            </div>
+            <input type="checkbox" id="checkin_require_active_rental" name="checkin_require_active_rental" value="1"
+                   class="rounded border-slate-300 mt-1 shrink-0" <?= $checkin_require_state ? 'checked' : '' ?>>
+        </div>
+
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
                 <label for="checkin_base_reward" class="t-label text-sm mb-1.5 block">Bonus Hari Pertama (Rp)</label>
@@ -512,6 +549,119 @@ $dep_max_display       = $state_val($qs, 'deposit_max_amount', (int) $deposit_ma
             &rarr; rentetan tetap tersimpan dan klaim berikutnya melanjutkan hari ke-(N+1).
             Perubahan langsung berlaku pada permintaan member berikutnya.
         </p>
+    </div>
+
+
+    <!-- =================================================================
+         Card 7 (plan/119): Bonus Pencapaian Tim (Team Milestone Bonus)
+         PENGGANTI Gaji Mingguan. Panel admin 100% Indonesia (invarian L1) —
+         tanpa key kamus. Berada DI DALAM form finansial (form_open
+         admin/settings) sehingga CSRF & tombol simpan menyatu, dan ikut
+         repopulasi saat validasi gagal (all-or-nothing).
+         ================================================================= -->
+    <div class="mt-6 t-card p-6">
+        <h4 class="text-sm font-semibold text-[var(--t-text)] mb-1 flex items-center gap-2">
+            <i class="fas fa-trophy text-amber-500"></i> Bonus Pencapaian Tim
+        </h4>
+        <p class="text-xs text-[var(--t-muted)] mb-5">
+            Menggantikan <span class="font-semibold">Gaji Mingguan</span>. Setiap tier dibayar
+            <span class="font-semibold">SEKALI seumur hidup</span> per member (tanpa cooldown dan
+            tanpa siklus mingguan), diklaim berurutan dari tier terendah, dan masuk ke
+            <span class="font-semibold">Saldo Utama</span>. Nominal selalu bilangan bulat (IDR).
+        </p>
+
+        <?php if (!empty($tm_errors)): ?>
+        <div class="mb-4 px-3 py-2 rounded-lg text-xs bg-red-500/10 text-red-600 dark:text-red-400">
+            <p class="font-medium mb-1">Periksa kembali:</p>
+            <ul class="list-disc list-inside space-y-0.5">
+                <?php foreach ($tm_errors as $message): ?>
+                <li><?= htmlspecialchars($message) ?></li>
+                <?php endforeach; ?>
+            </ul>
+        </div>
+        <?php endif; ?>
+
+        <label class="flex items-start gap-3 cursor-pointer mb-5">
+            <input type="checkbox" name="team_milestone_enabled" value="1"
+                   class="mt-0.5 rounded border-slate-300" <?= $ms_enabled_state ? 'checked' : '' ?>>
+            <span>
+                <span class="text-sm text-[var(--t-text-2)] block">Aktifkan Bonus Pencapaian Tim</span>
+                <span class="text-xs text-[var(--t-muted)] block">
+                    Bila <span class="font-semibold">nonaktif</span>: kartu di halaman Tim member
+                    tidak dirender <span class="font-semibold">dan</span> endpoint klaim menolak
+                    (HTTP 403, fail-closed). Tier yang sudah diklaim tetap tercatat.
+                </span>
+            </span>
+        </label>
+
+        <p class="t-label text-sm mb-2 block">Tier Bonus (target downline aktif &rarr; nominal)</p>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm" id="tmTable">
+                <thead>
+                    <tr class="text-left text-xs text-[var(--t-muted)]">
+                        <th class="py-2 pr-3 font-medium">Target (downline aktif)</th>
+                        <th class="py-2 pr-3 font-medium">Nominal Bonus (Rp)</th>
+                        <th class="py-2 w-10"></th>
+                    </tr>
+                </thead>
+                <tbody id="tmRows">
+                    <?php foreach ($tm_rows as $i => $row):
+                        $row_target = isset($row['target']) ? (string) $row['target'] : '';
+                        $row_amount = isset($row['amount']) ? (string) $row['amount'] : '';
+                        $row_error  = isset($tm_field_errors['tm_row_' . ($i + 1)])
+                            ? implode(' ', (array) $tm_field_errors['tm_row_' . ($i + 1)]) : '';
+                    ?>
+                    <tr class="align-top">
+                        <td class="py-2 pr-3">
+                            <input type="number" name="tm_target[]" value="<?= htmlspecialchars($row_target) ?>"
+                                   min="1" max="100000" step="1" class="t-input w-full px-3 py-2 rounded-lg text-sm"
+                                   placeholder="contoh: 9">
+                        </td>
+                        <td class="py-2 pr-3">
+                            <input type="number" name="tm_amount[]" value="<?= htmlspecialchars($row_amount) ?>"
+                                   min="1" max="100000000" step="1" class="t-input w-full px-3 py-2 rounded-lg text-sm"
+                                   placeholder="contoh: 200000">
+                        </td>
+                        <td class="py-2">
+                            <button type="button" onclick="tmRemoveRow(this)" title="Hapus baris"
+                                    class="px-2 py-2 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors">
+                                <i class="fas fa-trash text-xs"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    <?php if ($row_error !== ''): ?>
+                    <tr class="align-top">
+                        <td colspan="3" class="pb-2 text-xs text-red-600 dark:text-red-400"><?= htmlspecialchars($row_error) ?></td>
+                    </tr>
+                    <?php endif; ?>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+
+        <button type="button" onclick="tmAddRow()"
+                class="mt-3 px-3 py-2 rounded-lg text-xs font-medium bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20 transition-colors flex items-center gap-2">
+            <i class="fas fa-plus text-xs"></i> Tambah Baris Tier
+        </button>
+
+        <div class="mt-4 rounded-lg p-3 border border-amber-200 dark:border-amber-500/20 bg-amber-50 dark:bg-amber-500/10">
+            <p class="text-xs text-[var(--t-text-2)] leading-relaxed">
+                <i class="fas fa-exclamation-triangle text-amber-500 mr-1"></i>
+                <span class="font-semibold">Downline aktif</span> = downline dengan minimal 1 kontrak
+                <span class="font-semibold">aktif dari produk NON-trial</span> (kontrak produk trial tidak dihitung).
+                Target wajib <span class="font-semibold">unik dan menaik</span>; maksimal
+                <span class="font-semibold"><?= (int) team_milestone_limits()['max_tiers'] ?></span> tier,
+                target 1&ndash;<?= number_format((int) team_milestone_limits()['max_target'], 0, ',', '.') ?>,
+                nominal 1&ndash;<?= number_format((int) team_milestone_limits()['max_amount'], 0, ',', '.') ?>.
+                Baris kosong otomatis diabaikan.
+            </p>
+            <p class="text-xs text-[var(--t-text-2)] leading-relaxed mt-2">
+                <i class="fas fa-info-circle text-indigo-500 mr-1"></i>
+                Perubahan berlaku seketika untuk klaim berikutnya. Tier yang <span class="font-semibold">sudah
+                diklaim permanen</span> (tidak dapat diklaim ulang walau jumlah downline turun); menghapus
+                sebuah tier membuat nominalnya tidak dapat diklaim lagi oleh member.
+            </p>
+        </div>
     </div>
 
     <!-- Submit (satu form → satu aksi simpan; M4 guard aktif via data-guard-submit) -->
@@ -555,7 +705,37 @@ $dep_max_display       = $state_val($qs, 'deposit_max_amount', (int) $deposit_ma
         </div>
         <?php endif; ?>
 
-        <?= form_open_multipart('admin/settings/qris', ['id' => 'qrisForm', 'data-guard-submit' => '1']) ?>
+        <script>
+// plan/119: editor baris tier (vanilla, tanpa dependensi CDN baru).
+function tmAddRow() {
+    var body = document.getElementById('tmRows');
+    if (!body) return;
+    var tr = document.createElement('tr');
+    tr.className = 'align-top';
+    tr.innerHTML = '<td class="py-2 pr-3"><input type="number" name="tm_target[]" min="1" max="100000" step="1"'
+        + ' class="t-input w-full px-3 py-2 rounded-lg text-sm" placeholder="contoh: 9"></td>'
+        + '<td class="py-2 pr-3"><input type="number" name="tm_amount[]" min="1" max="100000000" step="1"'
+        + ' class="t-input w-full px-3 py-2 rounded-lg text-sm" placeholder="contoh: 200000"></td>'
+        + '<td class="py-2"><button type="button" onclick="tmRemoveRow(this)" title="Hapus baris"'
+        + ' class="px-2 py-2 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors">'
+        + '<i class="fas fa-trash text-xs"></i></button></td>';
+    body.appendChild(tr);
+}
+function tmRemoveRow(btn) {
+    var body = document.getElementById('tmRows');
+    if (!body || !btn) return;
+    var tr = btn.closest('tr');
+    if (!tr) return;
+    // Sisakan minimal satu baris input agar form tidak kehilangan editor.
+    if (body.querySelectorAll('tr.align-top').length <= 1) {
+        tr.querySelectorAll('input').forEach(function (el) { el.value = ''; });
+        return;
+    }
+    tr.remove();
+}
+</script>
+
+<?= form_open_multipart('admin/settings/qris', ['id' => 'qrisForm', 'data-guard-submit' => '1']) ?>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
 

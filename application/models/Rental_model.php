@@ -70,8 +70,9 @@ class Rental_model extends CI_Model {
      *      dalam TX terkunci (read view dibuat SETELAH lock wait → bebas race
      *      double-checkout melewati kuota; rejection TIDAK pernah menyentuh
      *      wallet_ledger — immutability Z1).
-     *   5. Penolakan overspend STRICT: fresh_balance < price → rollback +
-     *      code 'insufficient' (audit C5; pre-check controller hanya UX).
+     *   5. Penolakan overspend STRICT: sisa pembayaran dompet utama >
+     *      fresh_balance → rollback + code 'insufficient' (audit C5; pre-check
+     *      controller hanya UX).
      *   6. Insert debit wallet_ledger + user_rentals (active).
      *   7. (Plan 89) Distribusi rebate 3-tier dalam TX yang sama — kredit
      *      komisi L1–L3 via Wallet_model::credit() (RBT-{rental_id}-L{tier})
@@ -79,12 +80,26 @@ class Rental_model extends CI_Model {
      *      breakage tanpa pass-up; kegagalan kredit → rollback penuh.
      *   8. Commit → success.
      *
+     * plan/118 — SPLIT PAYMENT DUA DOMPET (`$use_checkin`, CK4–CK6):
+     *   1. `lock_and_get_balances()` mengunci anchor `users` SEKALI dan membaca
+     *      BOTH dompet (main + checkin) — satu kunci = satu serialisasi;
+     *   4. `checkin_balance` dipakai LEBIH DULU (D5): `checkin_used =
+     *      min(checkin, price)` lalu `main_used = price − checkin_used`;
+     *      asersi `checkin_used + main_used === price` (integer IDR murni, M8);
+     *   5. DUA baris debit dengan `transaction_id` berbeda
+     *      (`…-CHK` dompet checkin, `…-MAIN` dompet utama) — hanya saat split
+     *      terjadi; tanpa split ID legacy `RENT-{product_id}-{YmdHis}` dipakai
+     *      apa adanya (D6). Keduanya lewat `Wallet_model::debit()` (C4/Z1);
+     *   6. `purchase_price` TETAP harga penuh → ROI, rebate 3-tier, dan omzet
+     *      upline TIDAK terpengaruh subsidi (D7/CK6).
+     *
      * plan/114 — JALUR TRIAL GRATIS (produk `is_trial = 1` berharga 0):
      *   2b. klasifikasi `$free_trial` dari snapshot DB (fail-closed: harga 0
      *       TANPA penanda trial ditolak; trial berharga > 0 = jalur berbayar);
      *   4/5. pemeriksaan saldo + debit DILEWATI — Rp 0 tidak boleh menyentuh
      *       `Wallet_model::_post()` yang menolak amount <= 0, dan tidak ada
      *       baris `wallet_ledger` bernilai 0 (Z1/M8);
+     *   plan/118 (D8): `$use_checkin` DIABAIKAN pada jalur bebas (log warning);
      *   6. kontrak tetap dibuat dengan `purchase_price` 0 (source 'purchase');
      *   7. rebate 3-tier DILEWATI (komisi 0 IDR untuk semua tier); omzet
      *       upline tidak terpengaruh karena DIHITUNG DERIVATIF dari
@@ -95,23 +110,33 @@ class Rental_model extends CI_Model {
      * @param array $product Produk dari Product_model::get_product() — hanya
      *                       dipakai untuk id & UX fast-fail; nilai finansial
      *                       & gating otoritatif diambil ulang di GATE 0.
-     * @return array{success:bool, code:string, message:string, rental_id:int|null}
+     * @param bool  $use_checkin plan/118: pakai dompet "Saldo Absen" lebih dulu
+     *                       (checkbox modal checkout). Diabaikan untuk produk
+     *                       trial gratis.
+     * @return array{success:bool, code:string, message:string, rental_id:int|null,
+     *               checkin_used:int, main_used:int}
      *   code: 'ok' | 'product_unavailable' | 'quota_exceeded'
      *         | 'insufficient' | 'error'
      *   plan/114 (E4b): 'quota_exceeded' menyertakan key `max` sehingga
      *   controller dapat merender `rental_err_max_per_user` dengan angka benar.
      */
-    public function checkout_rental($user_id, $product) {
+    public function checkout_rental($user_id, $product, $use_checkin = false) {
         $this->db->trans_begin();
 
         try {
             // 1. Kunci anchor users + saldo segar otoritatif (anti-race C5).
-            $fresh_balance = $this->Wallet_model->lock_and_get_balance($user_id);
+            //    plan/118: SEKALIGUS kedua dompet (`main` + `checkin`) dari satu
+            //    anchor lock dan satu agregat (CK4) — tidak ada lock tambahan
+            //    maupun urutan lock baru.
+            $balances = $this->Wallet_model->lock_and_get_balances($user_id);
 
-            if ($fresh_balance === false) {
+            if ($balances === false) {
                 $this->db->trans_rollback();
                 return ['success' => false, 'code' => 'error', 'message' => 'Sistem: Gagal memotong saldo atau membuat kontrak sewa.', 'rental_id' => null];
             }
+
+            $fresh_balance     = $balances['main'];
+            $checkin_available = $balances['checkin'];
 
             // 2. GATE 0 (plan/83, retained) — snapshot produk SEGAR (current
             //    read SETELAH lock wait). Baris hilang / non-aktif → tolak:
@@ -146,6 +171,18 @@ class Rental_model extends CI_Model {
             $price      = (int) $product['price'];
             $is_trial   = ((int) $product['is_trial'] === 1);
             $free_trial = ($is_trial && $price === 0);
+
+            // plan/118 (D8): produk trial gratis tidak punya nilai untuk
+            // disubsidi — flag dari form diabaikan (dicatat), supaya tidak ada
+            // baris ledger bernilai 0 pada jalur bebas.
+            // Level 'debug' (BUKAN 'warning'): kejadian ini benign + diharapkan;
+            // `system/core/Log.php` hanya mengenal ERROR/DEBUG/INFO/ALL, sehingga
+            // 'warning' memicu PHP warning "Undefined array key".
+            if ($free_trial && $use_checkin) {
+                log_message('debug', 'Rental_model::checkout_rental — use_checkin_balance diabaikan '
+                    . 'untuk produk trial gratis (user=' . (int) $user_id . ', product=' . (int) $product['id'] . ').');
+                $use_checkin = false;
+            }
 
             if ($is_trial && $price > 0) {
                 log_message('warning', 'Rental_model::checkout_rental — produk id ' . (int) $product['id']
@@ -194,12 +231,34 @@ class Rental_model extends CI_Model {
                     'rental_id' => null];
             }
 
-            // 4. Penolakan overspend STRICT di dalam TX terkunci.
-            //    (M8: fresh_balance int & harga snapshot di-(int) kan.)
-            //    plan/114: jalur trial gratis TIDAK memeriksa saldo — tidak ada
-            //    uang yang berpindah, sehingga saldo 0 tetap boleh mengaktifkan
-            //    trial (justru itu inti activation hook).
-            if (!$free_trial && $fresh_balance < $price) {
+            // 4. SPLIT PAYMENT (plan/118) + penolakan overspend STRICT di dalam
+            //    TX terkunci. (M8: seluruh nominal strict int.)
+            //    • `$use_checkin` = checkbox dari modal checkout (POST).
+            //    • Dompet `checkin` dipakai LEBIH DULU, sisanya dari `main`
+            //      (keputusan D5) — aritmetika integer murni, tanpa float.
+            //    • Subsidi TIDAK PERNAH mengurangi `purchase_price` (D7/CK6):
+            //      ROI, rebate 3-tier, dan omzet upline tetap dihitung dari
+            //      harga penuh produk.
+            //    • plan/114: jalur trial gratis tidak memeriksa saldo — tidak
+            //      ada uang yang berpindah.
+            $checkin_used = 0;
+            $main_used    = $price;
+
+            if (!$free_trial && $use_checkin && $checkin_available > 0) {
+                $checkin_used = min($checkin_available, $price);
+                $main_used    = $price - $checkin_used;
+            }
+
+            // Asersi integer: kedua bagian harus menjumlah TEPAT ke harga.
+            if (!$free_trial && ($checkin_used + $main_used) !== $price) {
+                $this->db->trans_rollback();
+                log_message('error', 'Rental_model::checkout_rental — split tidak konsisten (user=' . (int) $user_id
+                    . ', product=' . (int) $product['id'] . ', checkin=' . $checkin_used . ', main=' . $main_used
+                    . ', price=' . $price . ')');
+                return ['success' => false, 'code' => 'error', 'message' => 'Sistem: Gagal memotong saldo atau membuat kontrak sewa.', 'rental_id' => null];
+            }
+
+            if (!$free_trial && $main_used > $fresh_balance) {
                 $this->db->trans_rollback();
                 return ['success' => false, 'code' => 'insufficient', 'message' => 'Sistem: Saldo USC/IDR Anda tidak mencukupi.', 'rental_id' => null];
             }
@@ -209,18 +268,46 @@ class Rental_model extends CI_Model {
             //    plan/114: DILEWATI untuk trial gratis (Rp 0). `_post()` menolak
             //    amount <= 0, jadi memanggilnya dengan 0 akan merusak checkout
             //    DAN berpotensi menulis baris ledger bernilai 0 — keduanya
-            //    dilarang (Z1/M8).
+            //    dilarang (Z1/M8). Karena itu setiap bagian di-gate `> 0`.
+            //    plan/118 (D6): ID base legacy `RENT-{product_id}-{YmdHis}`
+            //    (rental_id BELUM ada di titik ini). Sufiks `-CHK`/`-MAIN` hanya
+            //    dipakai saat split terjadi, sehingga checkout tanpa saldo absen
+            //    tetap byte-identik dengan perilaku sebelumnya. Dua baris debit
+            //    dengan transaction_id berbeda aman terhadap
+            //    `uk_wallet_ledger_user_tx_type (user_id, transaction_id, type)`.
             if (!$free_trial) {
-                $debited = $this->Wallet_model->debit(
-                    $user_id,
-                    $price,
-                    'RENT-' . (int) $product['id'] . '-' . date('YmdHis'),
-                    'Sewa ' . $product['name']
-                );
+                $base_tx = 'RENT-' . (int) $product['id'] . '-' . date('YmdHis');
 
-                if (!$debited) {
-                    $this->db->trans_rollback();
-                    return ['success' => false, 'code' => 'error', 'message' => 'Sistem: Gagal memotong saldo atau membuat kontrak sewa.', 'rental_id' => null];
+                if ($checkin_used > 0) {
+                    $debited_chk = $this->Wallet_model->debit(
+                        $user_id,
+                        $checkin_used,
+                        $base_tx . '-CHK',
+                        'Sewa ' . $product['name'] . ' (dari Saldo Absen)',
+                        Wallet_model::WALLET_CHECKIN
+                    );
+
+                    if (!$debited_chk) {
+                        $this->db->trans_rollback();
+                        log_message('error', 'Rental_model::checkout_rental — debit dompet checkin gagal (user='
+                            . (int) $user_id . ', product=' . (int) $product['id'] . ', amount=' . $checkin_used . ')');
+                        return ['success' => false, 'code' => 'error', 'message' => 'Sistem: Gagal memotong saldo atau membuat kontrak sewa.', 'rental_id' => null];
+                    }
+                }
+
+                if ($main_used > 0) {
+                    $debited = $this->Wallet_model->debit(
+                        $user_id,
+                        $main_used,
+                        ($checkin_used > 0) ? $base_tx . '-MAIN' : $base_tx,
+                        'Sewa ' . $product['name'],
+                        Wallet_model::WALLET_MAIN
+                    );
+
+                    if (!$debited) {
+                        $this->db->trans_rollback();
+                        return ['success' => false, 'code' => 'error', 'message' => 'Sistem: Gagal memotong saldo atau membuat kontrak sewa.', 'rental_id' => null];
+                    }
                 }
             }
 
@@ -261,9 +348,36 @@ class Rental_model extends CI_Model {
                 return ['success' => false, 'code' => 'error', 'message' => 'Sistem: Gagal memotong saldo atau membuat kontrak sewa.', 'rental_id' => null];
             }
 
+            // 7b. (Plan 121) Tiket LUCKY SPIN untuk upline L1 — DI DALAM TX yang
+            //     sama, SETELAH kontrak dibuat & rebate, SEBELUM commit.
+            //     Aturan (SP2/SP3/SP12): 1 tiket per downline SEUMUR HIDUP, hanya
+            //     dari pembelian NON-trial; jalur trial gratis dilewati (guard
+            //     `$free_trial`). Seluruh state tiket dikelola `Spin_model`
+            //     (penulis tunggal `users.spin_tickets` + `spin_ticket_grants`);
+            //     model ini hanya participant TX.
+            //     No-op SUKSES bila: tanpa upline, upline hilang/ban, atau
+            //     downline ini sudah pernah menghasilkan tiket (pembelian ke-2
+            //     dst). Kegagalan DB nyata → false → rollback penuh (tidak ada
+            //     grant parsial, tidak ada counter tanpa baris grant).
+            if (!$free_trial && !$this->_award_spin_ticket($user_id, $rental_id)) {
+                $this->db->trans_rollback();
+                log_message('error', 'Rental_model::checkout_rental — grant tiket Lucky Spin gagal (rental '
+                    . (int) $rental_id . ', user ' . (int) $user_id . ')');
+                return ['success' => false, 'code' => 'error', 'message' => 'Sistem: Gagal memotong saldo atau membuat kontrak sewa.', 'rental_id' => null];
+            }
+
             $this->db->trans_commit();
 
-            return ['success' => true, 'code' => 'ok', 'message' => '', 'rental_id' => $rental_id];
+            return [
+                'success'      => true,
+                'code'         => 'ok',
+                'message'      => '',
+                'rental_id'    => $rental_id,
+                // plan/118: komposisi pembayaran (informasi UX/audit; 0/0 pada
+                // jalur trial gratis).
+                'checkin_used' => $checkin_used,
+                'main_used'    => $main_used,
+            ];
 
         } catch (Throwable $e) {
             $this->db->trans_rollback();
@@ -751,6 +865,29 @@ class Rental_model extends CI_Model {
         }
 
         return true;
+    }
+
+    /**
+     * Plan 121 — grant tiket Lucky Spin (CALLER-TX PARTICIPANT).
+     *
+     * Dipanggil dari `checkout_rental()` langkah 7b DI DALAM TX yang sama,
+     * SETELAH kontrak dibuat & rebate dibagikan, SEBELUM commit. Model ini
+     * hanya participant: seluruh state tiket (`users.spin_tickets` +
+     * `spin_ticket_grants` + notifikasi) dikelola `Spin_model` — dilarang
+     * menduplikasi logika/SQL tiket di sini (AGENTS.md helper/model choke-point).
+     *
+     * Kontrak: return true = sukses/no-op (tanpa upline, upline hilang/ban,
+     * downline sudah pernah memberi tiket); return false = kegagalan DB →
+     * pemanggil WAJIB rollback seluruh TX (SP12).
+     *
+     * @param  int  $buyer_id  Downline yang baru checkout (non-trial).
+     * @param  int  $rental_id Kontrak yang baru dibuat.
+     * @return bool
+     */
+    private function _award_spin_ticket($buyer_id, $rental_id) {
+        $this->load->model('Spin_model');
+
+        return $this->Spin_model->award_ticket_for_first_paid_rental($buyer_id, $rental_id);
     }
 
     // ============================================================

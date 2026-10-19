@@ -1,21 +1,25 @@
 <?php
 /**
- * scripts/seed_wage_test_account.php
+ * scripts/seed_milestone_test_account.php
+ *   (dulu `seed_wage_test_account.php` — di-rename oleh plan/119 bersama
+ *    pensiunnya mesin Gaji Mingguan; lihat plan/116 untuk riwayat fixture ini.)
  *
- * M2 Scenario 3 (Weekly Wage Claim) test fixture for db_webtable.
+ * Test fixture KLAIM BONUS PENCAPAIAN TIM (team milestone) untuk db_webtable.
  *
  * Creates:
  *   - 1 leader account (phone 081299990001, password "password123", balance 0,
- *     last_wage_claimed_at = NULL => immediately claimable)
+ *     team_milestone_claimed = NULL => belum ada tier diklaim)
  *   - N direct downlines (081299990002 .. 08129999NN+1, parent_id = leader)
  *   - each downline gets exactly 1 row in `user_rentals` with status='active'
  *     and expired_at in the future, from a product chosen by --product, so
  *     count_all_active_downlines(leader) == number of PAID (non-trial) rows
  *     (recursive CTE over the whole tree JOIN user_rentals status='active'
  *     JOIN gpu_products gp … AND gp.is_trial = 0 — plan/116 D2)
- *     => N paid downlines => leader qualifies for Level 2 weekly wage = Rp 200.000.
+ *     => N paid downlines => leader dapat mengklaim tier pertama (target 9)
+ *     dari seed `system_settings.team_milestone_tiers` (mirror tier gaji lama:
+ *     [[9,200000],[30,1000000],[70,2500000],[130,5000000],[190,9000000]]).
  *
- * NOTE: the live rental table used by the wage counters is `user_rentals`
+ * NOTE: the live rental table used by the milestone counters is `user_rentals`
  * (the legacy `rentals` table is orphaned — plan/37 M10). Rows are inserted
  * there, not in `rentals`.
  *
@@ -30,7 +34,7 @@
  * Idempotent: on re-run it deletes the previous fixture rows (users matching
  * the fixture phone range + their dependent rows) before re-seeding.
  *
- * Run:  php scripts/seed_wage_test_account.php [options]
+ * Run:  php scripts/seed_milestone_test_account.php [options]
  *   --downlines=N          number of downlines, 1..98 (default 9)
  *   --product=paid         all downlines hold a NON-trial contract (default)
  *   --product=trial        all downlines hold a TRIAL contract (price 0)
@@ -52,7 +56,7 @@ define('LEADER_PHONE', '081299990001');
 // ---------------------------------------------------- plan/116 (D9): options
 $args = $argv ?? [];
 if (in_array('--help', $args, true) || in_array('-h', $args, true)) {
-    echo "Usage: php scripts/seed_wage_test_account.php [--downlines=N] [--product=paid|trial|mixed]\n"
+    echo "Usage: php scripts/seed_milestone_test_account.php [--downlines=N] [--product=paid|trial|mixed]\n"
        . "  --downlines=N      jumlah downline (1..98, default 9)\n"
        . "  --product=paid     semua downline pegang kontrak produk NON-trial (default)\n"
        . "  --product=trial    semua downline pegang kontrak TRIAL (harga 0)\n"
@@ -222,6 +226,8 @@ try {
     $leaderCode = gen_invite_code($m);
     $lCols  = ['phone', 'password', 'invite_code', 'parent_id', 'balance', 'level_id', 'is_banned', 'must_change_password', 'is_level_1_claimed', 'last_wage_claimed_at', 'created_at'];
     $lVals  = [q($m, LEADER_PHONE), q($m, $hash), q($m, $leaderCode), 'NULL', '0.00', '0', '0', '0', '0', 'NULL', q($m, $now)];
+    // plan/119: state klaim milestone (HANYA bila kolomnya sudah ada).
+    if (isset($userCols['team_milestone_claimed'])) { $lCols[] = 'team_milestone_claimed'; $lVals[] = 'NULL'; }
     if (isset($userCols['username'])) { $lCols[] = 'username'; $lVals[] = q($m, 'wage_leader'); }
     if (isset($userCols['role']))     { $lCols[] = 'role';     $lVals[] = q($m, 'user'); }
     $m->query("INSERT INTO users (`" . implode('`,`', $lCols) . "`) VALUES (" . implode(',', $lVals) . ")")
@@ -237,6 +243,8 @@ try {
         $code  = gen_invite_code($m);
         $uCols = ['phone', 'password', 'invite_code', 'parent_id', 'balance', 'level_id', 'is_banned', 'must_change_password', 'is_level_1_claimed', 'last_wage_claimed_at', 'created_at'];
         $uVals = [q($m, $phone), q($m, $hash), q($m, $code), (string) $leaderId, '0.00', '0', '0', '0', '0', 'NULL', q($m, $now)];
+        // plan/119: state klaim milestone (HANYA bila kolomnya sudah ada).
+        if (isset($userCols['team_milestone_claimed'])) { $uCols[] = 'team_milestone_claimed'; $uVals[] = 'NULL'; }
         if (isset($userCols['username'])) { $uCols[] = 'username'; $uVals[] = q($m, 'wage_dl' . sprintf('%02d', $i - 1)); }
         if (isset($userCols['role']))     { $uCols[] = 'role';     $uVals[] = q($m, 'user'); }
         $m->query("INSERT INTO users (`" . implode('`,`', $uCols) . "`) VALUES (" . implode(',', $uVals) . ")")
@@ -274,12 +282,19 @@ try {
 
 // ---------------------------------------------------------------- verification
 echo "\n=== VERIFICATION ===\n";
-$leader = $m->query("SELECT id, phone, invite_code, last_wage_claimed_at, is_banned, must_change_password
-                     FROM users WHERE phone = '" . LEADER_PHONE . "'")->fetch_assoc();
+$hasTmCol = isset($userCols['team_milestone_claimed']);
+$leader = $m->query("SELECT id, phone, invite_code, is_banned, must_change_password"
+    . ($hasTmCol ? ", team_milestone_claimed" : "")
+    . " FROM users WHERE phone = '" . LEADER_PHONE . "'")->fetch_assoc();
 printf("Leader id=%d phone=%s referral_code=%s\n", $leader['id'], $leader['phone'], $leader['invite_code']);
-printf("last_wage_claimed_at=%s (%s)\n",
-    var_export($leader['last_wage_claimed_at'], true),
-    $leader['last_wage_claimed_at'] === null ? 'NULL — ready to claim immediately' : 'SET (cooldown active)');
+if ($hasTmCol) {
+    printf("team_milestone_claimed=%s (%s)\n",
+        var_export($leader['team_milestone_claimed'], true),
+        $leader['team_milestone_claimed'] === null ? 'NULL — belum ada tier diklaim' : 'SET');
+} else {
+    echo "team_milestone_claimed: kolom BELUM ADA — jalankan dulu\n"
+       . "  php scripts/migrate_119_team_milestone.php --apply\n";
+}
 
 // count_all_active_downlines($leader_id) — mirror SQL User_model (plan/116 D2:
 // JOIN gpu_products + is_trial = 0). Second counter = OLD predicate (any active
@@ -314,15 +329,32 @@ printf("count_all_active_downlines(%d) = %d (expected %d — produk non-trial sa
     $leader['id'], $cnt, $paidRows);
 printf("predikat LAMA (tanpa is_trial)  = %d%s\n", $cnt_any,
     $cnt_any > $cnt ? '  <-- inflasi trial yang kini dikecualikan' : '');
-$tier = ($cnt >= 190) ? 'L6 Rp 9.000.000' : (($cnt >= 130) ? 'L5 Rp 5.000.000' : (($cnt >= 70) ? 'L4 Rp 2.500.000' : (($cnt >= 30) ? 'L3 Rp 1.000.000' : (($cnt >= 9) ? 'L2 Rp 200.000' : 'below L2 (not qualified)'))));
-echo "Wage tier at {$cnt} active downlines => {$tier}\n";
-if ($tier === 'below L2 (not qualified)') {
-    echo "EXPECT: POST /team/claim_wage -> {success:false, code:'not_qualified'}, 0 kredit ledger\n";
+// Tier milestone dari KONFIGURASI (bukan hardcode): [target, nominal] menaik.
+$tiersRaw = $m->query("SELECT key_value FROM system_settings WHERE key_name = 'team_milestone_tiers'")->fetch_assoc();
+$tiers = ($tiersRaw && trim((string) $tiersRaw['key_value']) !== '')
+    ? json_decode((string) $tiersRaw['key_value'], true) : null;
+
+if (!is_array($tiers) || count($tiers) === 0) {
+    echo "team_milestone_tiers: TIDAK ADA/invalid — jalankan dulu\n"
+       . "  php scripts/migrate_119_team_milestone.php --apply\n";
+    $lowest = null;
 } else {
-    echo "EXPECT: POST /team/claim_wage -> {success:true, amount dari tier di atas}\n";
+    $lowest = (int) $tiers[0][0];
+    printf("Tier milestone pertama: target %d aktif -> Rp %s\n",
+        $lowest, number_format((int) $tiers[0][1], 0, ',', '.'));
 }
 
-$ok = $cnt === $paidRows && $leader['last_wage_claimed_at'] === null;
+if ($lowest === null) {
+    echo "EXPECT: jalankan migrasi plan/119 sebelum menguji klaim\n";
+} elseif ($cnt < $lowest) {
+    printf("EXPECT: POST /team/claim_milestone (target=%d) -> {success:false, code:'not_qualified'}, 0 kredit ledger\n", $lowest);
+} else {
+    printf("EXPECT: POST /team/claim_milestone (target=%d) -> {success:true, amount dari konfigurasi};\n", $lowest);
+    echo "        lalu replay target yang sama -> {success:false, code:'already_claimed'} (0 kredit baru);\n";
+    echo "        target lebih tinggi TANPA klaim tier sebelumnya -> code:'locked_previous'.\n";
+}
+
+$ok = ($cnt === $paidRows) && ($hasTmCol ? ($leader['team_milestone_claimed'] === null) : true);
 echo "\n" . ($ok ? "FIXTURE READY ✔" : "FIXTURE INCOMPLETE ✘") . "\n";
 echo "\n=== LOGIN CREDENTIALS ===\n";
 echo "  Phone:      " . LEADER_PHONE . "\n";

@@ -174,8 +174,13 @@ class Admin_model extends CI_Model {
         // BUKAN users.balance (cache basi) — user list selalu konsisten dengan
         // user_detail (get_user_balance). Raw SQL: subquery join tidak aman
         // dipakai query builder (escaping identifier gabungan).
+        // plan/117: `is_wd_locked` + `wd_lock_reason` ikut dipilih untuk badge
+        // "WD LOCK" (alasan ditampilkan sebagai `title` — panel admin saja, W3).
+        // plan/118: agregat difilter `wallet_type = 'main'` — kolom `balance`
+        // pada daftar user HARUS berarti saldo utama, bukan gabungan dompet.
         $sql = "SELECT u.id, u.phone, u.username, u.invite_code, u.role, u.is_banned,
-                       u.is_promoter, COALESCE(l.balance, 0) AS balance, u.created_at,
+                       u.is_promoter, u.is_wd_locked, u.wd_lock_reason,
+                       COALESCE(l.balance, 0) AS balance, u.created_at,
                        p.invite_code AS parent_invite_code
                 FROM users u
                 LEFT JOIN users p ON p.id = u.parent_id
@@ -183,6 +188,7 @@ class Admin_model extends CI_Model {
                     SELECT user_id,
                            COALESCE(SUM(CASE WHEN type = 'credit' THEN amount ELSE -amount END), 0) AS balance
                     FROM wallet_ledger
+                    WHERE wallet_type = 'main'
                     GROUP BY user_id
                 ) l ON l.user_id = u.id";
 
@@ -289,11 +295,18 @@ class Admin_model extends CI_Model {
 
     // --- Calculated Balance (from wallet_ledger) ---
 
+    /**
+     * Saldo dompet UTAMA user (dapat ditarik).
+     *
+     * plan/118: difilter `wallet_type = 'main'` — tanpa filter ini, kredit
+     * absensi (dompet `checkin`) akan tampak sebagai saldo yang dapat ditarik.
+     */
     public function get_user_balance($id) {
         $credit = (int) $this->db
             ->select_sum('amount')
             ->where('user_id', $id)
             ->where('type', 'credit')
+            ->where('wallet_type', 'main')
             ->get('wallet_ledger')
             ->row()->amount ?? 0;
 
@@ -301,6 +314,35 @@ class Admin_model extends CI_Model {
             ->select_sum('amount')
             ->where('user_id', $id)
             ->where('type', 'debit')
+            ->where('wallet_type', 'main')
+            ->get('wallet_ledger')
+            ->row()->amount ?? 0;
+
+        return $credit - $debit;
+    }
+
+    /**
+     * plan/118: saldo dompet "Saldo Absen" (`wallet_type = 'checkin'`) —
+     * hanya untuk tampilan internal admin (tidak dapat ditarik, tidak dapat
+     * disesuaikan admin: penulisan hanya dari absensi & split checkout — D9).
+     *
+     * @param int $id
+     * @return int
+     */
+    public function get_user_checkin_balance($id) {
+        $credit = (int) $this->db
+            ->select_sum('amount')
+            ->where('user_id', $id)
+            ->where('type', 'credit')
+            ->where('wallet_type', 'checkin')
+            ->get('wallet_ledger')
+            ->row()->amount ?? 0;
+
+        $debit = (int) $this->db
+            ->select_sum('amount')
+            ->where('user_id', $id)
+            ->where('type', 'debit')
+            ->where('wallet_type', 'checkin')
             ->get('wallet_ledger')
             ->row()->amount ?? 0;
 
@@ -402,6 +444,50 @@ class Admin_model extends CI_Model {
         $new_val = $user->is_banned ? 0 : 1;
         $this->db->where('id', $id)->update('users', ['is_banned' => $new_val]);
         return $new_val; // returns new state
+    }
+
+    // --- plan/117: Per-User Withdrawal Lock ---
+
+    /**
+     * plan/117 (W1): SATU-SATUNYA penulis `users.is_wd_locked` /
+     * `users.wd_lock_reason` — dipanggil hanya dari `Admin::toggle_wd_lock()`
+     * di dalam TX yang juga menulis baris audit.
+     *
+     * - $locked = true  : is_wd_locked = 1, wd_lock_reason = $reason
+     * - $locked = false : is_wd_locked = 0, wd_lock_reason = NULL (W4 — selalu,
+     *   apapun isi $reason, supaya alasan tidak pernah tertinggal)
+     *
+     * Murni kebijakan: TIDAK menyentuh `withdrawals`, `wallet_ledger`,
+     * `bank_accounts`, maupun `user_rentals` (keputusan D1/D2).
+     *
+     * @param  int         $id
+     * @param  bool        $locked
+     * @param  string|null $reason  Alasan internal admin (maks 255 char; hanya
+     *                              dipakai saat $locked = true)
+     * @return array{found:bool, before:int, after:int, affected:int}
+     *         `affected` = 0 berarti state sudah sama (no-op idempoten).
+     */
+    public function set_wd_lock($id, $locked, $reason = null) {
+        $id     = (int) $id;
+        $locked = $locked ? 1 : 0;
+        $reason = ($locked === 1) ? (string) $reason : null;
+
+        $user = $this->db->select('id, is_wd_locked')->where('id', $id)->get('users')->row();
+        if (!$user) {
+            return ['found' => false, 'before' => 0, 'after' => $locked, 'affected' => 0];
+        }
+
+        $this->db->where('id', $id)->update('users', [
+            'is_wd_locked'   => $locked,
+            'wd_lock_reason' => $reason,
+        ]);
+
+        return [
+            'found'    => true,
+            'before'   => (int) $user->is_wd_locked,
+            'after'    => $locked,
+            'affected' => (int) $this->db->affected_rows(),
+        ];
     }
 
     /**
@@ -1176,6 +1262,46 @@ class Admin_model extends CI_Model {
     }
 
     // ===================================================================
+    //  plan/121 — LUCKY SPIN WHEEL: ringkasan read-only untuk panel admin
+    // ===================================================================
+
+    /**
+     * Statistik roda + 20 spin terakhir (read-only, tanpa baris audit — A1).
+     *
+     * `tickets_outstanding` = Σ `users.spin_tickets` (tiket yang belum dipakai);
+     * `prizes_paid` = Σ `spin_results.prize_amount` (total hadiah dibayarkan).
+     * Seluruh angka di-`(int)` (M8) — view memformat sendiri (L6).
+     *
+     * @return array{tickets_outstanding:int,tickets_granted:int,spins_total:int,
+     *               prizes_paid:int,recent:array<int,array<string,mixed>>}
+     */
+    public function get_spin_overview() {
+        $row = $this->db->query(
+            "SELECT
+               (SELECT COALESCE(SUM(spin_tickets), 0) FROM users) AS tickets_outstanding,
+               (SELECT COUNT(*) FROM spin_ticket_grants) AS tickets_granted,
+               (SELECT COUNT(*) FROM spin_results) AS spins_total,
+               (SELECT COALESCE(SUM(prize_amount), 0) FROM spin_results) AS prizes_paid"
+        )->row();
+
+        $recent = $this->db->query(
+            "SELECT r.id, r.user_id, r.slot_index, r.prize_amount, r.created_at, u.phone
+               FROM spin_results r
+               JOIN users u ON u.id = r.user_id
+              ORDER BY r.id DESC
+              LIMIT 20"
+        )->result();
+
+        return [
+            'tickets_outstanding' => (int) ($row->tickets_outstanding ?? 0),
+            'tickets_granted'     => (int) ($row->tickets_granted ?? 0),
+            'spins_total'         => (int) ($row->spins_total ?? 0),
+            'prizes_paid'         => (int) ($row->prizes_paid ?? 0),
+            'recent'              => $recent,
+        ];
+    }
+
+    // ===================================================================
     //  TREASURY HEALTH (Phase 9A)
     // ===================================================================
 
@@ -1187,14 +1313,23 @@ class Admin_model extends CI_Model {
             ->row()->purchase_price ?? 0;
 
         // Total Balances — dynamic from wallet_ledger (credit − debit)
+        // plan/118: dipisah per dompet. `total_balances` = dompet UTAMA
+        // (liabilitas yang dapat ditarik → dasar `is_critical` tetap
+        // konservatif & tren KPI tidak bergeser); `total_checkin_balances` =
+        // sirkulasi "Saldo Absen" (hanya dapat dipakai untuk membeli sewa).
         $row_bal = $this->db->query(
             "SELECT COALESCE(
-                SUM(CASE WHEN type = 'credit' THEN amount ELSE 0 END)
-              - SUM(CASE WHEN type = 'debit'  THEN amount ELSE 0 END)
-            , 0) AS total_balances
+                SUM(CASE WHEN wallet_type = 'main' AND type = 'credit' THEN amount ELSE 0 END)
+              - SUM(CASE WHEN wallet_type = 'main' AND type = 'debit'  THEN amount ELSE 0 END)
+            , 0) AS total_balances,
+                    COALESCE(
+                SUM(CASE WHEN wallet_type = 'checkin' AND type = 'credit' THEN amount ELSE 0 END)
+              - SUM(CASE WHEN wallet_type = 'checkin' AND type = 'debit'  THEN amount ELSE 0 END)
+            , 0) AS total_checkin_balances
             FROM wallet_ledger"
         )->row();
-        $balances = (int) ($row_bal ? $row_bal->total_balances : 0);
+        $balances        = (int) ($row_bal ? $row_bal->total_balances : 0);
+        $checkin_balances = (int) ($row_bal ? $row_bal->total_checkin_balances : 0);
 
         // Pending ROI — future obligation from active rentals
         // Use raw query to avoid CI3 aliasing issues with computed columns
@@ -1209,10 +1344,12 @@ class Admin_model extends CI_Model {
         $pending_roi = (int) ($row ? $row->pending_roi : 0);
 
         return [
-            'total_cash_in'  => $cash_in,
-            'total_balances' => $balances,
-            'pending_roi'    => $pending_roi,
-            'is_critical'    => ($balances + $pending_roi) > $cash_in,
+            'total_cash_in'      => $cash_in,
+            'total_balances'     => $balances,
+            // plan/118: sirkulasi saldo absen (informasi, bukan liabilitas tarik).
+            'total_checkin_balances' => $checkin_balances,
+            'pending_roi'        => $pending_roi,
+            'is_critical'        => ($balances + $pending_roi) > $cash_in,
         ];
     }
 
@@ -1328,6 +1465,9 @@ class Admin_model extends CI_Model {
         )->row();
 
         $commissions = $this->db->query(
+            // plan/118: SENGAJA tanpa filter dompet — metrik ini = total ARUS
+            // KELUAR (seluruh debit), dan debit saldo absen (subsidi checkout)
+            // juga merupakan arus keluar. Bukan "saldo yang dapat ditarik".
             "SELECT COALESCE(SUM(amount), 0) AS total_commissions
              FROM wallet_ledger WHERE type = 'debit'"
         )->row();
@@ -1400,6 +1540,7 @@ class Admin_model extends CI_Model {
             ->select_sum('amount')
             ->where('user_id', $user_id)
             ->where('type', 'credit')
+            ->where('wallet_type', 'main')
             ->get('wallet_ledger')
             ->row()->amount ?? 0;
 
@@ -1407,6 +1548,7 @@ class Admin_model extends CI_Model {
             ->select_sum('amount')
             ->where('user_id', $user_id)
             ->where('type', 'debit')
+            ->where('wallet_type', 'main')
             ->get('wallet_ledger')
             ->row()->amount ?? 0;
 
@@ -1435,6 +1577,8 @@ class Admin_model extends CI_Model {
             'total_credit'      => $credit,
             'total_debit'       => $debit,
             'balance'           => $balance,
+            // plan/118: dompet kedua ("Saldo Absen") — informasi internal admin.
+            'checkin_balance'   => $this->get_user_checkin_balance($user_id),
             'total_withdrawals' => $total_wd,
             'active_rentals'    => (int) ($rentals->active_count ?? 0),
             'total_invested'    => (int) ($rentals->total_invested ?? 0),

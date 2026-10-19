@@ -14,6 +14,38 @@
 > `docs/2_ERD.md` **v5.2** & `docs/4_UI_UX_GUIDELINES.md` **v5.2** dengan ground
 > truth plan/112 — nomor versi ROADMAP tetap **v6.0**. Ringkasan:
 > `plan/113_SYNC_CHECKIN_DOCS_SUMMARY.md`.
+>
+> **Catatan sinkronisasi (plan/119).** **Gaji Mingguan DIGANTIKAN oleh Bonus
+> Pencapaian Tim** (*Team Milestone Bonus*): tier & nominal dinamis
+> (`system_settings.team_milestone_tiers`, diatur admin), dibayar **sekali
+> seumur hidup per tier**, klaim **berurutan**, tanpa cooldown/siklus, kredit ke
+> **Saldo Utama**; state klaim di `users.team_milestone_claimed`; ledger
+> `MSB-{user_id}-T{target}`. Bonus L1 tetap independen. Fase 7B2 (Weekly Wage)
+> dianotasi **SUPERSEDED**. Kode otoritatif; lihat PRD/ERD **v5.4** dan ringkasan
+> `plan/119_TEAM_MILESTONE_BONUS_SUMMARY.md`.
+>
+> **Catatan sinkronisasi (plan/118).** Log milestone memuat **plan/113–115**
+> (doc sync absensi, produk trial "GPU Magang" + gerbang penarikan anti
+> free-rider, serta Trial UX enhancement) yang sebelumnya tanpa seksi, dan blok
+> baru **Dompet Absen (Check-in Balance) & Syarat Sewa Aktif (plan/118)** —
+> dompet kedua `users.checkin_balance` (tidak dapat ditarik, hanya mensubsidi
+> checkout), `wallet_ledger.wallet_type`, `checkin_require_active_rental`, dan
+> split payment di checkout. Kode otoritatif; lihat PRD/ERD **v5.3**.
+> **plan/116–117** (fix gaji mingguan & withdrawal lock) sudah terdokumentasi.
+> Nomor versi ROADMAP tetap **v6.0**. Ringkasan:
+> `plan/118_CHECKIN_REFACTOR_SUMMARY.md`.
+>
+> **Catatan sinkronisasi (plan/120 + plan/121).** Dua milestone terakhir
+> menutup siklus reward: **plan/120** menghentikan **Misi Level 1** di lapis
+> aplikasi (kolom `users.is_level_1_claimed` tinggal retensi historis — nol
+> DDL) sehingga **Bonus Pencapaian Tim (plan/119) menjadi satu-satunya reward
+> pencapaian agensi**; **plan/121** menambah **Lucky Spin Wheel** — insentif
+> **referral** (1 tiket per downline seumur hidup, hadiah tunai ke Saldo
+> Utama, roll 100% server-side) dengan **dua tabel baru** sehingga inventory
+> kanonik menjadi **16 tabel**. Kode otoritatif; lihat PRD **v5.6**, ERD
+> **v5.6** (invarian L1R1–L1R6 & SP1–SP12) dan ringkasan
+> `plan/120_LEVEL1_MISSION_REMOVAL_SUMMARY.md` ·
+> `plan/121_LUCKY_SPIN_WHEEL_SUMMARY.md`. Nomor versi ROADMAP tetap **v6.0**.
 
 ---
 
@@ -73,8 +105,8 @@
 
 ### Phase 7B: Agency Levels & Weekly Wage ✅ COMPLETED
 - [x] **7B1: Level Thresholds** — Level 1–6 defined in `agency_levels` model. Active agents + total sales criteria per level.
-- [x] **7B2: Cron Job — Weekly Wage** — ~~Every Monday 01:00 WIB~~ *(plan/111: **tidak ada cron**; wage **diklaim manual** via `/team/claim_wage` dengan cooldown 7 hari — `check_wage_cooldown`.)* Evaluates user qualification, distributes wage via `wallet_ledger` credit. ~~`transactions` insert~~ *(tabel didecommission M6).*
-- [x] **7B3: Level 1 Bonus (One-Time)** — Rp 80.000 one-time reward on first qualifying (`User_model::LEVEL1_BONUS`). `wallet_ledger` credit via jalur tunggal; idempotensi via `users.is_level_1_claimed`.
+- [x] **7B2: Cron Job — Weekly Wage** — ~~Every Monday 01:00 WIB~~ *(plan/111: **tidak ada cron**; wage **diklaim manual** dengan cooldown 7 hari.)* **SUPERSEDED (plan/119):** mesin Gaji Mingguan (`WAGE_TIERS`/`determine_wage_level()`/`check_wage_cooldown()`/`claim_wage()`) **DIHAPUS** dan digantikan **Bonus Pencapaian Tim** (tier dinamis, sekali seumur hidup per tier, tanpa cooldown — lihat seksi plan/119 di bawah). Baris `wallet_ledger` historis `WAGE-*` dipertahankan sebagai retensi. ~~`transactions` insert~~ *(tabel didecommission M6).*
+- [x] **7B3: Level 1 Bonus (One-Time)** — ~~Rp 80.000 one-time reward on first qualifying (`User_model::LEVEL1_BONUS`); `wallet_ledger` credit via jalur tunggal; idempotensi via `users.is_level_1_claimed`.~~ **SUPERSEDED (plan/120):** fitur **Misi Level 1 DIHENTIKAN** — `User_model::LEVEL1_BONUS`/`claim_level1()`/`get_claim_data()`, `Team::claim_level1()`/`_claim_message()`, kartu `/team`, dan `POST /team/claim_level1` (kini 404) **dihapus**; **Bonus Pencapaian Tim (plan/119) adalah satu-satunya reward pencapaian agensi**. Kolom `users.is_level_1_claimed` **DIPERTAHANKAN** sebagai retensi historis (nol pembaca/penulis — L1R1); baris `wallet_ledger` `L1-*` & notifikasi `notif_bonus_l1` dibiarkan utuh (L1R4). Lihat seksi plan/120 di bawah.
 
 ### Phase 7C: Team Page & Affiliate UI ✅ COMPLETED
 - [x] **7C1: Team Page (Halaman Tim)** — Displays active agent count, total sales, current level, agency history.
@@ -102,7 +134,7 @@
 - [x] **8B2: Admin Withdrawal Queue** — Command Center right column. APPROVE/DECLINE buttons. Decline triggers auto-rollback (Phase 5E).
 
 ### Phase 8C: Halaman Tim & Afiliasi ✅ COMPLETED
-- [x] **8C1: Level 1 Mission Card** — Bloomberg Terminal dark aesthetic (`bg-slate-900 rounded-2xl p-5 border border-slate-800`). Two progress bars on `bg-slate-700` tracks with `bg-emerald-500` fill:
+- [x] **8C1: Level 1 Mission Card** — *(**REMOVED — plan/120**: kartu misi + tombol klaim dihapus dari `views/team/index.php`; tersisa kartu Bonus Pencapaian Tim plan/119.)* Bloomberg Terminal dark aesthetic (`bg-slate-900 rounded-2xl p-5 border border-slate-800`). Two progress bars on `bg-slate-700` tracks with `bg-emerald-500` fill:
     * **Agent Bar:** `active_agents / 3` (target: 3 active L1+L2 downlines).
     * **Turnover Bar:** `total_sales / 330000` formatted as IDR (target: Rp 330.000).
     * Dynamic action button below bars:
@@ -284,17 +316,87 @@
 - [x] **Ringkasan** — `plan/112_DAILY_CHECKIN_FEATURE_SUMMARY.md`.
 
 ### Fix Gaji Mingguan — Downline Aktif Wajib Kontrak Produk Non-Trial ✅ COMPLETED (plan/116)
-- [x] **Definisi tunggal "downline aktif"** — `ur.status = 'active'` **DAN** `ur.expired_at > now WIB` **DAN** `gpu_products.is_trial = 0` (join alias `gp`), diterapkan seragam di 4 titik: `User_model::count_all_active_downlines()` (otoritas level gaji mingguan), `count_active_b_downlines()` (syarat 3 downline bonus Level 1), `get_team_with_active_status()` (badge "Aktif" + counter `/team`), dan kelayakan upline rebate `Rental_model::_distribute_rebate()`. Predikat kanonik = `Rental_model::has_paid_rental()` (plan/114 D-A).
+- [x] **Definisi tunggal "downline aktif"** — `ur.status = 'active'` **DAN** `ur.expired_at > now WIB` **DAN** `gpu_products.is_trial = 0` (join alias `gp`), diterapkan seragam di 4 titik: `User_model::count_all_active_downlines()` (otoritas level gaji mingguan), `count_active_b_downlines()` (legacy — dulu syarat 3 downline bonus Level 1; **tanpa pemanggil sejak plan/120**, sengaja dipertahankan sebagai rujukan invariant), `get_team_with_active_status()` (badge "Aktif" + counter `/team`), dan kelayakan upline rebate `Rental_model::_distribute_rebate()`. Predikat kanonik = `Rental_model::has_paid_rental()` (plan/114 D-A).
 - [x] **Celah yang ditutup** — sejak plan/114, 1 trial gratis (Rp 0, 1× lifetime) + 9 akun trial sudah cukup membuka Gaji Mingguan Level 2 (Rp 200.000/minggu) tanpa modal; upline trial-only juga menerima rebate riil dari pembelian downline. Keduanya kini **breakage** (tanpa pass-up), kontrak reward `promoter_reward` non-trial tetap eligible (K7).
 - [x] **Fail-closed tanpa perubahan jalur uang** — penghitungan ulang tetap di dalam TX terkunci (`users FOR UPDATE` → hitung → `determine_wage_level()` → stamp kondisional → `credit()`); `claim_wage()`/`claim_level1()` nol perubahan struktur, nol DDL/index/route.
-- [x] **Fixture verifikasi diperbaiki** — `scripts/seed_wage_test_account.php` memilih produk dengan filter eksplisit `is_trial` (sebelumnya "produk termurah" = baris trial sejak plan/114 → bukti palsu) + flag `--downlines=N` / `--product=paid|trial|mixed`; blok verifikasi mencetak dua penghitung (berbayar vs lama) agar eksklusi trial terlihat.
+- [x] **Fixture verifikasi diperbaiki** — `scripts/seed_wage_test_account.php` *(plan/119: di-*rename* menjadi `scripts/seed_milestone_test_account.php`, diadaptasi untuk klaim Bonus Pencapaian Tim)* memilih produk dengan filter eksplisit `is_trial` (sebelumnya "produk termurah" = baris trial sejak plan/114 → bukti palsu) + flag `--downlines=N` / `--product=paid|trial|mixed`; blok verifikasi mencetak dua penghitung (berbayar vs lama) agar eksklusi trial terlihat.
 - [x] **Kamus EN/ID** — 4 nilai disinkronkan (`team_help_active_body`, `team_help_l1_li1`, `team_help_wage_body`, `team_wage_sub`), **tetap 633/633** key, tanpa nominal baru (L6/P3); `audit_i18n_parity.php` & `audit_i18n_hardcoded.php` exit 0.
 - [x] **F17 (temuan plan/114, diperbaiki di sini)** — `database.sql` gagal di-import pada instalasi bersih karena klausa `AFTER \`max_per_user\`` di dalam `CREATE TABLE gpu_products` (`AFTER` hanya valid di `ALTER TABLE`); klausa dihapus dengan posisi kolom tetap identik (order live ≡ order fresh terbukti) sehingga tepat **satu** baris `is_trial = 1` tetap terjaga.
 - [x] **Ringkasan** — `plan/116_FIX_WEEKLY_WAGE_ACTIVE_DOWNLINE_SUMMARY.md`.
 
+### Kunci Penarikan Per-User (Withdrawal Lock) ✅ COMPLETED (plan/117)
+- [x] **Skema** — `users.is_wd_locked` TINYINT(1) NOT NULL DEFAULT 0 + `users.wd_lock_reason` VARCHAR(255) NULL (additive, tanpa backfill) di `database.sql` (blok `CREATE TABLE` + catatan migrasi live) dan `scripts/migrate_117_user_wd_lock.php` (`--dry-run`/`--apply`/`--verify`, 6 fase, idempoten via `information_schema`, exit 0/1/2, loader kredensial pola plan/106/112/114). **Nol tabel baru** (inventory tetap 14).
+- [x] **Gerbang 4 lapis** — tombol `/wallet` (disabled + ikon kunci) → gatekeeper GET `Wallet::withdraw()` → gatekeeper POST `Wallet::process_withdraw()` (sebelum rate limit) → **otoritas** di dalam TX terkunci `Wallet_model::create_withdrawal()` langkah `1a`: `code = 'wd_locked'` → rollback ⇒ 0 baris `withdrawals` + 0 baris `wallet_ledger`. Reader baru: `Wallet_model::get_wd_lock_state()` / `is_withdrawal_locked()`.
+- [x] **Admin** — `Admin::toggle_wd_lock($id)` (AJAX, POST-only 405, intent eksplisit `lock=1|0`, alasan wajib ≤255 char → 422 `reason_required`/`reason_too_long`, 404 `user_not_found`, TX atomik + audit `admin_toggle_wd_lock` (before/after/reason/IP), notifikasi member post-commit `notif_wd_locked`/`notif_wd_unlocked`) + `Admin_model::set_wd_lock()` (satu-satunya penulis). UI: modal Tailwind `views/admin/templates/wd_lock_modal.php` (nol dependensi CDN baru), badge `WD LOCK` + tombol Kunci/Buka di `views/admin/users.php` & kartu "Penarikan (Withdrawal Lock)" di `views/admin/user_detail.php`. **Nol entri `routes.php`** (URL metode langsung 2-segmen, pola `toggle_ban`).
+- [x] **Kebijakan (keputusan owner `dec-1ebc037f6f2688b7`)** — kunci hanya memblokir pengajuan **baru**; penarikan `pending` dibiarkan & tetap diproses admin (tanpa clawback/refund, D1/D2); alasan bersifat internal dan **tidak pernah** ditampilkan ke member (W3).
+- [x] **Kamus EN/ID** — +6 key (`wallet_wd_locked_btn`, `wd_err_locked`, `notif_wd_locked_title/_body`, `notif_wd_unlocked_title/_body`) → **639/639**, tanpa nominal (L6); copy admin 100% Indonesia (L1, tidak lewat `i18n_apply()`). **Ringkasan** — `plan/117_USER_WD_LOCK_SUMMARY.md`.
+
+### Dompet Absen (Check-in Balance) & Syarat Sewa Aktif ✅ COMPLETED (plan/118)
+- [x] **Skema** — `users.checkin_balance` DECIMAL(15,2) NOT NULL DEFAULT 0.00 (dompet kedua "Saldo Absen") + `wallet_ledger.wallet_type` ENUM('main','checkin') NOT NULL DEFAULT 'main' (audit multi-dompet) + key `system_settings.checkin_require_active_rental` ('0' = OFF) di `database.sql`/`database_seed.sql` + blok "MIGRASI LIVE". **Nol tabel baru** (inventory tetap 14), **nol index baru**, `uk_wallet_ledger_user_tx_type` tidak berubah, **tanpa backfill** (D3/CK8).
+- [x] **Migrasi CLI** — `scripts/migrate_118_checkin_refactor.php` (`--dry-run` default / `--apply` / `--verify` / `--help`, 7 fase, idempoten via `information_schema`, seed no-op bila key sudah ada, tamper → exit 2, loader kredensial `$active_group → 'default' → grup pertama` pola plan/106/112/114/117).
+- [x] **Choke-point uang dua dompet** — `Wallet_model`: konstanta `WALLET_MAIN`/`WALLET_CHECKIN` + map whitelist dompet → kolom cache; `_post()`/`credit()`/`debit()` menerima `wallet_type` (nilai asing DITOLAK, log + `false`), menulis `wallet_type` pada baris ledger dan mirror ke kolom cache yang tepat; `get_balance($uid, $type)`/`get_checkin_balance()`/`get_wallet_totals()` + `lock_and_get_balances()` (anchor `users FOR UPDATE` → SATU agregat dua-dompet, CK4) dengan `lock_and_get_balance()` menjadi wrapper tipis.
+- [x] **Absensi → dompet checkin** — `Checkin_model`: config + validator + `get_status()` (`require_active_rental`, `has_active_rental`, `checkin_balance`, `can_claim`); `claim()` menambah gate syarat sewa **di dalam TX** (setelah `already_claimed`, sebelum stempel) → `code: 'no_active_rental'`, dan mengkredit dompet `checkin` (`transaction_id` `CHK-{uid}-{Ymd}` tidak berubah → idempotensi harian utuh).
+- [x] **Split payment (D5/D6/D7)** — `Rental_model::checkout_rental($uid, $product, $use_checkin)`: `checkin_used = min(checkin, harga)` lalu `main_used = harga − checkin_used` (integer murni + asersi jumlah), dua baris debit `…-CHK` (checkin) lalu `…-MAIN` (main) hanya saat split, ID legacy `RENT-{product_id}-{YmdHis}` dipertahankan bila tidak split; `purchase_price` **tetap harga penuh** → ROI/rebate/omzet tidak terpengaruh (CK6); trial gratis mengabaikan checkbox (D8).
+- [x] **Admin** — toggle **"Wajib Punya Sewa Aktif untuk Klaim"** di kartu Absensi Harian `/admin/settings` (100% Indonesia, repopulasi ikut) + 5 situs agregat `Admin_model` diselaraskan: `get_users()` (subquery `wallet_type='main'`), `get_user_balance()` (+ `get_user_checkin_balance()` baru), `get_user_xray()` (+ `checkin_balance`), `get_treasury_stats()` (`total_balances` = main + `total_checkin_balances` baru, dirender di dashboard), `get_global_analytics()` (sengaja tanpa filter + komentar alasan); `inject_balance` tetap dompet `main` (D9).
+- [x] **Rekonsiliasi** — `scripts/reconcile_balances.php` diukur **per dompet** (drift `main` vs `users.balance`, `checkin` vs `users.checkin_balance`), repair per kolom cache, ringkasan `--json` + `drifted_by_wallet`, fallback ke mode legacy bila kolom pra-plan/118 belum ada, dan loader kredensial CI3 diperbaiki (`$active_group → 'default' → grup pertama`).
+- [x] **UI member** — checkbox split **"Gunakan Saldo Absen"** + baris rincian komposisi di modal checkout marketplace (`data-trial` pada tombol sewa; JS menghitung daya beli & indikator emerald/rose); kartu **Saldo Absen** non-interaktif + chip dompet pada riwayat ledger di `/wallet`; widget absensi merender state **TERKUNCI** (tombol disabled + hint + CTA `/marketplace`, D10) dan baris saldo absen; **header Balance Pill tidak berubah** (invarian plan/100, D11).
+- [x] **Kamus EN/ID** — +12 key → **651/651** (paritas 1:1, tanpa nominal di kamus/L6) + pola renderer `ledger_rent_checkin` di `i18n_helper.php`; `audit_i18n_parity.php` exit 0, `audit_i18n_hardcoded.php` 0 temuan. **Ringkasan** — `plan/118_CHECKIN_REFACTOR_SUMMARY.md`.
+
+### Doc Sync — Absensi Harian ✅ COMPLETED (plan/113)
+- [x] **Sinkronisasi dokumen** — PRD §F + ERD disinkronkan dengan ground truth plan/112 (otoritas hari WIB, kontrak endpoint POST+AJAX-only, urutan TX yang mengikat, transalasi duplikat 1062 → `already_claimed`, kebijakan streak). Kode tetap otoritatif. **Ringkasan** — `plan/113_SYNC_CHECKIN_DOCS_SUMMARY.md`.
+
+### Produk Trial "GPU Magang" + Gerbang Penarikan Anti Free-Rider ✅ COMPLETED (plan/114)
+- [x] **Skema** — `gpu_products.is_trial` TINYINT(1) NOT NULL DEFAULT 0 sebagai **satu-satunya identitas** produk trial (harga `0`, `max_per_user` `1`; invarian **tepat satu** baris `is_trial = 1`) + seed produk trial di `database.sql`/`database_seed.sql` dan `scripts/migrate_114_trial_product_wd_gate.php` (`--dry-run`/`--apply`/`--verify`). **Nol tabel baru**.
+- [x] **Jalur checkout bebas** — `checkout_rental()` melewati pemeriksaan saldo, `debit()`, dan `_distribute_rebate()` untuk trial gratis (Rp 0 tidak boleh menyentuh `_post()` yang menolak amount ≤ 0) → kontrak `purchase_price = 0` tanpa baris `wallet_ledger`, tanpa rebate, tanpa omzet upline (Z1). Fail-closed: harga ≤ 0 TANPA penanda trial ditolak; trial berharga > 0 = jalur berbayar.
+- [x] **Gerbang penarikan anti free-rider** — `Rental_model::has_paid_rental()` (riwayat ≥ 1 kontrak produk **non-trial**, tanpa filter status) diperiksa **di dalam** TX `Wallet_model::create_withdrawal()` → `code: 'no_paid_rental'`; cermin UX di `/wallet` (`wallet_wd_need_paid`).
+- [x] **Ringkasan** — `plan/114_TRIAL_PRODUCT_AND_WD_GATE_SUMMARY.md`.
+
+### Trial UX Enhancement (Aktivasi & Onboarding) ✅ COMPLETED (plan/115)
+- [x] **Marketplace** — kartu produk trial diurutkan pertama (`ORDER BY p.is_trial DESC, p.id ASC`), chip **Trial** + label **Gratis** (non-nominal, L6), dan kuota lifetime yang jujur.
+- [x] **Onboarding** — modal sambutan server-derived di `/home` (hanya dirender bila user memenuhi syarat trial, `NULL` → tidak ada DOM) + kamus dwibahasa untuk alur aktivasi trial.
+- [x] **Tanpa perubahan jalur uang** — murni UX/urutan katalog; otoritas kuota & gating tetap `Rental_model::checkout_rental()`. **Ringkasan** — `plan/115_TRIAL_UX_ENHANCEMENT_SUMMARY.md`.
+
+### Bonus Pencapaian Tim (Team Milestone Bonus) — pengganti Gaji Mingguan ✅ COMPLETED (plan/119)
+- [x] **Skema** — `users.team_milestone_claimed` VARCHAR(255) NULL DEFAULT NULL (state klaim CSV target kanonik menaik; penulis tunggal `User_model::claim_milestone()` via `UPDATE` kondisional NULL-safe + `affected_rows() === 1`) + 2 key `system_settings` (`team_milestone_enabled` fail-closed `'0'`/`'1'`, `team_milestone_tiers` JSON `[[target,nominal],…]`) di `database.sql`/`database_seed.sql` + blok "MIGRASI LIVE". `users.last_wage_claimed_at` → **DEPRECATED (retensi)**. **Nol tabel baru** (inventory tetap 14), **nol index baru**, `uk_wallet_ledger_user_tx_type` tidak berubah.
+- [x] **Migrasi CLI** — `scripts/migrate_119_team_milestone.php` (`--dry-run` default / `--apply` / `--verify` / `--skip-backfill` / `--help`; 6 fase: pre-flight → inspect → DDL → seed → **backfill** → verify; idempoten via `information_schema`; tamper → exit 2; loader kredensial `$active_group → 'default' → grup pertama`).
+- [x] **Grandfathering (keputusan owner O3)** — backfill menandai tier yang **sudah tercapai** dari histori `WAGE-*` sebagai **sudah diklaim** (presisi dari prosa `… N downline aktif`, proxy dari nominal terbesar bila prosa tidak parseable); murni state — **nol** baris `wallet_ledger`, nol mutasi saldo, nol notifikasi; guard `IS NULL` ⇒ re-run = 0 baris.
+- [x] **Choke-point** — `application/helpers/team_milestone_helper.php` (murni struktural, **nol prosa** → lolos gate i18n): parse/encode JSON tier, parse/encode CSV state, ambang administratif (`team_milestone_limits()`: maks 20 tier · target 1–100.000 · nominal 1–100.000.000 · anggaran CSV ≤ 200 char), pembentuk `transaction_id`; fallback `application/config/team_milestones.php`; autoload `'team_milestone'`.
+- [x] **Mesin klaim** — `User_model`: `get_milestone_config()`/`_resolve_milestone_config()` (fail-safe per-key), `validate_milestone_settings()` (all-or-nothing, pesan Indonesia di MODEL sehingga tak memicu gate hardcoded), `get_milestone_status()` (state per tier: `claimed`/`claimable`/`locked_count`/`locked_previous`; `balance` = saldo utama segar), `claim_milestone($uid, $target)` (urutan TX mengikat MK5; `db_debug` dimatikan lokal + `$this->db->error()` dibaca sebelum rollback → duplikat `1062`/`23000` = `already_claimed`, bukan HTML). `WAGE_TIERS`/`determine_wage_level()`/`check_wage_cooldown()`/`claim_wage()`/`_wage_result()` **dihapus**; `count_all_active_downlines()` (K8) **tidak disentuh**; `claim_level1()` masih ada saat plan/119 dan **dihapus kemudian oleh plan/120**.
+- [x] **Controller** — `Team::claim_milestone()` (POST+AJAX-only, validasi `target` `^[1-9][0-9]*$`, rate limit `milestone_claim:{uid}` 5/60 → 429, peta kode lengkap **termasuk `'claimed'`**, satu titik tulis pesan) + `Team::index()` menginjeksi `milestones`; `Team::claim_wage()` + `_wage_message()` **dihapus** ⇒ **bug F18 ditutup di akarnya**. Admin: `Admin::settings()` memuat `User_model`, `_collect_milestone_rows()`/`_milestone_rows_from_tiers()`, validasi + repopulasi + audit `admin_update_settings`. Nol entri `routes.php`.
+- [x] **UI member** — kartu **"Bonus Pencapaian Tim"** di `/team` (loop tier dari konfigurasi, badge status, **maksimal satu** tombol klaim, progres integer, `team_ms_empty` bila konfigurasi kosong; **kartu tidak dirender sama sekali** saat `enabled = '0'`), modal bantuan ber-*loop* dinamis (nominal hardcoded dihapus), `I18N` baru, `claimMilestone()` + `paintMilestones()` (repaint tanpa reload dari `data.milestones`). **Nol key kamus bernominal** (L6).
+- [x] **Panel admin** — **Card 7** "Bonus Pencapaian Tim" di `/admin/settings` (100% Indonesia): toggle fail-closed + editor baris tier (`tm_target[]`/`tm_amount[]`, tambah/hapus baris vanilla JS) + kotak bantuan definisi downline aktif + error inline (`tm_row_*`) + repopulasi via `settings_form_state`; audit otomatis memuat key `team_milestone_*`.
+- [x] **Kamus EN/ID** — +27 key / −28 key (key khusus UI Gaji Mingguan dipensiunkan; `ledger_wage`, `notif_wage_title`, `notif_wage_body` **dipertahankan** sebagai retensi historis) → **650/650** + pola renderer `ledger_milestone` di `i18n_helper.php`; `audit_i18n_parity.php` exit 0, `audit_i18n_hardcoded.php` 0 temuan.
+- [x] **Fixture** — `scripts/seed_wage_test_account.php` → `scripts/seed_milestone_test_account.php` (leader + N downline; blok verifikasi kini membaca `team_milestone_tiers` dari DB + ekspektasi `claim_milestone`; eksklusi trial plan/116 tetap diuji).
+- [x] **Verifikasi** — matriks V1–V37 pada **DB buang** (MariaDB 12.3.2): lint 15 berkas, kedua gate i18n, migrasi dry-run/apply/re-apply/verify/tamper, seluruh kode hasil endpoint (`claimed`/`already_claimed`/`locked_previous`/`not_qualified`/`invalid_target`/`disabled`/`user_unavailable`/429/redirect guard), konkurensi state, permanensi klaim, eksklusi trial, retensi historis `WAGE-*` + notifikasi `notif_wage`, saldo mirror == ledger (`reconcile_balances.php --verify` exit 0), dan repaint JS (simulasi Node). **Ringkasan** — `plan/119_TEAM_MILESTONE_BONUS_SUMMARY.md`.
+
+### Penghapusan Fitur Misi Level 1 (Level 1 Mission Removal) ✅ COMPLETED (plan/120)
+- [x] **Keputusan owner** — `dec-fc8726a949157eb0` (model scope **A** · endpoint **A** · i18n retensi **A**): buang L1-only symbol, **pertahankan** `count_active_b_downlines()`/`sum_sales_b_downlines()` sebagai primitif, hapus endpoint (404), pertahankan `notif_bonus_l1_*`.
+- [x] **View `views/team/index.php`** — kartu "Misi Level 1" (section) + blok bantuan L1 + `L1_CLAIM_LABEL` + entri `I18N.claimed_bonus`/`claim_success` + `claimLevel1()` **dihapus**; tombol bantuan `mt-3` → `mt-4` (kompensasi saat `team_milestone_enabled='0'`). **Nol perubahan** pada `$ms_*`, `#ms-card`, `claimMilestone()`/`paintMilestones()`.
+- [x] **Controller `Team.php`** — `claim_level1()` + `_claim_message()` **dihapus**; injeksi `claim_data`/`l1_bonus`/`l1_bonus_fmt` **dipurg** dari `index()`. `claim_milestone()`/`_milestone_message()`/`promoter_claim()` utuh.
+- [x] **Model `User_model.php`** — `LEVEL1_BONUS`, `get_claim_data()`, `claim_level1()` **dihapus**; docblock konstruktor disesuaikan. **DI PERTAHANKAN:** `count_active_b_downlines()`, `sum_sales_b_downlines()`, `count_all_active_downlines()`, `get_team_with_active_status()`, seluruh mesin milestone.
+- [x] **Kamus EN/ID** — −17 key khusus Misi Level 1 → **633/633** (paritas 1:1). **Retensi:** `ledger_bonus_l1`, `notif_bonus_l1_title`/`_body` beserta pola `i18n_ledger_description()` tetap ada.
+- [x] **Skema** — **nol DDL**: hanya komentar `-- DEPRECATED (plan/120)` di `database.sql` di atas `is_level_1_claimed`; `database_seed.sql` & `scripts/seed_*` tidak berubah; tanpa migration script.
+- [x] **Dokumentasi** — PRD **v5.5** (§G: Bonus Pencapaian Tim satu-satunya reward; Zero-Trust L1 ditandai REMOVED), ERD **v5.5** (kolom DEPRECATED + invarian L1R1–L1R6 di §7; kini **v5.6**), ROADMAP (7B3 SUPERSEDED, 8C1 REMOVED), `AGENTS.md`. **Ringkasan** — `plan/120_LEVEL1_MISSION_REMOVAL_SUMMARY.md`.
+
+### Lucky Spin Wheel — Reward Referral (plan/121) ✅ COMPLETED
+- [x] **Skema** — kolom `users.spin_tickets` (counter tiket, BUKAN uang) + **2 tabel baru** (`spin_ticket_grants` dengan `UNIQUE uk_spin_grant_downline`, `spin_results` dengan snapshot bobot) + 2 key `system_settings` (`spin_wheel_enabled`, `spin_wheel_segments`). **Inventory kanonik 14 → 16 tabel.** Tanpa backfill (D4). Migrasi idempoten `scripts/migrate_121_lucky_spin.php` (`--dry-run`/`--apply`/`--verify`, drift check → exit 2).
+- [x] **Backend** — `Spin_model` (config resolver per-key + validator admin + `get_summary()` + grant caller-TX + TX spin), hook **langkah 7b** di `Rental_model::checkout_rental()` (`_award_spin_ticket`), `Rewards` controller (`index`/`spin`), `Admin::lucky_spin()` + `Admin_model::get_spin_overview()`. Randomisasi 100% server-side (`random_int` + `spin_wheel_pick`); hadiah kredit dompet `main` (`SPIN-{id}`).
+- [x] **Frontend member** — `views/rewards/index.php` (roda conic-gradient, animasi transform-only, `prefers-reduced-motion`), kartu + FAB dashboard (header & bottom-nav **tidak** disentuh).
+- [x] **Admin UI** — `views/admin/lucky_spin.php` (toggle, editor segmen, peluang + EV live, 20 putaran terakhir) + entri sidebar.
+- [x] **i18n** — +36 key → **669/669** (EN≡ID 1:1); pola ledger `ledger_spin`; notifikasi `notif_spin_ticket_*`/`notif_spin_win_*`. Kedua gate audit exit 0.
+- [x] **Dokumentasi** — PRD **v5.6** §4.G (blok Lucky Spin Wheel), ERD **v5.6** (kolom `users.spin_tickets` + 2 tabel + inventory **16 tabel** + invarian **SP1–SP12**), dokumen ini, `docs/4_UI_UX_GUIDELINES.md` **v5.3** §5.J/§8.E, `AGENTS.md`. **Ringkasan** — `plan/121_LUCKY_SPIN_WHEEL_SUMMARY.md`.
+
 ---
 
 ## Upcoming Phases
+
+> **Status kesiapan (per plan/121).** Seluruh fase berencana yang tersisa berada
+> di **Phase 11 (payment gateway)** dan **Phase 12 (PWA/performa)** — keduanya
+> belum dimulai dan **tidak** memblokir operasi saat ini: deposit QRIS masih
+> diverifikasi **manual** oleh admin (plan/102), notifikasi member bersifat
+> **server-rendered**, dan tidak ada cron di repo (ROI/absensi/bonus = klaim
+> manual, expiry = lazy sweep). Aturan **Milestone Lock** (Strict Rule 7) tetap
+> berlaku: jangan memulai Phase 11 sebelum fase sebelumnya dikonfirmasi owner.
 
 ### Phase 11: Production Payment Gateway (PLANNED)
 - [ ] **11A: Payment Provider Integration** — Integrasi payment gateway daring (Midtrans, Xendit, atau sejenis) menggantikan verifikasi deposit **manual** QRIS (plan/102) + Dev Simulator.
@@ -303,5 +405,5 @@
 
 ### Phase 12: Mobile Optimization & PWA (PLANNED)
 - [ ] **12A: PWA Manifest** — Service worker, app manifest for "Add to Home Screen" on mobile.
-- [ ] **12B: Push Notifications** — Web push API for real-time notification delivery (complement to AJAX polling).
+- [ ] **12B: Push Notifications** — Web push API untuk pengiriman notifikasi real-time (pelengkap polling **admin alert center** plan/94 F2 — notifikasi member sendiri sudah server-rendered).
 - [ ] **12C: Performance Audit** — Lighthouse score optimization. Image compression. CDN for static assets.

@@ -21,4 +21,9 @@ return [
     'checkin_base_reward'   => 50,       // bonus hari ke-1 (IDR)
     'checkin_max_reward'    => 10000,    // cap harian keras (IDR)
     'checkin_streak_policy' => 'reset',  // 'reset' = bolong → hari 1 | 'continue' = lanjut N+1
+    // plan/118: gerbang SYARAT SEWA AKTIF (0 = OFF/default). Bila 1, klaim
+    // absensi menuntut minimal 1 kontrak `user_rentals` dengan status='active'
+    // DAN expired_at > now WIB (trial maupun berbayar). Kredit bonus masuk
+    // dompet `checkin` (users.checkin_balance), bukan saldo utama.
+    'checkin_require_active_rental' => 0,
 ];

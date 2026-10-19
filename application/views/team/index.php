@@ -1,149 +1,93 @@
-<!-- ===== MISSION CARD: LEVEL 1 BONUS ===== -->
 <?php
-    $m_agent  = (int) ($claim_data['active_b_count'] ?? 0);
-    $m_turnover = (int) ($claim_data['sales_b'] ?? 0);
-    $m_claimed  = (bool) ($claim_data['level1_claimed'] ?? false);
-    $m_agent_pct    = $m_agent >= 3 ? 100 : round(($m_agent / 3) * 100);
-    $m_turnover_pct = $m_turnover >= 330000 ? 100 : round(($m_turnover / 330000) * 100);
-
-    // ── Gaji Mingguan (Level 2-6) — display mirror dari get_claim_data ──
-    $w_level    = (int) ($claim_data['current_level'] ?? 0);
-    $w_label    = $claim_data['current_wage_label'] ?? null;
-    $w_total    = (int) ($claim_data['total_active'] ?? 0);
-    $w_eligible = (bool) ($claim_data['weekly_eligible'] ?? false);
-    $w_cool     = (bool) ($claim_data['cooldown_active'] ?? false);
-    $w_days     = $claim_data['days_remaining'] ?? null;
-    $w_next_d   = $claim_data['next_claim_date'] ?? null;
-
-    // Tangga level (threshold => level) — display only, mirror WAGE_TIERS
-    $w_ladder = [9 => 2, 30 => 3, 70 => 4, 130 => 5, 190 => 6];
-    $w_next_thr = null;
-    $w_next_lvl = null;
-    foreach ($w_ladder as $thr => $lvl) {
-        if ($w_total < $thr) {
-            $w_next_thr = $thr;
-            $w_next_lvl = $lvl;
-            break;
-        }
-    }
-    $w_pct = $w_next_thr ? (int) min(100, round($w_total / $w_next_thr * 100)) : 100;
+    // ── Bonus Pencapaian Tim (plan/119) — SATU sumber:
+    //    User_model::get_milestone_status(). View HANYA mem-loop; tidak ada
+    //    tangga tier hardcoded lagi (dulu `$w_ladder` = salinan WAGE_TIERS),
+    //    dan nominal selalu dirender dinamis (L6: angka tidak masuk kamus).
+    $ms_enabled   = !empty($milestones['enabled']);
+    $ms_total     = (int) ($milestones['total_active'] ?? 0);
+    $ms_tiers     = isset($milestones['tiers']) && is_array($milestones['tiers']) ? $milestones['tiers'] : [];
+    $ms_next      = isset($milestones['next_target']) ? (int) $milestones['next_target'] : null;
+    $ms_all       = !empty($milestones['all_claimed']);
+    // Progres = jumlah aktif / target tier belum-diklaim terendah (integer murni).
+    $ms_pct = ($ms_next !== null && $ms_next > 0)
+        ? (int) min(100, intdiv($ms_total * 100, $ms_next))
+        : ($ms_all ? 100 : 0);
 ?>
-<section class="mx-4 mt-4 u-card-fin rounded-2xl p-4 shadow-lg">
+<!-- ===== CARD: BONUS PENCAPAIAN TIM (plan/119 — pengganti Gaji Mingguan) ===== -->
+<?php if (!empty($ms_enabled)): ?>
+<section id="ms-card" class="mx-4 mt-4 u-card-fin rounded-2xl p-4 shadow-lg">
     <!-- Header -->
     <div class="flex items-center justify-between mb-1">
         <div class="flex items-center gap-2">
-            <span class="text-base">🎯</span>
-            <h3 class="text-xs font-extrabold text-white uppercase tracking-wider"><?= lang('team_mission_l1') ?></h3>
+            <span class="text-base">🏆</span>
+            <h3 class="text-xs font-extrabold text-white uppercase tracking-wider"><?= lang('team_ms_title') ?></h3>
         </div>
-        <span class="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20">Rp <?= $l1_bonus_fmt ?></span>
+        <span class="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 whitespace-nowrap"><?= lang('team_ms_once') ?></span>
     </div>
-    <p class="text-[10px] text-slate-400 mb-3"><?= lang('team_once_lifetime') ?></p>
+    <p class="text-[10px] text-slate-400 mb-3"><?= lang('team_ms_sub') ?></p>
 
-    <!-- Agent Progress -->
+    <!-- Progres menuju tier berikutnya (integer murni, tanpa float) -->
     <div class="mb-3">
-        <div class="flex items-center justify-between mb-1">
-            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wide"><?= lang('team_active_agents') ?></span>
-            <span class="text-xs font-extrabold text-white"><?= $m_agent ?> <span class="text-slate-500 font-normal">/ 3</span></span>
-        </div>
-        <div class="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
-            <div class="h-full rounded-full transition-all duration-500 <?= $m_agent >= 3 ? 'bg-emerald-500' : 'bg-indigo-500' ?>" style="width: <?= $m_agent_pct ?>%"></div>
-        </div>
-    </div>
-
-    <!-- Turnover Progress -->
-    <div class="mb-3">
-        <div class="flex items-center justify-between mb-1">
-            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wide"><?= lang('team_team_turnover') ?></span>
-            <span class="text-xs font-extrabold text-white">Rp <?= number_format($m_turnover, 0, ',', '.') ?> <span class="text-slate-500 font-normal">/ 330.000</span></span>
-        </div>
-        <div class="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
-            <div class="h-full rounded-full transition-all duration-500 <?= $m_turnover_pct >= 100 ? 'bg-emerald-500' : 'bg-indigo-500' ?>" style="width: <?= $m_turnover_pct ?>%"></div>
-        </div>
-    </div>
-
-    <!-- Button: 3-state conditional -->
-    <div class="mt-4">
-        <?php if ($m_claimed): ?>
-            <div class="w-full text-center py-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-                <span class="text-xs font-bold text-emerald-400"><i class="fas fa-check-circle mr-1"></i><?= lang('team_done_claimed') ?></span>
-            </div>
-        <?php elseif ($m_agent >= 3 && $m_turnover >= 330000): ?>
-            <button id="btn-claim-l1" onclick="claimLevel1()" class="w-full bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold py-3 px-4 rounded-xl transition-all active:scale-[0.97] shadow-lg shadow-indigo-500/20">
-                <i class="fas fa-gift mr-1"></i><?= sprintf(lang('team_claim_bonus_btn'), $l1_bonus_fmt) ?>
-            </button>
-        <?php else: ?>
-            <button disabled class="w-full bg-slate-700 text-slate-400 text-xs font-bold py-3 px-4 rounded-xl cursor-not-allowed border border-slate-600">
-                <i class="fas fa-lock mr-1"></i><?= lang('team_req_not_met') ?>
-            </button>
-        <?php endif; ?>
-    </div>
-</section>
-
-<!-- ===== MISSION CARD: GAJI MINGGUAN (LEVEL 2-6) ===== -->
-<section class="mx-4 mt-4 u-card-fin rounded-2xl p-4 shadow-lg">
-    <!-- Header -->
-    <div class="flex items-center justify-between mb-1">
-        <div class="flex items-center gap-2">
-            <span class="text-base">💰</span>
-            <h3 class="text-xs font-extrabold text-white uppercase tracking-wider"><?= lang('team_weekly_wage') ?></h3>
-        </div>
-        <span class="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-            <?= $w_label !== null ? $w_label : lang('team_level_2_6') ?>
-        </span>
-    </div>
-    <p class="text-[10px] text-slate-400 mb-3"><?= lang('team_wage_sub') ?></p>
-
-    <!-- Progress -->
-    <div class="mb-3">
-        <div class="flex items-center justify-between mb-1">
-            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wide"><?= lang('team_active_downline') ?></span>
-            <span class="text-xs font-extrabold text-white">
-                <?= number_format($w_total, 0, ',', '.') ?>
-                <?php if ($w_next_thr !== null): ?>
-                    <span class="text-slate-500 font-normal">/ <?= number_format($w_next_thr, 0, ',', '.') ?> <?= sprintf(lang('team_toward_level'), (int) $w_next_lvl) ?></span>
+        <div class="flex items-center justify-between mb-1 gap-2">
+            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wide"><?= lang('team_ms_progress_label') ?></span>
+            <span class="text-xs font-extrabold text-white text-right">
+                <span id="ms-total"><?= number_format($ms_total, 0, ',', '.') ?></span>
+                <?php if ($ms_next !== null): ?>
+                    <span class="text-slate-500 font-normal"><?= sprintf(lang('team_ms_progress_to'), number_format((int) $ms_next, 0, ',', '.')) ?></span>
                 <?php else: ?>
-                    <span class="text-emerald-400 font-normal"><?= lang('team_level6_reached') ?></span>
+                    <span class="text-emerald-400 font-normal"><?= lang('team_ms_all_claimed') ?></span>
                 <?php endif; ?>
             </span>
         </div>
         <div class="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
-            <div class="h-full rounded-full transition-all duration-500 <?= $w_total >= 9 ? 'bg-emerald-500' : 'bg-indigo-500' ?>" style="width: <?= $w_pct ?>%"></div>
+            <div id="ms-bar" class="h-full rounded-full transition-all duration-500 <?= $ms_pct >= 100 ? 'bg-emerald-500' : 'bg-amber-500' ?>" style="width: <?= $ms_pct ?>%"></div>
         </div>
     </div>
 
-    <!-- Current tier summary -->
-    <div class="flex items-center gap-2 mb-3">
-        <?php if ($w_level > 0): ?>
-            <span class="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/20">
-                <?= sprintf(lang('team_badge_level'), (int) $w_level, (string) $w_label) ?>
-            </span>
-        <?php else: ?>
-            <span class="text-[10px] font-bold text-slate-400 bg-slate-500/10 px-2 py-1 rounded-lg border border-slate-600">
-                <?= lang('team_no_level2') ?>
-            </span>
-        <?php endif; ?>
+    <?php if (count($ms_tiers) === 0): ?>
+        <p class="text-[11px] text-slate-400"><?= lang('team_ms_empty') ?></p>
+    <?php else: ?>
+    <div id="ms-tiers" class="space-y-2">
+        <?php foreach ($ms_tiers as $ms_tier):
+            $t_target  = (int) $ms_tier['target'];
+            $t_amount  = (int) $ms_tier['amount'];
+            $t_state   = (string) $ms_tier['state'];
+            $t_missing = (int) ($ms_tier['missing'] ?? 0);
+        ?>
+        <div class="u-card-inset rounded-xl p-3 flex items-center justify-between gap-2" data-target="<?= $t_target ?>" data-state="<?= htmlspecialchars($t_state, ENT_QUOTES, 'UTF-8') ?>">
+            <div class="min-w-0">
+                <p class="text-xs u-text font-bold"><?= sprintf(lang('team_ms_target_row'), $t_target) ?></p>
+                <p class="text-[10px] u-muted">Rp <?= number_format($t_amount, 0, ',', '.') ?></p>
+            </div>
+            <div class="shrink-0 text-right" data-ms-slot>
+                <?php if ($t_state === 'claimed'): ?>
+                    <span class="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400" title="<?= lang('team_ms_claimed_hint') ?>">
+                        <i class="fas fa-check-circle"></i><?= lang('team_ms_claimed') ?>
+                    </span>
+                <?php elseif ($t_state === 'claimable'): ?>
+                    <button type="button" id="btn-claim-ms" data-target="<?= $t_target ?>" onclick="claimMilestone(this)"
+                            class="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold px-3 py-2 rounded-lg transition-all active:scale-95 whitespace-nowrap">
+                        <i class="fas fa-trophy mr-1"></i><?= sprintf(lang('team_ms_claim_btn'), 'Rp ' . number_format($t_amount, 0, ',', '.')) ?>
+                    </button>
+                <?php elseif ($t_state === 'locked_count'): ?>
+                    <span class="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400">
+                        <i class="fas fa-lock"></i><?= sprintf(lang('team_ms_need_more'), $t_missing) ?>
+                    </span>
+                <?php else: ?>
+                    <span class="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400">
+                        <i class="fas fa-flag"></i><?= lang('team_ms_locked_prev') ?>
+                    </span>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endforeach; ?>
     </div>
-
-    <!-- Button: 3-state conditional (eligible / cooldown / not qualified) -->
-    <div class="mt-4">
-        <?php if ($w_eligible && $w_level > 0): ?>
-            <button id="btn-claim-wage" onclick="claimWage()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold py-3 px-4 rounded-xl transition-all active:scale-[0.97] shadow-lg shadow-emerald-500/20">
-                <i class="fas fa-money-bill-wave mr-1"></i><?= sprintf(lang('team_claim_wage_btn'), (int) $w_level, (string) $w_label) ?>
-            </button>
-        <?php elseif ($w_cool): ?>
-            <button disabled class="w-full bg-slate-700 text-slate-400 text-xs font-bold py-3 px-4 rounded-xl cursor-not-allowed border border-slate-600">
-                <i class="fas fa-hourglass-half mr-1"></i><?= sprintf(lang('team_cooldown_next'), (int) $w_days) ?><?= $w_next_d ? ' (' . $w_next_d . ')' : '' ?>
-            </button>
-        <?php else: ?>
-            <button disabled class="w-full bg-slate-700 text-slate-400 text-xs font-bold py-3 px-4 rounded-xl cursor-not-allowed border border-slate-600">
-                <i class="fas fa-lock mr-1"></i><?= lang('team_req_min9') ?>
-            </button>
-        <?php endif; ?>
-    </div>
+    <?php endif; ?>
 </section>
+<?php endif; ?>
 
 <!-- ===== HELP BUTTON ===== -->
-<div class="mx-4 mt-3">
+<div class="mx-4 mt-4">
     <button onclick="openHelpModal()" class="w-full flex items-center justify-center gap-2 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-xs font-bold py-2.5 px-4 rounded-xl border border-indigo-200 dark:border-indigo-500/20 transition-all active:scale-95">
         <i class="fas fa-info-circle"></i> <?= lang('team_how_bonus') ?>
     </button>
@@ -494,29 +438,26 @@
                 <h4 class="text-xs font-bold text-slate-700 dark:text-slate-200 mb-2"><i class="fas fa-users text-indigo-500 mr-1"></i> <?= lang('team_help_active_downline') ?></h4>
                 <p class="text-[11px] u-text-2 leading-relaxed"><?= lang('team_help_active_body') ?></p>
             </div>
-            <!-- Level 1 -->
-            <div class="bg-indigo-50 dark:bg-indigo-500/10 rounded-xl p-4 border border-indigo-100 dark:border-indigo-500/20">
-                <h4 class="text-xs font-bold text-indigo-700 dark:text-indigo-300 mb-2"><i class="fas fa-gift mr-1"></i> <?= lang('team_help_l1_title') ?></h4>
-                <p class="text-[11px] u-text-2 leading-relaxed mb-2"><?= sprintf(lang('team_help_l1_body'), $l1_bonus_fmt) ?></p>
-                <ul class="text-[11px] u-text-2 space-y-1 ml-3 list-disc">
-                    <li><?= lang('team_help_l1_li1') ?></li>
-                    <li><?= sprintf(lang('team_help_l1_li2'), 'Rp ' . number_format(330000, 0, ',', '.')) ?></li>
-                </ul>
-                <p class="text-[10px] text-indigo-400 mt-2 font-semibold"><?= lang('team_help_l1_note') ?></p>
-            </div>
-            <!-- Level 2-6 -->
-            <div class="bg-emerald-50 dark:bg-emerald-500/10 rounded-xl p-4 border border-emerald-100 dark:border-emerald-500/20">
-                <h4 class="text-xs font-bold text-emerald-700 dark:text-emerald-300 mb-2"><i class="fas fa-money-bill-wave mr-1"></i> <?= lang('team_help_wage_title') ?></h4>
-                <p class="text-[11px] u-text-2 leading-relaxed mb-2"><?= lang('team_help_wage_body') ?></p>
+            <!-- Bonus Pencapaian Tim (plan/119) — baris tier di-loop dari konfigurasi -->
+            <?php if (!empty($ms_enabled)): ?>
+            <div class="bg-amber-50 dark:bg-amber-500/10 rounded-xl p-4 border border-amber-100 dark:border-amber-500/20">
+                <h4 class="text-xs font-bold text-amber-700 dark:text-amber-300 mb-2"><i class="fas fa-trophy mr-1"></i> <?= lang('team_ms_help_title') ?></h4>
+                <p class="text-[11px] u-text-2 leading-relaxed mb-2"><?= lang('team_ms_help_body') ?></p>
+                <?php if (count($ms_tiers) > 0): ?>
                 <div class="text-[11px] space-y-1">
-                    <div class="flex justify-between"><span class="u-text-2"><?= lang('team_help_wage_l2') ?></span><span class="font-bold text-emerald-600 dark:text-emerald-400">Rp 200.000</span></div>
-                    <div class="flex justify-between"><span class="u-text-2"><?= lang('team_help_wage_l3') ?></span><span class="font-bold text-emerald-600 dark:text-emerald-400">Rp 1.000.000</span></div>
-                    <div class="flex justify-between"><span class="u-text-2"><?= lang('team_help_wage_l4') ?></span><span class="font-bold text-emerald-600 dark:text-emerald-400">Rp 2.500.000</span></div>
-                    <div class="flex justify-between"><span class="u-text-2"><?= lang('team_help_wage_l5') ?></span><span class="font-bold text-emerald-600 dark:text-emerald-400">Rp 5.000.000</span></div>
-                    <div class="flex justify-between"><span class="u-text-2"><?= lang('team_help_wage_l6') ?></span><span class="font-bold text-emerald-600 dark:text-emerald-400">Rp 9.000.000</span></div>
+                    <?php foreach ($ms_tiers as $ms_tier): ?>
+                    <div class="flex justify-between gap-2">
+                        <span class="u-text-2"><?= sprintf(lang('team_ms_help_row'), (int) $ms_tier['target'], 'Rp ' . number_format((int) $ms_tier['amount'], 0, ',', '.')) ?></span>
+                        <?php if ($ms_tier['state'] === 'claimed'): ?>
+                            <span class="shrink-0 font-bold text-emerald-600 dark:text-emerald-400"><i class="fas fa-check-circle"></i></span>
+                        <?php endif; ?>
+                    </div>
+                    <?php endforeach; ?>
                 </div>
-                <p class="text-[10px] text-emerald-500 dark:text-emerald-400 mt-2 font-semibold"><?= lang('team_help_wage_note') ?></p>
+                <?php endif; ?>
+                <p class="text-[10px] text-amber-600 dark:text-amber-400 mt-2 font-semibold"><?= lang('team_ms_help_note') ?></p>
             </div>
+            <?php endif; ?>
             <!-- Close Button -->
             <button onclick="closeHelpModal()" class="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition-all active:scale-95"><?= lang('common_got_it') ?></button>
         </div>
@@ -526,21 +467,24 @@
 <!-- QRCode.js CDN -->
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script>
-// P5 (plan/80): label tombol klaim L1 dinamis dari User_model::LEVEL1_BONUS.
-const L1_CLAIM_LABEL = <?= json_encode(sprintf(lang('team_claim_l1_full'), $l1_bonus_fmt), JSON_UNESCAPED_UNICODE) ?>;
 // Plan 94 (F1): default pesan JS halaman — diterjemahkan server-side
 const I18N = <?= json_encode([
-    'claimed_bonus' => lang('team_js_claimed_bonus'),
-    'claim_success' => lang('team_js_claim_success'),
     'claim_failed'  => lang('team_js_claim_failed'),
     'network_error' => lang('team_js_network_error'),
-    'wage_claimed'  => lang('team_js_wage_claimed'),
-    'wage_success'  => lang('team_js_wage_success'),
-    'claimed_this_week' => lang('team_js_claimed_this_week'),
-    'weekly_already'    => lang('team_js_weekly_already'),
-    'cooldown_active'   => lang('team_js_cooldown_active'),
-    'cooldown_msg'      => lang('team_js_cooldown_msg'),
-    'claim_wage'        => lang('team_js_claim_wage'),
+    // plan/119: Bonus Pencapaian Tim (template %s/%d dirender server-side)
+    'ms_success'        => lang('team_ms_js_success'),
+    'ms_already'        => lang('team_ms_js_already'),
+    'ms_locked'         => lang('team_ms_js_locked'),
+    'ms_not_qualified'  => lang('team_ms_js_not_qualified'),
+    'ms_invalid'        => lang('team_ms_js_invalid'),
+    'ms_disabled'       => lang('team_ms_js_disabled'),
+    'ms_claimed'        => lang('team_ms_claimed'),
+    'ms_need_more'      => lang('team_ms_need_more'),
+    'ms_locked_prev'    => lang('team_ms_locked_prev'),
+    'ms_claim_btn'      => lang('team_ms_claim_btn'),
+    'ms_target_row'     => lang('team_ms_target_row'),
+    'ms_progress_to'    => lang('team_ms_progress_to'),
+    'ms_all_claimed'    => lang('team_ms_all_claimed'),
     'promo_submit'      => lang('team_promo_submit'),
     'promo_claimed'     => lang('team_js_promo_claimed'),
     'promo_failed'      => lang('team_js_promo_failed'),
@@ -603,76 +547,125 @@ function closeHelpModal() {
     setTimeout(function() { m.classList.add('hidden'); }, 300);
 }
 
-// ═══ Claim AJAX ═══
-// Token CSRF disuntik otomatis oleh csrfFetch() (partial templates/csrf_meta.php)
-
-function claimLevel1() {
-    var btn = document.getElementById('btn-claim-l1');
-    if (!btn || btn.disabled) return;
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>' + ((window.SYNAPSE_I18N || {})['js_processing'] || 'Memproses...');
-    var fd = new FormData();
-    csrfFetch('<?= site_url("team/claim_level1") ?>', { method: 'POST', body: fd })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-        if (d.success) {
-            btn.innerHTML = '<i class="fas fa-check-circle mr-1"></i>' + I18N.claimed_bonus;
-            btn.className = 'w-full bg-emerald-500 text-white text-xs font-bold py-3 px-4 rounded-xl cursor-not-allowed';
-            // C4 (plan/54): endpoint mengembalikan new_balance (saldo ledger segar).
-            if (d.new_balance !== undefined) {
-                var bal = document.getElementById('balance-display');
-                if (bal) bal.textContent = 'Rp ' + Number(d.new_balance).toLocaleString('id-ID');
-            }
-            showToast(d.message || I18N.claim_success, 'success');
-        } else {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-gift mr-1"></i>' + L1_CLAIM_LABEL;
-            showToast(d.message || I18N.claim_failed, 'error');
-        }
-    })
-    .catch(function() {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-gift mr-1"></i>' + L1_CLAIM_LABEL;
-        showToast(I18N.network_error, 'error');
+// ═══ plan/119 — Bonus Pencapaian Tim: klaim + repaint ═══
+// Template kamus memakai placeholder printf (`%1$d`/`%2$s`/'%d'/'%s') —
+// dirender di klien dengan urutan argumen (server yang memiliki copy-nya, L1 i18n).
+function msTpl(tpl, args) {
+    var i = 0;
+    return String(tpl == null ? '' : tpl).replace(/%(\d+\$)?[ds]/g, function () {
+        return (i < args.length) ? String(args[i++]) : '';
     });
 }
+function msEsc(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function msIdr(n) {
+    return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(Number(n) || 0);
+}
 
-function claimWage() {
-    var btn = document.getElementById('btn-claim-wage');
+// Repaint seluruh daftar tier dari payload `milestones` (state SEGAR dari
+// server — tidak ada perhitungan kredensial/kualifikasi di klien).
+function paintMilestones(ms) {
+    var box = document.getElementById('ms-tiers');
+    if (!box || !ms || !ms.tiers) return;
+
+    var total = Number(ms.total_active) || 0;
+    var next  = (ms.next_target === null || ms.next_target === undefined) ? null : Number(ms.next_target);
+    var all   = !!ms.all_claimed;
+
+    var totalEl = document.getElementById('ms-total');
+    if (totalEl) totalEl.textContent = msIdr(total);
+
+    var bar = document.getElementById('ms-bar');
+    if (bar) {
+        var pct = (next && next > 0) ? Math.min(100, Math.floor(total * 100 / next)) : (all ? 100 : 0);
+        bar.style.width = pct + '%';
+        bar.className = 'h-full rounded-full transition-all duration-500 ' + (pct >= 100 ? 'bg-emerald-500' : 'bg-amber-500');
+    }
+
+    var html = '';
+    ms.tiers.forEach(function (t) {
+        var target = Number(t.target) || 0;
+        var amount = Number(t.amount) || 0;
+        var state  = String(t.state || '');
+        var slot;
+
+        if (state === 'claimed') {
+            slot = '<span class="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400">'
+                 + '<i class="fas fa-check-circle"></i>' + msEsc(I18N.ms_claimed) + '</span>';
+        } else if (state === 'claimable') {
+            slot = '<button type="button" id="btn-claim-ms" data-target="' + target + '" onclick="claimMilestone(this)"'
+                 + ' class="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold px-3 py-2 rounded-lg transition-all active:scale-95 whitespace-nowrap">'
+                 + '<i class="fas fa-trophy mr-1"></i>' + msEsc(msTpl(I18N.ms_claim_btn, ['Rp ' + msIdr(amount)])) + '</button>';
+        } else if (state === 'locked_count') {
+            slot = '<span class="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400">'
+                 + '<i class="fas fa-lock"></i>' + msEsc(msTpl(I18N.ms_need_more, [Number(t.missing) || 0])) + '</span>';
+        } else {
+            slot = '<span class="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400">'
+                 + '<i class="fas fa-flag"></i>' + msEsc(I18N.ms_locked_prev) + '</span>';
+        }
+
+        html += '<div class="u-card-inset rounded-xl p-3 flex items-center justify-between gap-2" data-target="' + target + '" data-state="' + msEsc(state) + '">'
+              + '<div class="min-w-0">'
+              + '<p class="text-xs u-text font-bold">' + msEsc(msTpl(I18N.ms_target_row, [target])) + '</p>'
+              + '<p class="text-[10px] u-muted">Rp ' + msIdr(amount) + '</p>'
+              + '</div>'
+              + '<div class="shrink-0 text-right" data-ms-slot>' + slot + '</div>'
+              + '</div>';
+    });
+
+    box.innerHTML = html;
+}
+
+function claimMilestone(btn) {
     if (!btn || btn.disabled) return;
+    var target = btn.getAttribute('data-target');
+    var html   = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>' + ((window.SYNAPSE_I18N || {})['js_processing'] || 'Memproses...');
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>' + ((window.SYNAPSE_I18N || {})['js_processing'] || '...');
+
     var fd = new FormData();
-    csrfFetch('<?= site_url("team/claim_wage") ?>', { method: 'POST', body: fd })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
+    fd.append('target', target);
+
+    csrfFetch('<?= site_url("team/claim_milestone") ?>', { method: 'POST', body: fd })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
         var code = d.code || (d.success ? 'claimed' : 'error');
+
         if (d.success && code === 'claimed') {
-            btn.innerHTML = '<i class="fas fa-check-circle mr-1"></i>' + I18N.wage_claimed;
-            btn.className = 'w-full bg-emerald-500 text-white text-xs font-bold py-3 px-4 rounded-xl cursor-not-allowed';
             if (d.new_balance !== undefined) {
                 var bal = document.getElementById('balance-display');
                 if (bal) bal.textContent = 'Rp ' + Number(d.new_balance).toLocaleString('id-ID');
             }
-            showToast(d.message || I18N.wage_success, 'success');
-        } else if (code === 'already_claimed') {
-            btn.innerHTML = '<i class="fas fa-check-circle mr-1"></i>' + I18N.claimed_this_week;
-            btn.className = 'w-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold py-3 px-4 rounded-xl cursor-not-allowed';
-            showToast(d.message || I18N.weekly_already, 'error');
-        } else if (code === 'cycle_not_ready') {
-            btn.innerHTML = '<i class="fas fa-hourglass-half mr-1"></i>' + I18N.cooldown_active;
-            btn.className = 'w-full bg-slate-700 text-slate-400 text-xs font-bold py-3 px-4 rounded-xl cursor-not-allowed border border-slate-600';
-            showToast(d.message || I18N.cooldown_msg, 'error');
-        } else {
-            // not_qualified / unauthenticated / error / too_many_attempts → re-enable
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-money-bill-wave mr-1"></i>' + I18N.claim_wage;
-            showToast(d.message || I18N.claim_failed, 'error');
+            // State segar dari server → repaint kartu tanpa reload.
+            if (d.milestones) paintMilestones(d.milestones);
+            showToast(d.message || I18N.ms_success, 'success');
+            return;
         }
-    })
-    .catch(function() {
+
+        if (d.milestones) paintMilestones(d.milestones);
+
+        if (code === 'already_claimed' || code === 'locked_previous'
+            || code === 'invalid_target' || code === 'user_unavailable') {
+            // State server sudah final → tampilkan apa adanya (tanpa re-enable).
+            showToast(d.message || I18N.ms_already, 'error');
+            return;
+        }
+
+        // not_qualified / disabled / unauthenticated / error / too_many_attempts
+        // → pulihkan tombol supaya dapat dicoba lagi.
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-money-bill-wave mr-1"></i>' + I18N.claim_wage;
+        btn.innerHTML = html;
+        if (code === 'not_qualified')    showToast(d.message || I18N.ms_not_qualified, 'error');
+        else if (code === 'disabled')    showToast(d.message || I18N.ms_disabled, 'error');
+        else if (code === 'invalid_target') showToast(d.message || I18N.ms_invalid, 'error');
+        else                             showToast(d.message || I18N.claim_failed, 'error');
+    })
+    .catch(function () {
+        btn.disabled = false;
+        btn.innerHTML = html;
         showToast(I18N.network_error, 'error');
     });
 }

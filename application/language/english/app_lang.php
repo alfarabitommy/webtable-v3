@@ -98,6 +98,11 @@ $lang['home_checkin_subtitle'] = 'Log in and claim your bonus every day.';
 $lang['home_checkin_title'] = 'Daily Check-in';
 $lang['home_checkin_today_reward'] = "Today's bonus";
 $lang['home_checkin_window_left'] = 'Claim window closes in';
+// plan/118: dompet kedua — syarat sewa aktif + saldo absensi.
+$lang['home_checkin_balance_label'] = 'Bonus Balance';
+$lang['home_checkin_cta_rent'] = 'View GPU Plans';
+$lang['home_checkin_err_no_rental'] = 'You need at least one active rental to claim this bonus.';
+$lang['home_checkin_need_rental_hint'] = 'Claim your daily bonus by keeping at least one active rental (trial or paid).';
 $lang['home_copied_toast'] = 'Copied successfully!';
 $lang['home_copy_btn'] = 'Copy';
 $lang['home_engine_line'] = 'Synapse Engine v2.0 Active';
@@ -140,6 +145,10 @@ $lang['lang_switch_label'] = 'Change language';
 $lang['market_catalog_sub'] = 'Pick a node that fits your needs.';
 $lang['market_catalog_title'] = 'Infrastructure Catalog';
 $lang['market_confirm_pay'] = 'Confirm & Pay';
+// plan/118: split payment dari dompet "Saldo Absen" (%s = nominal, argumen).
+$lang['market_checkin_available'] = 'Available: %s';
+$lang['market_checkin_split_note'] = '%s from Bonus Balance · %s from main balance';
+$lang['market_checkin_use_label'] = 'Use Bonus Balance';
 $lang['market_empty_body'] = 'All compute units are currently full or under maintenance. Please check back regularly.';
 $lang['market_empty_title'] = 'No Packages Available Yet';
 $lang['market_insufficient'] = 'Insufficient Balance — Top Up';
@@ -236,68 +245,67 @@ $lang['rental_sub'] = 'Your node status and daily earnings.';
 $lang['rental_system_monitor'] = 'System Monitor';
 $lang['rental_total_nodes'] = 'Total Nodes';
 $lang['rental_two_days'] = '(2 Days)';
-$lang['team_active_agents'] = 'Active Agents';
 $lang['team_active_badge'] = 'Active';
 $lang['team_active_downline'] = 'Active Downlines';
 $lang['team_active_members'] = 'Active Members';
-$lang['team_badge_level'] = 'Level %1$d — %2$s';
-$lang['team_claim_bonus_btn'] = 'Claim Bonus Rp %s';
-$lang['team_claim_l1_full'] = 'Claim Level 1 Bonus (Rp %s)';
-$lang['team_claim_wage_btn'] = 'Claim Weekly Wage (Level %1$d) — %2$s';
 $lang['team_code_locked'] = 'Invite Code Locked';
-$lang['team_cooldown_next'] = 'Cooldown — Next wage: %d days left';
 $lang['team_copy_btn'] = 'Copy';
 $lang['team_direct_downline'] = 'Direct Downline';
 $lang['team_direct_sub'] = 'Child — your direct referral';
 $lang['team_disabled'] = 'Disabled';
-$lang['team_done_claimed'] = 'Done — Claimed';
 $lang['team_help_active_body'] = 'A downline counts as <b>active</b> only when they hold an <b>active contract from a paid product</b> — a rental whose product is not the free trial package (status <code>active</code> in the database and not yet expired). Trial contracts and users who are not renting are <b>not counted</b>.';
 $lang['team_help_active_downline'] = 'Active Downline';
-$lang['team_help_l1_body'] = 'Get <b>Rp %s</b> (once in a lifetime) if:';
-$lang['team_help_l1_li1'] = 'Minimum <b>3 direct downlines (B)</b> holding an active contract from a paid product (not the trial package)';
-$lang['team_help_l1_li2'] = 'Total active B-downline omzet &#8805; <b>%s</b>';
-$lang['team_help_l1_note'] = '⚠️ This bonus can only be claimed once. It cannot be repeated.';
-$lang['team_help_l1_title'] = 'Level 1 Bonus — One Time';
 $lang['team_help_title'] = 'How Affiliate Bonuses Work';
-$lang['team_help_wage_body'] = 'Claim the weekly wage based on your total active downlines holding a paid-product contract (all levels):';
-$lang['team_help_wage_l2'] = 'Level 2 (≥ 9 active)';
-$lang['team_help_wage_l3'] = 'Level 3 (≥ 30 active)';
-$lang['team_help_wage_l4'] = 'Level 4 (≥ 70 active)';
-$lang['team_help_wage_l5'] = 'Level 5 (≥ 130 active)';
-$lang['team_help_wage_l6'] = 'Level 6 (≥ 190 active)';
-$lang['team_help_wage_note'] = '⏱️ 7-day cooldown between claims. Level is determined dynamically at claim time.';
-$lang['team_help_wage_title'] = 'Weekly Wage — Levels 2-6';
 $lang['team_how_bonus'] = 'How Bonuses Work';
 $lang['team_inactive_badge'] = 'Inactive';
 $lang['team_invite_link'] = 'Invite Link';
 $lang['team_js_claim_failed'] = 'Claim failed';
-$lang['team_js_claim_success'] = 'Bonus claimed successfully!';
-$lang['team_js_claim_wage'] = 'Claim Weekly Wage';
-$lang['team_js_claimed_bonus'] = 'Bonus claimed!';
-$lang['team_js_claimed_this_week'] = 'Already Claimed This Week';
-$lang['team_js_cooldown_active'] = 'Cooldown Active';
-$lang['team_js_cooldown_msg'] = 'Cooldown is active.';
 $lang['team_js_network_error'] = 'A network error occurred';
+
+// plan/119: BONUS PENCAPAIAN TIM (Team Milestone Bonus) — pengganti Gaji
+// Mingguan. Tier dinamis dari system_settings; dibayar SEKALI seumur hidup,
+// tanpa cooldown; nominal dirender dinamis (L6: angka tidak masuk kamus).
+$lang['team_ms_title'] = 'Team Milestone Bonus';
+$lang['team_ms_sub'] = 'Reach active-downline milestones — each tier is paid once, for life.';
+$lang['team_ms_once'] = 'Once for life';
+$lang['team_ms_progress_label'] = 'Total active downlines (all levels)';
+$lang['team_ms_progress_to'] = 'of %s';
+$lang['team_ms_target_row'] = '%d active downlines';
+$lang['team_ms_claim_btn'] = 'Claim %s';
+$lang['team_ms_claimed'] = 'Claimed';
+$lang['team_ms_claimed_hint'] = 'Permanently claimed — cannot be claimed again.';
+$lang['team_ms_need_more'] = '%d more active downlines';
+$lang['team_ms_locked_prev'] = 'Finish the previous milestone first';
+$lang['team_ms_all_claimed'] = 'All milestones claimed — congratulations!';
+$lang['team_ms_empty'] = 'The admin has not configured any milestone yet.';
+$lang['team_ms_js_success'] = 'Milestone bonus claimed successfully!';
+$lang['team_ms_js_already'] = 'This milestone has already been claimed.';
+$lang['team_ms_js_locked'] = 'Claim the previous milestone first.';
+$lang['team_ms_js_not_qualified'] = 'Your active-downline count has not reached this milestone yet.';
+$lang['team_ms_js_invalid'] = 'Invalid milestone.';
+$lang['team_ms_js_disabled'] = 'The team milestone bonus is currently disabled.';
+$lang['team_ms_help_title'] = 'Team Milestone Bonus';
+$lang['team_ms_help_body'] = 'Each milestone pays <b>once for life</b> — no weekly cycle and no cooldown. Active downline = a downline holding an active contract from a paid product (trial contracts are not counted):';
+$lang['team_ms_help_row'] = '%1$d active downlines → %2$s';
+$lang['team_ms_help_note'] = 'Milestones are claimed in order, from the lowest. A claimed milestone is permanently locked, even if your active-downline count drops.';
+// plan/119: pesan generik "sudah diklaim" untuk jalur Bonus Level 1 (key lama
+// ber-nama "weekly" dipensiunkan bersama mesin Gaji Mingguan).
+$lang['notif_milestone_title'] = 'Team Milestone Bonus Credited';
+$lang['notif_milestone_body'] = 'Congratulations! Your team milestone bonus of Rp %s for %s active downlines has been credited to your main balance.';
+$lang['ledger_milestone'] = 'Team milestone bonus - %s active downlines';
+
 $lang['team_js_promo_claimed'] = 'Claim submitted!';
 $lang['team_js_promo_failed'] = 'Failed to submit claim';
-$lang['team_js_wage_claimed'] = 'Wage claimed!';
-$lang['team_js_wage_success'] = 'Wage claimed successfully!';
-$lang['team_js_weekly_already'] = 'Weekly wage already claimed.';
 $lang['team_l1_active'] = 'Active L1 Agents';
 $lang['team_l2_active'] = 'Active L2 Agents';
 $lang['team_l2_name'] = 'Level 2';
 $lang['team_l2_sub'] = 'Grandchild — from your direct downline';
 $lang['team_l3_name'] = 'Level 3';
 $lang['team_l3_sub'] = 'Great-grandchild — 3 levels below you';
-$lang['team_level6_reached'] = '— Level 6 reached';
-$lang['team_level_2_6'] = 'Level 2–6';
 $lang['team_locked_body'] = 'Rent at least 1 GPU package to unlock your invite code and start earning team commissions.';
 $lang['team_members_empty'] = 'No team members yet';
 $lang['team_members_empty_sub'] = 'Share your referral code to get started';
 $lang['team_members_title'] = 'Member List';
-$lang['team_mission_l1'] = 'Level 1 Mission';
-$lang['team_no_level2'] = 'Not yet at Level 2';
-$lang['team_once_lifetime'] = 'One-time lifetime claim';
 $lang['team_page_title'] = 'Team & Affiliates';
 $lang['team_promo_available'] = 'Available';
 $lang['team_promo_badge'] = 'Reward GPU';
@@ -328,19 +336,13 @@ $lang['team_rebate_req_body2'] = 'when the downline buys a package. If inactive,
 $lang['team_rebate_req_body3'] = 'forfeited — not passed up.';
 $lang['team_rebate_req_label'] = 'Eligibility requirement:';
 $lang['team_rebate_title'] = '3-Tier Rebate Commission';
-$lang['team_req_min9'] = 'Requirements Not Met — Minimum 9 Active Downlines';
-$lang['team_req_not_met'] = 'Requirements Not Met';
 $lang['team_scan_qr'] = 'Scan the QR to register';
 $lang['team_share_center'] = 'Share Center';
 $lang['team_share_hint'] = 'Share this code with friends to build your team';
 $lang['team_stats_title'] = 'Team Statistics';
-$lang['team_team_turnover'] = 'Team Turnover';
 $lang['team_total_members'] = 'Total Members';
-$lang['team_toward_level'] = 'toward Level %d';
 $lang['team_view_gpu'] = 'View GPU Packages';
 $lang['team_wa_message'] = 'Hello, I am your upline on the platform. Can I help you with renting products?';
-$lang['team_wage_sub'] = 'Claim once per 7 days — level is determined dynamically from active downlines holding a paid-product contract';
-$lang['team_weekly_wage'] = 'Weekly Wage';
 $lang['wallet_active_badge'] = 'ACTIVE';
 $lang['wallet_amount_invalid'] = 'Amount must be a whole number (digits only, no dots or decimals).';
 $lang['wallet_amount_prompt'] = 'Enter amount (digits only):\ne.g. 750000';
@@ -357,9 +359,15 @@ $lang['wallet_fee_fee_label'] = 'Fee Rp ';
 $lang['wallet_fee_principal_label'] = 'Principal Rp ';
 $lang['wallet_fee_total_label'] = ' = Total Paid Rp ';
 $lang['wallet_ledger_title'] = 'Transaction History';
+// plan/118: dompet kedua — "Saldo Absen" (tidak dapat ditarik).
+$lang['wallet_checkin_note'] = 'Usable only to rent GPU products. Cannot be withdrawn.';
+$lang['wallet_checkin_title'] = 'Bonus Balance';
+$lang['wallet_ledger_chip_checkin'] = 'Bonus';
 $lang['wallet_loan_active'] = 'Active Loan';
 // plan/114: label tombol penarikan terkunci (belum pernah menyewa produk berbayar).
 $lang['wallet_wd_need_paid'] = 'Paid Rental Required';
+// plan/117: label tombol penarikan terkunci karena kebijakan admin (Withdrawal Lock).
+$lang['wallet_wd_locked_btn'] = 'Withdrawal Suspended';
 $lang['wallet_other'] = 'Other';
 $lang['wallet_page_title'] = 'Wallet';
 $lang['wallet_pay_back'] = 'Back to Wallet';
@@ -491,6 +499,9 @@ $lang['wd_err_closed_time'] = 'Withdrawals can only be submitted between %s-%s W
 $lang['wd_err_below_min'] = 'Minimum withdrawal is Rp %s';
 $lang['wd_err_above_max'] = 'Maximum withdrawal is Rp %s';
 $lang['wd_err_insufficient'] = 'Insufficient balance for withdrawal';
+// plan/117: kunci penarikan per-user (kebijakan admin). Pesan SENGAJA generik —
+// alasan admin (`users.wd_lock_reason`) tidak pernah ditampilkan ke member (W3).
+$lang['wd_err_locked'] = 'Your withdrawal is suspended. Please contact customer service.';
 $lang['wd_err_process_failed'] = 'Failed to process the withdrawal.';
 $lang['wd_err_not_found'] = 'Withdrawal not found.';
 $lang['wd_err_simulate_failed'] = 'Simulation failed: the withdrawal is already processed or invalid.';
@@ -511,6 +522,8 @@ $lang['rental_err_max_per_user'] = 'System: the maximum rental limit for this pa
 $lang['rental_err_checkout_failed'] = 'System: failed to process the rental. Please try again.';
 $lang['rental_err_claim_failed'] = 'System: failed to process the claim. Please try again.';
 $lang['rental_ok_activated'] = 'Rental activated successfully! Infrastructure is online.';
+// plan/118: pesan sukses split payment (%s = dari Saldo Absen, %s = dari saldo utama).
+$lang['rental_ok_activated_split'] = 'Rental activated! %s paid from Bonus Balance and %s from your main balance.';
 // plan/114: penanda kontrak trial (harga 0) di daftar sewa.
 $lang['rental_trial_badge'] = 'Trial Contract';
 $lang['auth_err_account_inactive'] = 'Your account has been deactivated. Please contact admin.';
@@ -565,7 +578,6 @@ $lang['time_moments_ago'] = 'moments ago';
 $lang['time_minutes_ago_short'] = '%d min ago';
 $lang['time_hours_ago_short'] = '%d h ago';
 $lang['time_days_ago_short'] = '%d d ago';
-$lang['user_wage_next_in'] = '%d days remaining (next: %s)';
 $lang['notif_type_info'] = 'Info';
 $lang['notif_type_success'] = 'Success';
 $lang['notif_type_warning'] = 'Warning';
@@ -614,6 +626,11 @@ $lang['notif_rental_injected_title'] = 'Rental Activated by Admin';
 $lang['notif_rental_injected_body'] = 'A rental contract (product #%d) has been activated for your account by admin.';
 $lang['notif_rental_expired_title'] = 'Rental Contract Closed';
 $lang['notif_rental_expired_body'] = 'The rental period for contract #%d has ended and the contract was closed automatically.';
+// plan/117: kunci penarikan per-user — teks GENERIK, tanpa alasan admin (D3/W3).
+$lang['notif_wd_locked_title'] = 'Withdrawal Suspended';
+$lang['notif_wd_locked_body'] = 'Withdrawal access for your account is temporarily suspended by admin. Please contact customer service.';
+$lang['notif_wd_unlocked_title'] = 'Withdrawal Reactivated';
+$lang['notif_wd_unlocked_body'] = 'Withdrawal access for your account has been reactivated. You can submit a withdrawal again.';
 $lang['help_page_title'] = 'Help & FAQ';
 $lang['help_page_sub'] = 'Find answers to common questions about Synapse.';
 $lang['help_contact_title'] = 'Contact Support';
@@ -646,10 +663,7 @@ $lang['help_q_topup_body'] = '<ol class="list-decimal list-inside space-y-1"><li
 $lang['help_footer_version'] = 'Synapse Support - v1.0';
 $lang['js_copy_code_failed'] = 'Failed to copy the code.';
 $lang['profile_err_current_password'] = 'Current password is incorrect.';
-$lang['team_err_not_qualified'] = 'The claim requirements have not been met yet.';
 $lang['team_err_user_unavailable'] = 'Your account is unavailable. Please contact admin.';
-$lang['team_err_wage_cooldown'] = 'Cooldown active. Your next wage can be claimed in %d days (%s).';
-$lang['team_err_wage_not_qualified'] = 'At least 9 active downlines are required to claim the weekly wage.';
 $lang['help_wa_prefill'] = 'Hello Synapse, I need help with my account.';
 $lang['help_email_subject'] = 'Synapse Help';
 $lang['notif_history_title'] = 'Notification History';
@@ -658,6 +672,8 @@ $lang['ledger_rebate'] = 'Rebate commission - level %s';
 $lang['ledger_bonus_l1'] = 'Level 1 bonus - 3 active agents + omzet >=330k';
 // plan/112: deskripsi ledger absensi harian ("Bonus Absensi Harian Hari ke-7")
 $lang['ledger_checkin'] = 'Daily check-in bonus - day %s';
+// plan/118: baris debit checkout yang dibayar dari dompet "Saldo Absen".
+$lang['ledger_rent_checkin'] = 'Rent %s (from Bonus Balance)';
 $lang['ledger_wage'] = 'Weekly wage - level %s';
 $lang['ledger_withdrawal'] = 'Withdrawal';
 $lang['ledger_deposit'] = 'Deposit';
@@ -676,3 +692,45 @@ $lang['promo_err_promoter_missing'] = 'Promoter not found.';
 $lang['promo_err_submit_failed'] = 'System: failed to submit the claim. Please try again.';
 $lang['promo_ok_submitted'] = 'Reward claim submitted. Awaiting admin approval.';
 $lang['promo_err_invalid_request'] = 'System: invalid claim data.';
+
+// =====================================================================
+// plan/121 — LUCKY SPIN WHEEL (Referral Reward System)
+// Tiket BUKAN uang; hadiah masuk dompet utama (wallet_type = 'main').
+// L6: TIDAK ADA angka/nominal di kamus — seluruh nominal dirender server.
+// =====================================================================
+$lang['spin_page_title'] = 'Lucky Spin Wheel';
+$lang['spin_hero_subtitle'] = 'Every downline you invite earns you a spin ticket. Cash prizes go straight to your main balance.';
+$lang['spin_tickets_label'] = 'Spin Tickets';
+$lang['spin_ticket_unit'] = 'tickets';
+$lang['spin_fab_label'] = 'Open Lucky Spin';
+$lang['spin_cta_spin'] = 'Spin the Wheel';
+$lang['spin_cta_spinning'] = 'Spinning';
+$lang['spin_cta_no_ticket'] = 'No Ticket Yet';
+$lang['spin_win_title'] = 'Congratulations!';
+$lang['spin_win_desc'] = 'Your prize is already in your main balance and can be withdrawn.';
+$lang['spin_close'] = 'Close';
+$lang['spin_ok_message'] = 'You won! The prize has been credited to your main balance.';
+$lang['spin_how_title'] = 'How to earn a ticket';
+$lang['spin_how_step1'] = 'Share your invite code or referral link with a friend.';
+$lang['spin_how_step2'] = 'Your Level 1 downline buys a paid (non-trial) GPU package for the FIRST time.';
+$lang['spin_how_step3'] = 'One spin ticket lands in your account automatically - one ticket per downline, for life.';
+$lang['spin_rules_body'] = 'Tickets never expire and cannot be bought or transferred. Trial packages do not earn tickets. Every spin always pays a prize, and the odds are set by the admin on the server.';
+$lang['spin_empty_cta'] = 'Invite a Downline';
+$lang['spin_history_title'] = 'Spin History';
+$lang['spin_history_empty'] = 'No spins yet.';
+$lang['spin_history_prize'] = 'Prize';
+$lang['spin_odds_hint'] = 'Highest chance';
+$lang['spin_dashboard_card_title'] = 'Lucky Spin Wheel';
+$lang['spin_dashboard_card_desc'] = 'One ticket for every downline who buys their first paid package.';
+$lang['spin_dashboard_no_ticket_hint'] = 'You have no ticket yet. Invite a downline and have them buy their first paid package.';
+$lang['spin_err_no_ticket'] = 'You have no Lucky Spin ticket yet.';
+$lang['spin_err_disabled'] = 'Lucky Spin is currently disabled.';
+$lang['spin_err_not_configured'] = 'The prize wheel is not configured yet.';
+$lang['spin_err_unavailable'] = 'System: account not found.';
+$lang['spin_err_generic'] = 'System: failed to process the spin. Please try again.';
+$lang['js_spin_network'] = 'Connection problem. Please try again.';
+$lang['ledger_spin'] = 'Lucky Spin prize';
+$lang['notif_spin_ticket_title'] = 'You Earned a Spin Ticket';
+$lang['notif_spin_ticket_body'] = 'Your downline bought their first paid package - 1 Lucky Spin ticket has been added to your account.';
+$lang['notif_spin_win_title'] = 'Lucky Spin Prize Credited';
+$lang['notif_spin_win_body'] = 'Your Lucky Spin prize of Rp %s has been credited to your main balance.';

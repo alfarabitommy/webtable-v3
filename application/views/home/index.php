@@ -266,6 +266,12 @@
     // tetap terlihat sebagai 1%, cap = 100%. Tanpa pembagian float (M8).
     $hm112_pct  = min(100, intdiv(max(0, (int) $checkin['today_reward']) * 100 + $hm112_max - 1, $hm112_max));
     $hm112_done = !empty($checkin['claimed_today']);
+    // plan/118: gerbang syarat sewa aktif → state TERKUNCI (kartu tetap
+    // dirender; tombol disabled + CTA ke marketplace — keputusan owner D10).
+    $hm112_req  = !empty($checkin['require_active_rental']);
+    $hm112_has  = !empty($checkin['has_active_rental']);
+    $hm112_lock = ($hm112_req && !$hm112_has && !$hm112_done);
+    $hm112_bal  = (int) ($checkin['checkin_balance'] ?? 0);
     ?>
     <?php /* Peta string dinamis JS — pola SYNAPSE_I18N (plan/94 L5), digabung
              (Object.assign) agar header tidak perlu diubah. */ ?>
@@ -277,13 +283,17 @@
         'hm112_window_left' => lang('home_checkin_window_left'),
         'hm112_generic'     => lang('home_checkin_err_generic'),
         'hm112_day_fmt'     => lang('home_checkin_day'),
+        // plan/118: label state terkunci (syarat sewa aktif belum terpenuhi).
+        'hm112_need_rental' => lang('home_checkin_need_rental_hint'),
     ], JSON_UNESCAPED_UNICODE) ?>);
     </script>
 
     <div id="hm112-card" class="hm112-card rounded-2xl p-5 shadow-sm"
          data-claimed="<?= $hm112_done ? '1' : '0' ?>"
          data-window-ts="<?= (int) $checkin['next_window_ts'] ?>"
-         data-max-reward="<?= $hm112_max ?>">
+         data-max-reward="<?= $hm112_max ?>"
+         data-require-rental="<?= $hm112_req ? '1' : '0' ?>"
+         data-has-rental="<?= $hm112_has ? '1' : '0' ?>">
         <div class="hm112-orb hm112-orb-a" aria-hidden="true"></div>
         <div class="hm112-orb hm112-orb-b" aria-hidden="true"></div>
 
@@ -318,6 +328,13 @@
             <p class="text-[10px] u-muted mt-1.5"><?= lang('home_checkin_cap_label') ?> · Rp <?= number_format($hm112_max, 0, ',', '.') ?></p>
         </div>
 
+        <?php /* plan/118: saldo dompet kedua (dihitung di server; BUKAN saldo
+               utama). Angka tidak pernah masuk kamus (L6). */ ?>
+        <div class="mt-3 flex items-center justify-between gap-2 rounded-xl u-card-inset px-3 py-2">
+            <span class="text-[10px] u-muted font-semibold uppercase tracking-wider"><?= lang('home_checkin_balance_label') ?></span>
+            <span class="text-xs font-bold font-mono text-cyan-600 dark:text-cyan-400">Rp <span id="hm112-checkin-balance"><?= number_format($hm112_bal, 0, ',', '.') ?></span></span>
+        </div>
+
         <!-- Pratinjau 7 hari ke depan (server-rendered) -->
         <div class="mt-4">
             <p class="text-[10px] u-muted font-semibold uppercase tracking-wider mb-1.5"><?= lang('home_checkin_preview') ?></p>
@@ -338,12 +355,25 @@
         </div>
 
         <button id="hm112-claim" type="button"
-                class="hm112-btn w-full mt-2 h-12 rounded-xl flex items-center justify-center gap-2 text-sm font-bold text-white<?= $hm112_done ? '' : ' hm112-pulse' ?>"
-                aria-label="<?= $hm112_done ? lang('home_checkin_claimed_btn') : lang('home_checkin_claim_btn') ?>"
-                <?= $hm112_done ? 'disabled' : '' ?>>
-            <i class="fas <?= $hm112_done ? 'fa-circle-check' : 'fa-hand-holding-usd' ?>"></i>
-            <span id="hm112-btn-label"><?= $hm112_done ? lang('home_checkin_claimed_btn') : lang('home_checkin_claim_btn') ?></span>
+                class="hm112-btn w-full mt-2 h-12 rounded-xl flex items-center justify-center gap-2 text-sm font-bold text-white<?= ($hm112_done || $hm112_lock) ? '' : ' hm112-pulse' ?>"
+                aria-label="<?= $hm112_done ? lang('home_checkin_claimed_btn') : ($hm112_lock ? lang('home_checkin_need_rental_hint') : lang('home_checkin_claim_btn')) ?>"
+                data-locked="<?= $hm112_lock ? '1' : '0' ?>"
+                <?= ($hm112_done || $hm112_lock) ? 'disabled' : '' ?>>
+            <i class="fas <?= $hm112_done ? 'fa-circle-check' : ($hm112_lock ? 'fa-lock' : 'fa-hand-holding-usd') ?>"></i>
+            <span id="hm112-btn-label">
+                <?= $hm112_done
+                    ? lang('home_checkin_claimed_btn')
+                    : ($hm112_lock ? lang('home_checkin_need_rental_hint') : lang('home_checkin_claim_btn')) ?>
+            </span>
         </button>
+
+        <?php /* plan/118 (D10): CTA ke marketplace saat kartu TERKUNCI. */ ?>
+        <?php if ($hm112_lock): ?>
+        <a href="<?= base_url('marketplace') ?>"
+           class="mt-2 w-full h-11 rounded-xl flex items-center justify-center gap-2 text-xs font-bold u-btn-ghost">
+            <i class="fas fa-microchip"></i> <?= lang('home_checkin_cta_rent') ?>
+        </a>
+        <?php endif; ?>
 
         <p class="text-[10px] u-muted mt-2 text-center"><?= lang($checkin['policy'] === 'continue' ? 'home_checkin_hint_continue' : 'home_checkin_hint_reset') ?></p>
         <p id="hm112-status" class="text-[10px] text-center text-emerald-600 dark:text-emerald-400 mt-1.5 hidden" aria-live="polite"></p>
@@ -368,12 +398,18 @@
         var timerEl  = document.getElementById('hm112-timer');
         var statusEl = document.getElementById('hm112-status');
         var toastEl  = document.getElementById('hm112-toast');
+        // plan/118: saldo dompet bonus pada kartu.
+        var checkinBalEl = document.getElementById('hm112-checkin-balance');
         var pills    = card.querySelectorAll('.hm112-day');
         var iconEl   = btn.querySelector('i');
 
         var claimed   = card.getAttribute('data-claimed') === '1';
         var windowTs  = parseInt(card.getAttribute('data-window-ts'), 10) || 0;
         var maxReward = parseInt(card.getAttribute('data-max-reward'), 10) || 0;
+        // plan/118: syarat sewa aktif → state terkunci (keputusan D10).
+        var needRental = card.getAttribute('data-require-rental') === '1';
+        var hasRental  = card.getAttribute('data-has-rental') === '1';
+        var locked     = (needRental && !hasRental && !claimed);
         var toastTimer = null;
 
         function showToast(text, ok) {
@@ -404,11 +440,25 @@
             claimed = !!st.claimed_today;
             card.setAttribute('data-claimed', claimed ? '1' : '0');
 
+            // plan/118: state terkunci mengikuti status segar (precedence:
+            // "sudah klaim" selalu menang atas "terkunci").
+            if (typeof st.require_active_rental !== 'undefined') {
+                needRental = !!st.require_active_rental;
+                hasRental  = !!st.has_active_rental;
+            }
+            locked = (needRental && !hasRental && !claimed);
+            card.setAttribute('data-has-rental', hasRental ? '1' : '0');
+            card.setAttribute('data-require-rental', needRental ? '1' : '0');
+
             if (streakEl) streakEl.textContent = st.streak;
             if (amountEl) amountEl.textContent = NUM.format(st.today_reward);
             if (dayEl && I18N.hm112_day_fmt) dayEl.textContent = I18N.hm112_day_fmt.replace('%d', st.today_streak);
             if (barEl && maxReward > 0) {
                 barEl.style.width = Math.min(100, Math.round((st.today_reward * 100) / maxReward)) + '%';
+            }
+            // plan/118: saldo dompet bonus (angka dari server).
+            if (checkinBalEl && typeof st.checkin_balance !== 'undefined') {
+                checkinBalEl.textContent = NUM.format(st.checkin_balance);
             }
 
             if (pills.length && st.preview && st.preview.length === pills.length) {
@@ -422,10 +472,20 @@
                 }
             }
 
-            btn.disabled = claimed;
-            btn.classList.toggle('hm112-pulse', !claimed);
-            if (labelEl) labelEl.textContent = claimed ? I18N.hm112_claimed : I18N.hm112_claim;
-            if (iconEl) iconEl.className = claimed ? 'fas fa-circle-check' : 'fas fa-hand-holding-usd';
+            btn.disabled = (claimed || locked);
+            btn.setAttribute('data-locked', locked ? '1' : '0');
+            btn.classList.toggle('hm112-pulse', !claimed && !locked);
+
+            if (labelEl) {
+                labelEl.textContent = claimed
+                    ? I18N.hm112_claimed
+                    : (locked ? (I18N.hm112_need_rental || I18N.hm112_claim) : I18N.hm112_claim);
+            }
+            if (iconEl) {
+                iconEl.className = claimed
+                    ? 'fas fa-circle-check'
+                    : (locked ? 'fas fa-lock' : 'fas fa-hand-holding-usd');
+            }
             tick();
         }
 
@@ -468,13 +528,43 @@
                 })
                 .catch(function () {
                     if (labelEl) labelEl.textContent = prevLabel;
-                    btn.disabled = claimed;
-                    if (!claimed) btn.classList.add('hm112-pulse');
+                    btn.disabled = (claimed || locked);
+                    if (!claimed && !locked) btn.classList.add('hm112-pulse');
                     showToast(I18N.hm112_generic, false);
                 });
         });
     })();
     </script>
+    <?php endif; ?>
+
+    <?php
+    // ═══ plan/121 — Kartu Lucky Spin (dashboard) ═══
+    // Fail-closed: dirender HANYA bila fitur aktif DAN konfigurasi roda valid.
+    // Seluruh nominal/angka dihitung & diformat di server (L6).
+    $spin_ready   = !empty($spin['enabled']) && !empty($spin['configured']);
+    $spin_tickets = isset($spin['tickets']) ? (int) $spin['tickets'] : 0;
+    ?>
+    <?php if ($spin_ready): ?>
+    <a href="<?= site_url('lucky-spin') ?>"
+       class="relative overflow-hidden rounded-2xl p-4 shadow-sm flex items-center gap-3 border border-amber-400/40
+              bg-gradient-to-br from-amber-500/15 via-amber-400/5 to-orange-500/15
+              dark:from-amber-500/15 dark:via-slate-900 dark:to-orange-500/10
+              active:scale-[0.99] transition-transform duration-150">
+        <span class="pointer-events-none absolute -right-6 -top-8 w-24 h-24 rounded-full bg-amber-400/20 blur-2xl"></span>
+        <span class="relative shrink-0 w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 text-white
+                     flex items-center justify-center shadow-lg shadow-amber-500/30">
+            <i class="fas fa-dharmachakra text-lg"></i>
+        </span>
+        <span class="relative min-w-0 flex-1">
+            <span class="block text-xs font-bold u-text"><?= lang('spin_dashboard_card_title') ?></span>
+            <span class="block text-[11px] u-text-2 mt-0.5 leading-snug"><?= lang('spin_dashboard_card_desc') ?></span>
+        </span>
+        <span class="relative shrink-0 text-center">
+            <span class="block text-lg font-extrabold u-text leading-none"><?= $spin_tickets ?></span>
+            <span class="block text-[9px] u-muted mt-0.5"><?= lang('spin_ticket_unit') ?></span>
+        </span>
+        <i class="fas fa-chevron-right relative text-[10px] u-muted shrink-0"></i>
+    </a>
     <?php endif; ?>
 
     <!-- ═══ User Identity & Referral Card ═══ -->
@@ -768,6 +858,32 @@
     </a>
 
 </div>
+
+<?php if (!empty($spin['enabled']) && !empty($spin['configured'])): ?>
+<!-- ═══ plan/121: FAB Lucky Spin ═══
+     Lapisan fixed selebar viewport dengan isi `max-w-[480px]` yang di-center —
+     sehingga tombol SELALU menempel di kanan shell (bukan kanan viewport) di
+     layar lebar. `bottom-20` = 80 px > tinggi bottom-nav 64 px (z-50), jadi
+     FAB (z-40) tidak pernah menutupi navigasi; toast (z-[60]) tetap di atas.
+     Badge hanya dirender bila tiket > 0 (angka dihitung di server). -->
+<div class="fixed inset-x-0 bottom-20 z-40 pointer-events-none">
+    <div class="max-w-[480px] mx-auto px-4 flex justify-end">
+        <a href="<?= site_url('lucky-spin') ?>"
+           class="pointer-events-auto relative w-14 h-14 rounded-full flex items-center justify-center
+                  bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-xl shadow-amber-500/40
+                  active:scale-95 transition-transform duration-150"
+           aria-label="<?= lang('spin_fab_label') ?>">
+            <i class="fas fa-dharmachakra text-xl"></i>
+            <?php if ($spin_tickets > 0): ?>
+            <span class="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-rose-500 text-white
+                         text-[10px] font-extrabold flex items-center justify-center border-2 border-white dark:border-slate-900">
+                <?= $spin_tickets ?>
+            </span>
+            <?php endif; ?>
+        </a>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php if (!empty($trial_promo)): ?>
 <!-- ═══ TRIAL PROMO MODAL (plan/115) ═══

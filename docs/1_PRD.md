@@ -1,8 +1,60 @@
-# Product Requirements Document (PRD) v5.2
+# Product Requirements Document (PRD) v5.6
 **Project Name:** Synapse (AI GPU Rental)
 **Platform:** Web Application (100% Mobile-First / SPA-like Experience)
 **Core Tech Stack:** CodeIgniter 3 (CI3), PHP 8.3.6, MySQL/MariaDB, Vanilla JavaScript, Tailwind CSS
 
+> **v5.6 — catatan penambahan (plan/121).** Menambahkan **Lucky Spin Wheel** —
+> insentif **referral** (bukan bonus pencapaian agensi): seorang upline menerima
+> **tepat 1 tiket** saat downline L1-nya melakukan pembelian **non-trial
+> pertama** (maksimal 1 tiket per downline **seumur hidup**, tanpa backfill).
+> Hadiah berupa **uang tunai** yang dikreditkan ke **Saldo Utama**
+> (`wallet_type = 'main'`, dapat ditarik) via `Wallet_model::credit()` dengan
+> `transaction_id = 'SPIN-{spin_results.id}'`; pemilihan segmen **100%
+> server-side** (`random_int()` CSPRNG + `spin_wheel_pick()`) sehingga klien
+> tidak pernah menentukan hadiah. Skema: kolom `users.spin_tickets` (counter
+> tiket — **bukan uang**) + **2 tabel baru** (`spin_ticket_grants`,
+> `spin_results`) → **inventory kanonik 14 → 16 tabel**; key
+> `system_settings.spin_wheel_enabled`/`spin_wheel_segments`; halaman member
+> `GET /lucky-spin`, endpoint `POST /lucky-spin/spin`, dan panel admin
+> `/admin/lucky-spin`. Invarian **SP1–SP12** (ERD §7). **Bonus Pencapaian Tim
+> (plan/119) tetap satu-satunya reward pencapaian agensi** — Lucky Spin adalah
+> kanal insentif referral terpisah dan tidak mengubah §G selain menambah
+> sub-bagiannya.
+>
+> **v5.5 — catatan penghapusan (plan/120).** **Fitur "Misi Level 1"
+> DIHENTIKAN** di lapis aplikasi: kartu misi `/team`, endpoint
+> `POST /team/claim_level1`, `Team::claim_level1()`/`_claim_message()`,
+> `User_model::claim_level1()`/`get_claim_data()`/`LEVEL1_BONUS`, dan 17 key
+> kamusnya (`team_mission_l1`, `team_help_l1_*`, `team_js_claimed_bonus`, …)
+> sudah **dihapus**. **Bonus Pencapaian Tim (plan/119) adalah SATU-SATUNYA
+> reward pencapaian agensi.** Kolom `users.is_level_1_claimed` **DIPERTAHANKAN**
+> sebagai retensi historis (nol pembaca/penulis — invariant L1R1), demikian juga
+> baris `wallet_ledger` `L1-*` dan notifikasi `notif_bonus_l1` (kunci kamus
+> `ledger_bonus_l1` & `notif_bonus_l1_*` tetap ada agar riwayat tidak tampil
+> sebagai string mentah).
+>
+> **v5.4 — catatan sinkronisasi (plan/119).** **Gaji Mingguan (recurring,
+> siklus 7 hari) DIGANTIKAN oleh Bonus Pencapaian Tim** (*Team Milestone
+> Bonus*): tier & nominal kini **dinamis** (`system_settings.team_milestone_tiers`,
+> diatur admin di `/admin/settings`), satu tier dibayar **SEKALI seumur hidup**
+> per member, klaim **berurutan** dari tier terendah, tanpa cooldown/siklus,
+> kredit ke **Saldo Utama**. **Bonus Level 1 (Rp 80.000) tetap independen** —
+> tidak diubah *(**SUPERSEDED oleh plan/120** — lihat catatan v5.5 di atas:
+> fitur Misi Level 1 dihentikan; kolom `is_level_1_claimed` hanya retensi)*.
+> Referensi usang yang dipurge: `WAGE_TIERS`, `determine_wage_level()`,
+> `check_wage_cooldown()`, `claim_wage()`, dan seluruh istilah "per minggu"
+> pada reward agensi.
+>
+> **v5.3 — catatan sinkronisasi (plan/118).** Memperkenalkan **DOMpet ABSEN
+> (`users.checkin_balance`) + audit multi-dompet (`wallet_ledger.wallet_type`)**:
+> bonus Absensi Harian tidak lagi masuk saldo utama, melainkan dompet kedua yang
+> **tidak dapat ditarik** dan hanya dapat **mensubsidi checkout sewa** (split
+> payment: checkin dulu, sisanya saldo utama). Ditambah gerbang opsional
+> `checkin_require_active_rental` (klaim absensi menuntut ≥ 1 kontrak aktif —
+> trial maupun berbayar). Harga kontrak tetap penuh (`purchase_price`) sehingga
+> ROI, rebate 3-tier, dan omzet upline tidak terpengaruh subsidi. Sumber
+> kebenaran tetap **kode** (AGENTS.md).
+>
 > **v5.2 — catatan sinkronisasi (plan/112).** Menambahkan **mesin klaim manual
 > baru: Bonus Absensi Harian** (daily check-in) — §F: bonus berjenjang
 > `min(base × hari_streak, cap)` dengan kebijakan streak `reset`/`continue`,
@@ -23,13 +75,15 @@
 ---
 
 ## 1. Product Overview & Objective
-Synapse adalah platform investasi dan penyewaan daya komputasi awan (GPUaaS). Pengguna dapat menyewa *node* GPU dengan durasi tertentu (Short-Term & Long-Term) untuk mendapatkan *Return of Investment* (ROI) berupa **pendapatan harian yang diklaim manual** (bukan auto-credit). Seluruh pencatatan uang memakai **satu ledger otoritatif: `wallet_ledger`** (append-only; tabel `transactions` double-entry telah **didecommission** pada M6). Sistem ini dilengkapi dengan sistem afiliasi (*Agency*) multi-level berjenjang dengan *reward* pencapaian (klaim manual) dan **gaji mingguan yang diklaim manual dengan cooldown 7 hari** (tidak ada cron di repo). Pencairan dana bersifat **e-wallet only** (DANA, ShopeePay, OVO, GoPay — katalog dinamis yang dikelola admin).
+Synapse adalah platform investasi dan penyewaan daya komputasi awan (GPUaaS). Pengguna dapat menyewa *node* GPU dengan durasi tertentu (Short-Term & Long-Term) untuk mendapatkan *Return of Investment* (ROI) berupa **pendapatan harian yang diklaim manual** (bukan auto-credit). Seluruh pencatatan uang memakai **satu ledger otoritatif: `wallet_ledger`** (append-only; tabel `transactions` double-entry telah **didecommission** pada M6). Sistem ini dilengkapi dengan sistem afiliasi (*Agency*) multi-level berjenjang dengan **satu** *reward* pencapaian: **Bonus Pencapaian Tim** (plan/119) — tier bonus **sekali seumur hidup per tier** (fitur **Bonus/Misi Level 1 dihentikan pada plan/120**) yang diklaim manual, berurutan, **tanpa cooldown/siklus mingguan** (tidak ada cron di repo) — ditambah **insentif referral Lucky Spin Wheel** (plan/121: 1 tiket per downline seumur hidup, hadiah tunai ke Saldo Utama). Pencairan dana bersifat **e-wallet only** (DANA, ShopeePay, OVO, GoPay — katalog dinamis yang dikelola admin).
 
 > **Catatan operasional (tak ada cron).** Tidak ada pekerja otomatis di latar
 > belakang: ROI harian = klaim manual (`Rental_model::claim_roi`, T+1), expiry
 > sewa = lazy sweep per-request (`MY_Controller` → `Rental_model::expire_user_rentals()`)
 > plus alat manual admin/CLI, expiry deposit = lazy sweep (`Wallet_model::expire_user_deposits()`),
-> dan wage = klaim manual dengan cooldown.
+> bonus pencapaian (**Bonus Pencapaian Tim** — satu-satunya reward pencapaian
+> agensi) = klaim manual tanpa cooldown, dan **Lucky Spin** = aksi member
+> on-demand (`POST /lucky-spin/spin`) yang menulis kredit tunai saat itu juga.
 
 ---
 
@@ -59,7 +113,7 @@ No foreign currencies (USD, USDT, BTC, etc.) are supported at any layer.
 ## 3. User Roles & Permissions
 
 * **Guest (Unauthenticated):** Hanya dapat melihat halaman Login, Register, Lupa Sandi, dan Halaman Download/Landing Page.
-* **User (Authenticated):** Memiliki dompet (*wallet*), dapat menyewa GPU, menarik dana **hanya ke akun e-wallet terikat**, dan memiliki *referral code*/link (`/register?ref=CODE`) untuk membangun tim/agensi. Pendapatan harian dan gaji mingguan **diklaim manual** oleh user.
+* **User (Authenticated):** Memiliki dompet (*wallet*), dapat menyewa GPU, menarik dana **hanya ke akun e-wallet terikat**, dan memiliki *referral code*/link (`/register?ref=CODE`) untuk membangun tim/agensi. Pendapatan harian, ROI, dan bonus agensi (**Bonus Pencapaian Tim** — satu-satunya reward pencapaian sejak plan/120) **diklaim manual** oleh user. Sejak plan/121 user juga dapat memegang **tiket Lucky Spin** (`users.spin_tickets` — counter, **bukan uang**) yang diperoleh dari pembelian non-trial pertama downline L1-nya dan ditukar menjadi hadiah tunai di `/lucky-spin`.
 * **Admin (System Operator):** Akses penuh ke **Command Center** (`/control-panel`) — gateway rahasia terpisah dari user flow. Memiliki hak approve/**decline** deposit QRIS & withdrawal, monitoring real-time queue, mengelola katalog e-wallet & produk, dan audit trail. Autentikasi terpisah menggunakan tabel `admins` (bukan `users`), session `admin_id`, dan middleware `Admin_auth` controller.
 * **Lazy/Manual Worker (bukan cron):** Tidak ada pekerja latar otomatis. Sweep expiry sewa & deposit dijalankan **lazy per-request** oleh `MY_Controller` (setelah tz WIB + i18n + guard login) dan, bila perlu, dipicu manual oleh admin (`admin/expire_expired_rentals`) atau CLI (`scripts/expire_rentals.php`).
 
@@ -119,8 +173,23 @@ Deposit tidak lagi memakai tombol simulator satu-klik sebagai alur utama; member
 
 #### Tier 2 — Immutable Ledger (`wallet_ledger` table)
 * Setiap mutasi uang (credit/debit) menulis **satu baris** ke `wallet_ledger` di dalam transaksi ACID dengan anchor lock `SELECT … FOR UPDATE` pada baris `users`.
-* **Available Balance** dihitung dinamis: `SUM(credit) − SUM(debit)` via `Wallet_model::get_balance()` (mengembalikan `(int)`). Saldo tidak pernah disimpan sebagai nilai statis untuk operasi dompet.
+* **Available Balance** dihitung dinamis **per dompet**: `SUM(credit) − SUM(debit) WHERE wallet_type = ?` via `Wallet_model::get_balance()` (mengembalikan `(int)`). Saldo tidak pernah disimpan sebagai nilai statis untuk operasi dompet.
 * `wallet_ledger` bersifat **append-only** — baris tidak pernah di-update atau di-delete setelah ditulis.
+
+#### B.7 Dompet Absen (`users.checkin_balance`) — plan/118
+
+Platform memakai **dua dompet** pada satu akun, dibedakan oleh
+`wallet_ledger.wallet_type ENUM('main','checkin')`:
+
+| Dompet | `wallet_type` | Kolom cache | Sumber kredit | Dapat ditarik? |
+|---|---|---|---|---|
+| Saldo utama | `main` (DEFAULT) | `users.balance` | deposit QRIS, ROI, rebate L1–L3, **Bonus Pencapaian Tim (plan/119 — satu-satunya bonus agensi sejak plan/120)**, **hadiah Lucky Spin (plan/121)** | **Ya** (gate penarikan berlaku) |
+| Saldo Absen | `checkin` | `users.checkin_balance` | **hanya** Bonus Absensi Harian (`CHK-{user_id}-{Ymd}`) | **Tidak** (invarian CK3) |
+
+* **Saldo Absen tidak dapat ditarik dan tidak dapat dipindahkan** ke saldo utama. Satu-satunya penggunaan adalah **mensubsidi pembelian sewa GPU** (§D). Karena `Wallet_model::create_withdrawal()` hanya membaca dompet `main`, penarikan tidak dapat menyentuh `checkin_balance` tanpa kode tambahan.
+* **Saldo otoritatif** tetap `wallet_ledger` (bukan kolom cache): `main` = `SUM(credit−debit) WHERE wallet_type='main'`, `checkin` = `SUM(credit−debit) WHERE wallet_type='checkin'` (invarian CK2). Kedua kolom cache di-`UPDATE` relatif oleh satu-satunya choke-point uang `Wallet_model::_post()` dalam TX yang sama.
+* **Tanpa backfill (D3):** seluruh baris `wallet_ledger` pra-plan/118 memperoleh `wallet_type = 'main'` lewat DEFAULT, sehingga bonus absensi historis tetap berada di saldo utama. Setiap user memulai dengan `checkin_balance = 0.00`.
+* **Bukan jalur admin:** `checkin_balance` **tidak** dapat di-inject/disesuaikan admin (D9) — hanya absensi (kredit) dan checkout (debit) yang menulis. Admin dapat **melihat**-nya di `/admin/user_detail` dan pada kartu treasury dashboard (`total_checkin_balances`).
 
 
 ### C. Marketplace & One-Screen Checkout
@@ -131,15 +200,16 @@ The Marketplace page presents GPU product cards in a scrollable feed. Each card 
 When a user taps **"Sewa Sekarang"** on any product card, a **dynamic Vanilla JS Bottom Sheet Modal** slides up from the bottom of the screen — no page reload, no navigation.
 
 The modal performs the following checks client-side:
-1. Reads the user's `wallet_ledger` balance (passed from PHP as a JS variable at page load).
-2. Compares `userBalance` against the product's `price`.
-3. **If balance ≥ price:**
-    * Displays product name, price, and current balance (all formatted as IDR via `Intl.NumberFormat`).
+1. Reads the user's main-wallet balance (`wallet_type = 'main'`) and — plan/118 — the Bonus Balance (`checkin`) balance, both passed from PHP as JS variables at page load.
+2. Compares `userBalance` (+ Bonus Balance when the split checkbox is ticked) against the product's `price`.
+3. **If available ≥ price:**
+    * Displays product name, price, and current balances (all formatted as IDR via `Intl.NumberFormat`).
     * Renders a **"Konfirmasi & Bayar"** button that submits a POST form to `/rentals/checkout`.
     * Balance indicator turns **emerald** (`text-emerald-600`).
-4. **If balance < price:**
+4. **If available < price:**
     * Displays a **"Saldo Tidak Mencukupi — Isi Saldo"** link that redirects to `/wallet`.
     * Balance indicator turns **rose** (`text-rose-600`).
+5. **Split payment (plan/118):** for **paid** products, when the user has a Bonus Balance > 0, the modal renders the checkbox **"Gunakan Saldo Absen"** (`name="use_checkin_balance"`, `value="1"`) plus the available amount. Ticking it recomputes the affordable total (`main + min(checkin, price)`), renders the split breakdown, and (un)toggles the pay button. Trial products (price 0) never show it (D8).
 
 The modal overlay (`bg-black/60 backdrop-blur-sm`) closes on tap. The sheet animates via CSS `translate-y` transitions (300ms ease-out).
 
@@ -149,16 +219,19 @@ The modal overlay (`bg-black/60 backdrop-blur-sm`) closes on tap. The sheet anim
     * **Gambar produk (plan/104):** `gpu_products.image` menyimpan **basename** berkas di `uploads/products/`. Resolver tunggal `product_image_helper.php` (`product_image_url()`); `NULL`/berkas hilang → marketplace merender **fallback banner gradien** (tanpa gambar rusak). Unggah admin: allowlist `jpg|jpeg|png|webp`, maks 2048 KB, anti-orphan.
     * **Limit pembelian per user (plan/83):** `gpu_products.max_per_user` (`0` = tanpa batas) adalah satu-satunya gate kuota pembelian per-user. Produk nonaktif (`is_active = 0`) tidak muncul di marketplace.
 * **Logika Transaksi Sewa (Checkout):**
-    * Saat form dari Bottom Sheet Modal disubmit, `Rentals` controller memvalidasi saldo user server-side; bila `saldo < harga`, redirect dengan flash error.
-    * Bila `saldo >= harga`, satu transaksi ACID (`trans_begin`/`trans_commit` dengan anchor `SELECT … FOR UPDATE` pada `users`) menjalankan:
-        1. **Debit** saldo via satu-satunya choke-point uang `Wallet_model::debit()` → menulis baris `debit` ke **`wallet_ledger`** (bukan tabel `transactions` lama).
-        2. **Insert** kontrak ke tabel **`user_rentals`** dengan `status = 'active'`, `source = 'purchase'`, `purchase_price`, `daily_roi` (snapshot `daily_rate`), `total_days`, dan `expired_at` (batas kedaluwarsa WIB).
-        3. **Distribusi rebate 3-tier** (plan/89): upline aktif L1/L2/L3 menerima `credit` ber-`transaction_id` `RBT-{rental_id}-L{tier}` — semuanya lewat `Wallet_model::credit()` (jalur tunggal), di dalam TX yang sama (langkah 7 sebelum commit).
+    * Saat form dari Bottom Sheet Modal disubmit, `Rentals` controller memvalidasi saldo user server-side; bila daya beli (saldo utama + `checkin_balance` bila checkbox split aktif) `< harga`, redirect dengan flash error.
+    * Bila daya beli cukup, satu transaksi ACID (`trans_begin`/`trans_commit` dengan anchor `SELECT … FOR UPDATE` pada `users`) menjalankan:
+        1. **Split payment (plan/118):** `checkin_balance` dipakai **lebih dulu**, sisanya dari saldo utama — `checkin_used = min(checkin, harga)`, `main_used = harga − checkin_used` (integer IDR murni; asersi `checkin_used + main_used === harga`). Setiap komponen **> 0** ditulis sebagai **baris `wallet_ledger` terpisah** lewat satu-satunya choke-point uang `Wallet_model::debit()` dengan `transaction_id` berbeda (`…-CHK` dompet `checkin`, `…-MAIN` dompet `main`; tanpa split, ID legacy `RENT-{product_id}-{YmdHis}` dipakai apa adanya). Kegagalan salah satu → rollback penuh.
+        2. **Insert** kontrak ke tabel **`user_rentals`** dengan `status = 'active'`, `source = 'purchase'`, `purchase_price`, `daily_roi` (snapshot `daily_rate`), `total_days`, dan `expired_at` (batas kedaluwarsa WIB). **`purchase_price` SELALU harga penuh** — subsidi hanya mengubah komposisi pembayaran, bukan nilai kontrak (invarian CK6).
+        3. **Distribusi rebate 3-tier** (plan/89): upline aktif L1/L2/L3 menerima `credit` ber-`transaction_id` `RBT-{rental_id}-L{tier}` — semuanya lewat `Wallet_model::credit()` (jalur tunggal), di dalam TX yang sama (langkah 7 sebelum commit) dan tetap dihitung dari **harga penuh**.
+        4. **Grant tiket Lucky Spin (langkah 7b, plan/121):** hanya pada pembelian **non-trial PERTAMA** seorang member, upline L1-nya menerima **1 tiket** (`Spin_model::award_ticket_for_first_paid_rental()` → baris `spin_ticket_grants`, `UNIQUE uk_spin_grant_downline` + `users.spin_tickets + 1`). Trial gratis & kontrak `promoter_reward` **tidak** menghasilkan tiket; kegagalan grant → rollback seluruh TX (SP12).
     * **Constraint:** seluruh mutasi dibungkus satu *Database Transaction* — kegagalan salah satu langkah membatalkan semuanya (tidak ada saldo minus / setengah kontrak). Model yang bertanggung jawab: `Rental_model` (checkout/claim/expiry/rebate) + `Wallet_model` (uang). **Tidak ada** SQL di controller/view.
     * **ROI harian = klaim manual** (`Rental_model::claim_roi`, gate `ROI-{rental_id}-D{n}`, T+1) — bukan auto-credit dan bukan cron.
+    * **Produk trial gratis** (harga 0, `is_trial = 1`): jalur bebas tanpa debit sama sekali — checkbox saldo absen **diabaikan** (D8).
 
 ### E. Financial Ledger & Wallet
-* **Aturan Emas:** Saldo utama user dihitung dari mutasi tabel **`wallet_ledger`** (Total Credit − Total Debit) — **satu-satunya** ledger otoritatif. Tabel `transactions` double-entry telah **didecommission** (M6): jangan membuatnya kembali atau menulis ke sana.
+* **Aturan Emas:** Saldo user dihitung dari mutasi tabel **`wallet_ledger`** (Total Credit − Total Debit) **per dompet** (`wallet_type`) — **satu-satunya** ledger otoritatif. Tabel `transactions` double-entry telah **didecommission** (M6): jangan membuatnya kembali atau menulis ke sana.
+* **Dua dompet, satu ledger (plan/118):** `main` (dapat ditarik, `users.balance`) dan `checkin` ("Saldo Absen", `users.checkin_balance`). **Penarikan dana HANYA membaca dompet `main`** — `Wallet_model::create_withdrawal()` memakai `lock_and_get_balance()` yang difilter `wallet_type = 'main'`, sehingga `checkin_balance` tidak pernah dapat dicairkan (invarian CK3).
 * **Penarikan Dana (Withdrawal) — E-Wallet Only (plan/106):**
     * **Pengikatan E-Wallet (menggantikan Kartu Bank):** User **wajib** mengikat satu akun **e-wallet** sebelum dapat menarik dana. Menggantikan skema lama "Kartu Bank (Nama Bank / Nomor Rekening / Nama Pemegang)".
         * **Provider** dipilih dari **katalog dinamis** `ewallet_providers` yang dikelola admin (`/admin/ewallet-providers`). Seed kanonik: **DANA · ShopeePay (SHOPEEPAY) · OVO · GoPay (GOPAY)**; LinkAja **tidak** di-seed (katalog bersifat admin-manageable — provider baru ditambahkan admin kapan pun, tanpa perubahan kode).
@@ -209,50 +282,54 @@ The modal overlay (`bg-black/60 backdrop-blur-sm`) closes on tap. The sheet anim
 * **Expiry Deposit — LAZY SWEEP:**
     * `MY_Controller` menjalankan `Wallet_model::expire_user_deposits()` (per-user, `pending` yang lewat `expires_at` → `expired`); alat global: `Wallet_model::expire_stale_deposits()` (entry admin/CLI).
     * **`waiting_approval` tidak pernah disentuh** oleh sweep (keputusan D1 plan/102).
-* **Bonus Absensi Harian — KLAIM MANUAL (1× per hari WIB; plan/112):**
+* **Bonus Absensi Harian — KLAIM MANUAL (1× per hari WIB; plan/112 + plan/118):**
     * User mengklaim bonus harian via `POST /checkin/claim` → `Checkin_model::claim()` (POST + AJAX-only, rate limit `checkin_claim:{user_id}` 5/60 dtk). Idempotensi `transaction_id = CHK-{user_id}-{Ymd}`; UNIQUE `(user_id, transaction_id, type)` pada `wallet_ledger` menjamin **maksimal satu kredit per user per hari** di tingkat DB (duplikat 1062 ditranslasi menjadi `already_claimed`, bukan error).
     * **Bonus = `min(bonus_hari_pertama × hari_streak, batas_harian)`** — integer IDR (default base **Rp 50**, cap **Rp 10.000**/hari); seluruh aritmetika di server (`_reward_for()`, tanpa float).
+    * **Kredit dompet (plan/118):** bonus masuk **dompet `checkin`** (`users.checkin_balance` = "Saldo Absen"), **BUKAN** saldo utama — `Wallet_model::credit(..., Wallet_model::WALLET_CHECKIN)`. Saldo absen **tidak dapat ditarik** dan hanya dapat mensubsidi checkout sewa (§B.7/§D). Bonus absensi yang diklaim **sebelum** plan/118 tetap berada di saldo utama (tanpa backfill, D3).
+    * **Syarat sewa aktif (plan/118):** `checkin_require_active_rental` (default `'0'` = OFF). Bila `'1'`, klaim ditolak dengan `code: 'no_active_rental'` kecuali user memiliki **≥ 1 kontrak** `user_rentals` dengan `status = 'active'` **DAN** `expired_at > now WIB` — **trial maupun berbayar** (predikat kanonik `Rental_model::has_active_rental()`, diuji **di dalam** TX setelah anchor lock). Widget dashboard merender **state terkunci** (tombol disabled + hint + CTA ke `/marketplace`) alih-alih menyembunyikan kartu.
     * **State:** `users.checkin_streak` + `users.checkin_last_date`. Otoritas "hari" = **PHP WIB** (`date('Y-m-d')`), bukan `NOW()`/`CURDATE()` MySQL. Kebijakan saat bolong (`checkin_streak_policy`): `reset` (kembali hari ke-1) atau `continue` (lanjut N+1 — gap tidak mereset, hari terlewat tidak dihitung). Tanggal di masa depan diperlakukan "sudah klaim" (fail-closed).
-    * **Konfigurasi `system_settings`:** `checkin_enabled` (**fail-closed**: `'0'` → widget member tidak dirender **dan** endpoint menolak HTTP 403) · `checkin_base_reward` · `checkin_max_reward` · `checkin_streak_policy`, dengan invarian **`1 ≤ base ≤ max`**; fallback per-key `application/config/checkin_rewards.php`; diatur admin di `/admin/settings` (kartu **Absensi Harian**) — all-or-nothing + audit `admin_update_settings`.
-    * **Ledger:** kredit ditulis lewat `Wallet_model::credit()` (satu-satunya jalur uang) dengan deskripsi kanonik `Bonus Absensi Harian Hari ke-{N}` (dirender dalam idiom aktif via key `ledger_checkin`). **Histori absensi tidak punya tabel sendiri** — cukup query `wallet_ledger` berprefix `CHK-` (tanpa kolom total tambahan).
-    * **UI member:** widget dashboard (`views/home/index.php`, scoped `hm112-*`, Font Awesome) menampilkan rentetan hari, bonus hari ini, progres ke cap, pratinjau 7 hari, hitung mundur ke tengah malam WIB, dan tombol klaim (POST AJAX ber-CSRF via `csrfFetch`, tanpa reload).
-    * **Kontrak endpoint (POST + AJAX-only; plan/113):** `POST /checkin/claim` **menolak** (`show_404()`) bila bukan POST atau bukan AJAX (nol HTML di jalur JSON). Rate limit `checkin_claim:{user_id}` = **5 percobaan / 60 detik** → kelebihan → HTTP **429** (JSON terlokalisasi). Semua respons lewat `api_helper` (`api_success()`/`api_error()`) + key legacy di root; kode hasil dan HTTP-nya: `ok` (200) · `already_claimed` (200) · `user_unavailable` (200) · `disabled` (**403**, fail-closed) · `error` (500) · `unauthenticated` (**401**). Respons **sukses maupun penolakan** menyertakan `status` segar (`Checkin_model::get_status()`) sehingga widget memutakhirkan diri tanpa reload halaman.
-    * **Urutan transaksi yang mengikat (plan/113):** satu TX — anchor `SELECT … FROM users WHERE id = ? FOR UPDATE` (statement DB pertama, C5) → hitung hari (`_streak_next()`; `last === today` atau tanggal masa depan → `already_claimed`) → `UPDATE users SET checkin_streak/checkin_last_date` **kondisional** (`checkin_last_date IS NULL OR checkin_last_date < ?`) dengan guard `affected_rows() === 1` (M4) → `Wallet_model::credit()` untuk `CHK-{user_id}-{Ymd}` → commit. `db_debug` dimatikan lokal (save/restore) dan `$this->db->error()` dibaca **sebelum** rollback, sehingga kegagalan duplikat `1062`/`23000` tetap berwujud JSON `already_claimed` — bukan halaman error (M9/P7).
+    * **Konfigurasi `system_settings`:** `checkin_enabled` (**fail-closed**: `'0'` → widget member tidak dirender **dan** endpoint menolak HTTP 403) · `checkin_base_reward` · `checkin_max_reward` · `checkin_streak_policy` (invarian **`1 ≤ base ≤ max`**) · `checkin_require_active_rental` (`'0'`/`'1'`); fallback per-key `application/config/checkin_rewards.php`; diatur admin di `/admin/settings` (kartu **Absensi Harian**) — all-or-nothing + audit `admin_update_settings`.
+    * **Ledger:** kredit ditulis lewat `Wallet_model::credit()` (satu-satunya jalur uang) dengan `wallet_type = 'checkin'` dan deskripsi kanonik `Bonus Absensi Harian Hari ke-{N}` (dirender dalam idiom aktif via key `ledger_checkin`). **Histori absensi tidak punya tabel sendiri** — cukup query `wallet_ledger` berprefix `CHK-` (tanpa kolom total tambahan); `get_lifetime_claims()` sengaja **tanpa** filter dompet agar mencakup baris historis `main` maupun baru `checkin`.
+    * **UI member:** widget dashboard (`views/home/index.php`, scoped `hm112-*`, Font Awesome) menampilkan rentetan hari, bonus hari ini, progres ke cap, **saldo absen**, pratinjau 7 hari, hitung mundur ke tengah malam WIB, dan tombol klaim (POST AJAX ber-CSRF via `csrfFetch`, tanpa reload).
+    * **Kontrak endpoint (POST + AJAX-only; plan/113/118):** `POST /checkin/claim` **menolak** (`show_404()`) bila bukan POST atau bukan AJAX (nol HTML di jalur JSON). Rate limit `checkin_claim:{user_id}` = **5 percobaan / 60 detik** → kelebihan → HTTP **429** (JSON terlokalisasi). Semua respons lewat `api_helper` (`api_success()`/`api_error()`) + key legacy di root; kode hasil dan HTTP-nya: `ok` (200) · `already_claimed` (200) · `user_unavailable` (200) · `no_active_rental` (200, plan/118) · `disabled` (**403**, fail-closed) · `error` (500) · `unauthenticated` (**401**). Respons **sukses maupun penolakan** menyertakan `status` segar (`Checkin_model::get_status()`) sehingga widget memutakhirkan diri tanpa reload halaman; respons sukses menambahkan `wallet_type: 'checkin'` + `new_checkin_balance` (dan tetap menyertakan `new_balance` = saldo utama).
+    * **Urutan transaksi yang mengikat (plan/113 + plan/118):** satu TX — anchor `SELECT … FROM users WHERE id = ? FOR UPDATE` (statement DB pertama, C5) → hitung hari (`_streak_next()`; `last === today` atau tanggal masa depan → `already_claimed`) → **gate syarat sewa aktif** (`require_active_rental` && `!has_active_rental()` → `no_active_rental`) → `UPDATE users SET checkin_streak/checkin_last_date` **kondisional** (`checkin_last_date IS NULL OR checkin_last_date < ?`) dengan guard `affected_rows() === 1` (M4) → `Wallet_model::credit()` dompet `checkin` untuk `CHK-{user_id}-{Ymd}` → commit. `db_debug` dimatikan lokal (save/restore) dan `$this->db->error()` dibaca **sebelum** rollback, sehingga kegagalan duplikat `1062`/`23000` tetap berwujud JSON `already_claimed` — bukan halaman error (M9/P7).
 
 > **Catatan migrasi dokumen:** bagian ini dahulu mendeskripsikan cron `00:01 WIB` untuk pendapatan harian dan cron Senin `01:00` untuk gaji. Keduanya **tidak ada** di kode — jangan dihidupkan kembali tanpa pekerjaan pengembangan terpisah.
 
 ### G. Affiliate & Agency System (MLM Structure)
-* **Hierarki:** Sistem melacak keturunan langsung (Agen B, `parent_id`) dan seluruh keturunan di bawahnya (**recursive CTE** untuk penghitungan level wage). Definisi **Active Downline (plan/116):** user *downline* yang memiliki **minimal 1 kontrak aktif dari produk NON-trial** di `user_rentals` — `ur.status = 'active'` **DAN** `ur.expired_at > now WIB` (filter defensif M3) **DAN** `gpu_products.is_trial = 0`. Kontrak dari produk trial gratis (`is_trial = 1`, harga 0 — plan/114) **TIDAK PERNAH** dihitung sebagai downline aktif, agar 1 trial gratis (1× lifetime) tidak bisa membuka Gaji Mingguan tanpa modal. Predikat kanonik = `Rental_model::has_paid_rental()`; titik penerapan seragam: `User_model::count_all_active_downlines()` (otoritas level gaji mingguan), `count_active_b_downlines()` (syarat 3 downline bonus Level 1), `get_team_with_active_status()` (badge "Aktif" di `/team`), dan kelayakan upline rebate `Rental_model::_distribute_rebate()` (upline trial-only = breakage, tanpa pass-up).
-* **Agency Rules & Rewards (ground truth `User_model::WAGE_TIERS` + `LEVEL1_BONUS`; kode otoritatif — plan/80 P5):**
-    * **Level 1:** Syarat **3 downline aktif B** (`parent_id` langsung) **DAN** total omset B ≥ **Rp 330.000**. Reward **Rp 80.000 sekali** (one-time). **Bukan B+C** — hitungan otoritatif hanya keturunan langsung.
-    * **Level 2:** 9 downline aktif → Gaji **Rp 200.000 / minggu**
-    * **Level 3:** 30 downline aktif → Gaji **Rp 1.000.000 / minggu**
-    * **Level 4:** 70 downline aktif → Gaji **Rp 2.500.000 / minggu**
-    * **Level 5:** 130 downline aktif → Gaji **Rp 5.000.000 / minggu**
-    * **Level 6:** 190 downline aktif → Gaji **Rp 9.000.000 / minggu**
-* **Zero-Trust Level 1 Bonus Claim (v5.0):**
-    * The Level 1 Bonus (Rp 80.000 one-time) is claimed manually via the Team page "Klaim Bonus" button. Frontend button sends `POST /team/claim-level1`.
-    * **Server-Side Validation (Zero-Trust):** The backend CANNOT trust frontend-passed counts. It MUST re-validate ALL conditions from scratch inside a single ACID transaction (`trans_begin` / `trans_commit`):
-        1. **Re-query active downlines:** hitung downline **B** aktif langsung (definisi plan/116: kontrak produk **non-trial** saja — `gpu_products.is_trial = 0`) dan jumlah omset B (SUM `gpu_products.price` atas kontrak aktif downline B).
-        2. **Check qualification:** `active_b ≥ 3` AND `sales_b ≥ 330000`.
-        3. **Check idempotency:** flag `users.is_level_1_claimed` (bukan LIKE description).
-        4. **Check balance race:** `SELECT ... FOR UPDATE` on `users` row to prevent concurrent claim.
-        5. **Credit + Log:** Insert `credit` record into **`wallet_ledger`** (amount: 80000, `LEVEL1_BONUS`, jalur tunggal `Wallet_model::credit()`), tandai `is_level_1_claimed = 1`, notifikasi + audit atomik. **Tidak ada** insert ke `transactions` (tabel didecommission).
-    * **Response:** amplop `api_success()` `{ success, message, data: { active_agents, total_sales, bonus_amount } }` — atau `api_error()` saat gagal.
-    * **Failure Modes:** agen aktif belum mencukupi / total sales belum mencapai Rp 330.000 / bonus sudah diklaim / error transaksi → rollback penuh (pesan ter-i18n EN/ID via `localize_result()`).
-* **Klaim Gaji Mingguan (Weekly Wage) — MANUAL, TANPA CRON:**
-    * Wage **diklaim manual** oleh user via `/team/claim_wage` (bukan cron Senin `01:00`). Sistem menentukan level dari **jumlah seluruh downline aktif** (`determine_wage_level()`) — plan/116: **kontrak produk non-trial saja**, pemegang trial gratis tidak dihitung — lalu gate **cooldown 7 hari** (`check_wage_cooldown()` memakai `users.last_wage_claimed_at`).
-    * **Fail-closed (plan/116):** penghitungan ulang terjadi **di dalam TX terkunci** (`users` … `FOR UPDATE` → `count_all_active_downlines()` → `determine_wage_level()`), sehingga perbaikan predikat tidak dapat dilewati dari sisi klien; `POST /team/claim_wage` mengembalikan `{success:false, code:'not_qualified'}` tanpa baris `wallet_ledger`.
-    * Credit ditulis ke **`wallet_ledger`** dengan `FOR UPDATE` + cek race; stamp `last_wage_claimed_at` di-update atomik.
+* **Hierarki:** Sistem melacak keturunan langsung (Agen B, `parent_id`) dan seluruh keturunan di bawahnya (**recursive CTE** untuk penghitungan tier Bonus Pencapaian Tim). Definisi **Active Downline (plan/116):** user *downline* yang memiliki **minimal 1 kontrak aktif dari produk NON-trial** di `user_rentals` — `ur.status = 'active'` **DAN** `ur.expired_at > now WIB` (filter defensif M3) **DAN** `gpu_products.is_trial = 0`. Kontrak dari produk trial gratis (`is_trial = 1`, harga 0 — plan/114) **TIDAK PERNAH** dihitung sebagai downline aktif, agar 1 trial gratis (1× lifetime) tidak bisa membuka tier Bonus Pencapaian Tim tanpa modal. Predikat kanonik = `Rental_model::has_paid_rental()`; titik penerapan seragam: `User_model::count_all_active_downlines()` (otoritas tier Bonus Pencapaian Tim), `count_active_b_downlines()` (legacy — dulu syarat 3 downline bonus Level 1; **tanpa pemanggil sejak plan/120**, sengaja dipertahankan), `get_team_with_active_status()` (badge "Aktif" di `/team`), dan kelayakan upline rebate `Rental_model::_distribute_rebate()` (upline trial-only = breakage, tanpa pass-up).
+* **Agency Rules & Rewards (ground truth: `system_settings.team_milestone_tiers` / fallback `application/config/team_milestones.php`; kode otoritatif — plan/119):**
+    * ~~**Bonus Level 1 (TETAP INDEPENDEN, keputusan owner O1):** syarat 3 downline aktif B + total omset B ≥ Rp 330.000; reward Rp 80.000 sekali (flag `users.is_level_1_claimed`).~~ **DIHENTIKAN — plan/120.** Fitur Misi Level 1 dihapus dari aplikasi (`dec-fc8726a949157eb0`); **Bonus Pencapaian Tim di bawah adalah SATU-SATUNYA reward pencapaian agensi.** Kolom `users.is_level_1_claimed` DIPERTAHANKAN sebagai retensi historis (nol pembaca/penulis — L1R1).
+    * **Bonus Pencapaian Tim (pengganti Gaji Mingguan):** **tier DINAMIS** (`[[target_downline_aktif, nominal_idr], …]`, kanonik menaik, maks 20 tier) — diatur admin di `/admin/settings` (kartu **Bonus Pencapaian Tim**; all-or-nothing + audit `admin_update_settings`). Satu tier dibayar **SEKALI seumur hidup** per member, **tanpa cooldown/siklus**, klaim **berurutan** dari tier terendah, kredit ke **Saldo Utama** (`wallet_type = 'main'`). **Seed default = mirror tier gaji lama** (9 → Rp 200.000 · 30 → Rp 1.000.000 · 70 → Rp 2.500.000 · 130 → Rp 5.000.000 · 190 → Rp 9.000.000) supaya ambang & nominal yang sudah dipublikasikan tidak berubah — hanya periodenya (per minggu → sekali). Nominal **tidak pernah** masuk kamus (L6); kartu `/team` & modal bantuan me-*loop* konfigurasi.
+    * **Perbedaan konsekuensi:** tidak ada lagi "level 2–6"; tidak ada penjadwalan; tier yang sudah diklaim **permanen** (turunnya jumlah downline tidak membatalkan / mengulang bayaran, MK6).
+* **~~Zero-Trust Level 1 Bonus Claim (v5.0)~~ — REMOVED (plan/120):**
+    * Seluruh alur (tombol "Klaim Bonus" di `/team`, `POST /team/claim-level1`, validasi zero-trust `active_b ≥ 3` + `sales_b ≥ 330000`, idempotensi `users.is_level_1_claimed`, dan kredit `wallet_ledger` Rp 80.000 `L1-{user_id}-{YmdHis}`) **sudah dihapus dari kode**. Endpoint kini **404**.
+    * **Retensi:** baris `wallet_ledger` historis ber-`transaction_id` `L1-*` dan notifikasi `title_key='notif_bonus_l1'` **tidak dimutasi**; deskripsi ledger tetap diterjemahkan lewat `ledger_bonus_l1` (`i18n_helper`) dan kamus `notif_bonus_l1_*` dipertahankan (invarian L1R4).
+* **Klaim Bonus Pencapaian Tim (plan/119) — MANUAL, TANPA CRON, TANPA COOLDOWN:**
+    * Member mengklaim **satu tier** via `POST /team/claim_milestone` (budget `target` saja — **tanpa** nilai nominal dari klien). Tier & nominal **selalu** dibaca dari konfigurasi server (`system_settings.team_milestone_tiers`); target di luar konfigurasi → `code: 'invalid_target'` (nol mutasi).
+    * **Urutan TX yang mengikat (fail-closed, MK5):** satu TX — anchor `SELECT … FROM users WHERE id = ? FOR UPDATE` (statement DB pertama) → gerbang akun (banned → `user_unavailable`) → resolve konfigurasi (`enabled`; `'0'` → `disabled`) → gerbang target → **idempotensi** (`target` sudah ada di `users.team_milestone_claimed` → `already_claimed`) → **gerbang sekuensial** (semua tier lebih rendah wajib sudah diklaim → selain itu `locked_previous`; dievaluasi **sebelum** recount supaya hasil deterministik) → recount `count_all_active_downlines()` (predikat plan/116 K8, **di dalam** TX; kurang → `not_qualified` + `missing`) → `UPDATE users SET team_milestone_claimed` **kondisional NULL-safe** + guard `affected_rows() === 1` (M4) → `Wallet_model::credit()` dompet `main` dengan `transaction_id = MSB-{user_id}-T{target}` → commit. Semua kegagalan = rollback penuh (0 baris ledger).
+    * **Idempotensi permanen:** satu klaim per `(user_id, target)` **seumur hidup** — dijaga tiga lapis (state CSV + `UNIQUE uk_wallet_ledger_user_tx_type` + recount terkunci). Klaim tidak dapat diulang walau jumlah downline turun dan naik lagi (MK2/MK6).
+    * **Kontrak endpoint:** POST + AJAX-only (`show_404()` untuk GET/non-AJAX — nol HTML di jalur JSON); rate limit `milestone_claim:{user_id}` **5 percobaan / 60 detik** → kelebihan = HTTP **429**; sesi tanpa `user_id` di-redirect ke `/login` oleh guard `MY_Controller` (parity seluruh endpoint member). Semua respons lewat `api_helper` + key legacy di root; kode & HTTP: `claimed` (200) · `already_claimed` (200) · `locked_previous` (200) · `not_qualified` (200, + `missing`) · `invalid_target` (200) · `disabled` (**403**, fail-closed) · `user_unavailable` (200) · `error` (500). Respons sukses menyertakan `new_balance` (saldo utama segar) **dan** `data.milestones` (state tier segar) sehingga kartu `/team` dapat memutakhirkan diri **tanpa reload**; notifikasi `notif_milestone` dikirim ber-`type: 'commission'`.
+    * **Kredit & deskripsi:** `wallet_ledger` baris `credit`, `wallet_type = 'main'`, deskripsi kanonik `Bonus Pencapaian Tim {target} Downline Aktif` (dirender idiom aktif via `ledger_milestone`); **tanpa nominal di deskripsi/kamus** (L6). Riwayat klaim karena itu **tidak** butuh tabel baru.
+    * **Retensi historis:** baris `WAGE-*` (Gaji Mingguan lama) **tidak pernah** diubah/dihapus, dan key kamus `ledger_wage` / `notif_wage_title` / `notif_wage_body` **dipertahankan** agar riwayat tersebut tetap terbaca dalam idiom aktif. Kolom `users.last_wage_claimed_at` menjadi DEPRECATED (retensi).
 * **Rebate 3-Tier (plan/89):** Setiap pembelian kontrak berbayar mendistribusikan rebate ke upline aktif L1/L2/L3 (default **L1 5% · L2 3% · L3 1%**, dinamis via `system_settings` `rebate_enabled`/`rebate_l1_percent`/`rebate_l2_percent`/`rebate_l3_percent`; fallback `application/config/rebate_commission.php`). Distribusi berjalan **di dalam TX checkout** (`_distribute_rebate`, langkah 7 sebelum commit) lewat jalur tunggal `Wallet_model::credit()` dengan `transaction_id = RBT-{rental_id}-L{tier}`. Upline nonaktif/banned = breakage (tanpa pass-up). **plan/116:** "aktif" di sini = kontrak aktif dari produk **non-trial** (`gpu_products.is_trial = 0`) — upline yang hanya memegang trial gratis = breakage, tanpa pass-up; kontrak reward `promoter_reward` non-trial **tetap** eligible (K7).
 * **Referral Gating (plan/89–92):** Kode/link/QR referral disembunyikan di DOM sampai kriteria sewa terpenuhi (Condition A/B/C), **kecuali** user ber-flag promotor (`is_promoter = 1`, admin-only).
 * **Program Promotor (Omzet Burn, plan/91–92):** Promotor dapat menukar omzet L1 menjadi **kontrak reward zero-cost** (`source='promoter_reward'`, `purchase_price = 0`) melalui klaim `promoter_claims` yang di-approve admin. Burn = **bookkeeping murni** — **tidak pernah** menyentuh `wallet_ledger`; kuota kanal reward terpisah dari kuota pembelian berbayar (K4); rasio CAC dijaga 8–10% (K5).
+
+* **Lucky Spin Wheel (plan/121):** insentif referral berulang — **bukan** jalur uang baru.
+  * **Perolehan tiket (idempoten):** seorang upline menerima **tepat 1 tiket** ketika downline **L1**-nya melakukan pembelian **produk non-trial untuk PERTAMA kali**. Maksimal **1 tiket per downline seumur hidup** — dijamin `UNIQUE uk_spin_grant_downline (downline_id)` **plus** gate "pembelian berbayar pertama" **plus** pre-check terserialisasi di dalam TX checkout. Pembelian kedua dan seterusnya, pembelian **trial gratis** (`gpu_products.is_trial = 1`), dan kontrak reward promotor (`source='promoter_reward'`) **tidak** menghasilkan tiket. Upline **tidak wajib aktif** (tiket = insentif engagement, bukan komisi) — hanya upline hilang/`is_banned` yang dilewati (no-op + log).
+  * **Tanpa backfill (D4):** tiket mulai dihitung sejak rilis; pembelian yang terjadi sebelum plan/121 tidak menghasilkan tiket retroaktif.
+  * **Roda & hadiah:** roda berisi 2–12 segmen uang tunai (nominal ≥ Rp 1 — **tidak ada segmen Rp 0**), masing-masing berbobot relatif. Hadiah dikreditkan ke **Saldo Utama** (`wallet_type = 'main'`, dapat ditarik) lewat `Wallet_model::credit()` dengan `transaction_id = 'SPIN-{spin_results.id}'`; deskripsi ledger `Hadiah Lucky Spin` dirender idiom aktif (`ledger_spin`).
+  * **Zero-trust (SP4/SP5):** pemilihan segmen **seluruhnya di server** — `random_int()` (CSPRNG) + `spin_wheel_pick()` (fungsi murni berbobot). Klien hanya menerima `slot_index` untuk animasi; hadiah sudah ditentukan & dibayar sebelum respons dikirim, sehingga request yang dimanipulasi tidak dapat mengubah hasil.
+  * **Kontrak endpoint:** `GET /lucky-spin` (halaman) + `POST /lucky-spin/spin` (POST + AJAX-only, `show_404()` untuk GET/non-AJAX), rate limit `spin_play:{user_id}` **5 / 60 detik** → **429**; respons lewat `api_helper` + key legacy: sukses `ok` (200, + `slot_index`/`prize`/`tickets_left`/`new_balance`/`summary`) · `no_tickets` (200) · `user_unavailable` (200) · `disabled` (**403**) · `not_configured` (**403**) · `error` (500).
+  * **Tiket bukan uang (SP6):** `users.spin_tickets` adalah counter terpisah — tidak pernah menyentuh `wallet_ledger`, tidak dapat ditarik, dibeli, atau dipindahtangankan; otoritasnya = Σ`spin_ticket_grants` − Σ`spin_results`.
+  * **Konfigurasi admin:** `/admin/lucky-spin` (toggle + editor segmen nominal/bobot + peluang & expected value per tiket + 20 putaran terakhir), persist atomik `Admin_model::update_system_settings()` dengan audit `admin_update_spin_wheel` (`keys`/`before`/`after`).
 
 ### H. Interactive Notification System (v5.0, disinkronkan plan/103 + plan/111)
 
 A DB-driven, AJAX-powered notification system that delivers alerts for commissions, system messages, and account events — without requiring page reloads. **Notifikasi bersifat keyed** (`user_notifications.title_key` + `params`) dan dirender dalam **idiom pembaca** (EN/ID) oleh `i18n_notification_text()`; kolom `title`/`message` dipertahankan sebagai retensi + fallback baris legacy.
 
-* **Database:** `user_notifications` table (see ERD v5.2 §5). Stores notification records per-user with `is_read` state + `title_key`/`params` (plan/103).
+* **Database:** `user_notifications` table (see ERD v5.6 §5). Stores notification records per-user with `is_read` state + `title_key`/`params` (plan/103).
 * **Bell Icon (Global Header):**
     * Rendered in `header.php` inside the sticky top bar — **satu dari tiga grup header** (Brand · Balance Pill · Notification Bell — plan/100).
     * Container: `<button id="notif-bell" class="relative p-2 rounded-full ...">` with FontAwesome `fa-bell`.
@@ -275,10 +352,11 @@ A DB-driven, AJAX-powered notification system that delivers alerts for commissio
     * `POST /user/read_notifications` → tandai notifikasi user sebagai dibaca (JSON envelope).
     * `$global_unread_count` + `$global_notifications` di-inject oleh `MY_Controller` pada setiap request terautentikasi (tanpa endpoint terpisah).
 * **Notification Generation (keyed, plan/103):**
-    * Level 1 Bonus diklaim / klaim promo → `type: 'commission'` (mis. `notif_bonus`/`notif_wage_*`/`promoter_claim_*`).
+    * **Klaim Bonus Pencapaian Tim** / klaim promo → `type: 'commission'` (mis. `notif_milestone_*`/`promoter_claim_*`). `notif_bonus_l1_*` **hanya** untuk baris historis Misi Level 1 (plan/120) dan `notif_wage_*` **hanya** untuk baris historis Gaji Mingguan (plan/119) — key keduanya tetap ada, tidak lagi dipakai kode baru.
     * Deposit di-approve/decline → `type: 'success'`/`'warning'` (mis. `notif_deposit_approved`).
     * Withdrawal di-approve/decline → `type: 'success'`/`'warning'` (`notif_wd_approved` — arity 3: gross, fee, net; `notif_wd_declined`).
     * Reset e-wallet oleh admin → `notif_ewallet_reset` (dwibahasa).
+    * **Lucky Spin (plan/121)** → `notif_spin_ticket_*` (`type: 'info'`, saat upline menerima tiket) dan `notif_spin_win_*` (`type: 'commission'`, saat hadiah dikreditkan ke Saldo Utama).
     * Pengumuman sistem → `type: 'info'`.
 
 > **Ghost dihapus (plan/111):** empat endpoint fiktif pada PRD v5.0
@@ -292,11 +370,11 @@ A DB-driven, AJAX-powered notification system that delivers alerts for commissio
 ## 5. UI/UX & Frontend Guidelines
 * **Visual Murni:** 100% menggunakan Tailwind CSS via CDN atau Build. TIDAK BOLEH menggunakan Bootstrap.
 * **Interaktivitas:** Menggunakan Vanilla JavaScript. Semua *pop-up* (konfirmasi *withdraw*, *alert* sukses/gagal, *modal* ubah profil, *Bottom Sheet Checkout*, *Notification Dropdown*) dirender tanpa *reload* halaman. E-wallet selector (plan/106) dan sebagian kontrol lain memakai **CSS murni** (`peer-checked:`) tanpa JS.
-* **Navigasi:** *Bottom Navigation Bar* persisten di 5 halaman utama (Home, Sewa Saya, Bantuan, Marketplace, Profil). Header member memuat **tepat tiga grup** — Brand · Balance Pill · Notification Bell (plan/100); kontrol Bahasa & Tema berada di kartu "App Preferences" halaman Profil.
-* **Z-Index Layering:** Bottom Navigation sits at `z-50`. All Bottom Sheet Modals and Notification Dropdowns MUST be `z-[60]` to render above the nav bar.
+* **Navigasi:** *Bottom Navigation Bar* persisten di 5 halaman utama (Home, Sewa Saya, Bantuan, Marketplace, Profil). Header member memuat **tepat tiga grup** — Brand · Balance Pill · Notification Bell (plan/100); kontrol Bahasa & Tema berada di kartu "App Preferences" halaman Profil. Titik masuk **Lucky Spin** (plan/121) ada di dashboard (`/home`): kartu inline + **FAB** — keduanya bukan grup header dan bukan tab bottom-nav.
+* **Z-Index Layering:** Bottom Navigation sits at `z-50`. All Bottom Sheet Modals and Notification Dropdowns MUST be `z-[60]` to render above the nav bar. **FAB dashboard (Lucky Spin, plan/121)** berada pada lapisan `inset-x-0 bottom-20 z-40` — di atas konten, **di bawah** bottom-nav `z-50` dan toast `z-[60]` (lihat `docs/4_UI_UX_GUIDELINES.md` §2 & §5.J).
 * **Financial Display:** All IDR values formatted via `Intl.NumberFormat('id-ID')` in JavaScript or `number_format($val, 0, ',', '.')` in PHP with `Rp ` prefix. **Uang tidak pernah dilokalisasi i18n** (L6). **Standar NET (plan/109):** tampilkan **NET** sebagai nilai primer dengan gross/fee sebagai sub-teks (lihat `docs/4_UI_UX_GUIDELINES.md` §5.H).
 * **Form Visibility:** Secondary input forms (Top-Up amount selection, custom amount input) are hidden by default (`hidden` class) and toggled via a primary action button to conserve screen real estate.
-* **Detail lengkap** komponen, palet, tipografi, dan z-index ada di `docs/4_UI_UX_GUIDELINES.md` (v5.2) — dokumen ini hanya menetapkan prinsip.
+* **Detail lengkap** komponen, palet, tipografi, dan z-index ada di `docs/4_UI_UX_GUIDELINES.md` (v5.3) — dokumen ini hanya menetapkan prinsip.
 
 ---
 
@@ -370,13 +448,22 @@ Admin has two privileged user-management operations accessible from the Command 
 * **Response:** Flash "Kata sandi berhasil di-reset." + redirect.
 * **Constraint:** User dipaksa ganti sandi saat login berikutnya via kolom `users.must_change_password` (`TINYINT(1) DEFAULT 0`, sudah ada). Ketika flag `1`, `MY_Controller` mengalihkan seluruh request ke `/auth/change-password` hingga sandi diperbarui.
 
+### E. Lucky Spin Configuration (plan/121)
+
+Halaman **`GET|POST /admin/lucky-spin`** (`Admin::lucky_spin()` + `views/admin/lucky_spin.php`, entri sidebar **Lucky Spin**) — 100% Bahasa Indonesia (L1), satu form ber-CSRF.
+
+* **Strip ringkasan (read-only):** tiket beredar (Σ`users.spin_tickets`), tiket diperoleh, jumlah putaran, dan total hadiah dibayarkan (`Admin_model::get_spin_overview()`).
+* **Konfigurasi roda:** toggle `spin_wheel_enabled` (**fail-closed**) + editor baris segmen `spin_amount[]`/`spin_weight[]` (2–12 segmen, tiap nominal ≥ Rp 1 — **tidak ada segmen Rp 0**), dengan **peluang per baris** dan **expected value per tiket** dihitung ulang **live** di klien (aritmetika integer).
+* **Validasi & audit:** all-or-nothing (pesan Indonesia per baris) lewat `Spin_model::validate_settings()` + ambang `spin_wheel_helper.php`; persist atomik `Admin_model::update_system_settings()` → audit `admin_update_spin_wheel` (`keys`/`before`/`after`).
+* **Tabel 20 putaran terakhir** (member, segmen, hadiah, waktu WIB) sebagai bukti audit visual — riwayat **immutable** (snapshot bobot per putaran).
+
 ---
 
 ## 8. Notification System Infrastructure (v5.0)
 
 This section cross-references the Interactive Notification System (§4.H) and provides the architectural overview.
 
-* **DB Table:** `user_notifications` — see ERD v5.2 §5 (`title_key` + `params` untuk i18n keyed, plan/103).
+* **DB Table:** `user_notifications` — see ERD v5.6 §5 (`title_key` + `params` untuk i18n keyed, plan/103).
 * **State Injection:** `MY_Controller` meng-inject `$global_unread_count` + `$global_notifications` pada **setiap** request terautentikasi (server-rendered). Tidak ada polling timer untuk badge/dropdown; interaksi AJAX hanya untuk **mark-read** (`POST /notification/mark_all_read`, `POST /user/read_notifications`).
 * **Security:** All notification endpoints require authenticated user session (`user_id`). Users can only read/mark their own notifications — `WHERE user_id = session.user_id`.
 * **Performance:** Composite index `idx_user_read` (user_id, is_read) mempercepat unread count. Riwayat lengkap dipaginasi di `GET /notification` (dropdown menampilkan subset terbaru).

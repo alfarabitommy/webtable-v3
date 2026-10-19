@@ -98,3 +98,15 @@ $route['admin/ewallet-providers/toggle_status/(:num)'] = 'admin/toggle_ewallet_p
 // & TX di Checkin_model). Route eksplisit: sub-path multi-segmen — tanpa ini
 // CI3 memetakan /checkin/claim sebagai Checkin::index('claim').
 $route['checkin/claim'] = 'checkin/claim';
+
+// plan/121: LUCKY SPIN WHEEL — halaman member (GET) + endpoint spin
+// (POST + AJAX-only; randomisasi, pemotongan tiket, dan kredit hadiah seluruhnya
+// di Spin_model). Wajib eksplisit: 'lucky-spin' bukan nama controller yang sah
+// (translate_uri_dashes = FALSE) dan '/lucky-spin/spin' adalah sub-path.
+$route['lucky-spin']      = 'rewards/index';
+$route['lucky-spin/spin'] = 'rewards/spin';
+
+// plan/121: konfigurasi roda (segmen + bobot) di panel admin. Satu URL untuk
+// GET (form) dan POST (simpan + audit `admin_update_spin_wheel`), pola
+// `admin/settings`. Route eksplisit: 'lucky-spin' bukan nama method controller.
+$route['admin/lucky-spin'] = 'admin/lucky_spin';
